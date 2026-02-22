@@ -1,0 +1,7 @@
+{
+  "name": "pharmacy-dashboard",
+  "private": true,
+  "scripts": {
+    "check:parse": "node scripts/check-parse.js"
+  }
+}

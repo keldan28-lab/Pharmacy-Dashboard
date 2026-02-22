@@ -469,17 +469,30 @@ function _ingestRows(rows) {
     return null;
   }
 
+  function _isLikelyHeaderRow(r) {
+    if (!Array.isArray(r)) return false;
+    const c0 = String(r[0] || '').trim().toLowerCase();
+    const c1 = String(r[1] || '').trim().toLowerCase();
+    const c2 = String(r[2] || '').trim().toLowerCase();
+    const headers0 = new Set(['keytype', 'key_type', 'type', 'kt']);
+    const headers1 = new Set(['key', 'k']);
+    const headers2 = new Set(['spikemultiplier', 'spike_multiplier', 'multiplier', 'mult', 'spike']);
+    return headers0.has(c0) && headers1.has(c1) && headers2.has(c2);
+  }
+
   for (const r0 of rows) {
+    if (_isLikelyHeaderRow(r0)) continue;
+
     // Accept either array rows: [keyType,key,spikeMultiplier,confidence,computedOn,window,notes]
     // or object rows: {keyType,key,spikeMultiplier,confidence,computedOn,window,notes}
     const r = Array.isArray(r0)
       ? r0
       : [
-          r0 && (r0.keyType ?? r0.kt ?? r0.type),
+          r0 && (r0.keyType ?? r0.key_type ?? r0.kt ?? r0.type),
           r0 && (r0.key ?? r0.k),
-          r0 && (r0.spikeMultiplier ?? r0.multiplier ?? r0.mult),
+          r0 && (r0.spikeMultiplier ?? r0.spike_multiplier ?? r0.multiplier ?? r0.mult),
           r0 && (r0.confidence ?? r0.conf),
-          r0 && (r0.computedOn ?? r0.computed_at ?? r0.computed),
+          r0 && (r0.computedOn ?? r0.computed_on ?? r0.computed_at ?? r0.computed),
           r0 && (r0.window ?? r0.win),
           r0 && (r0.notes ?? r0.note),
         ];
@@ -842,6 +855,7 @@ function _normalizeReadResponse(payload){
   const rows =
     payload.rows ??
     payload.data ??
+    payload.values ??
     (payload.result && payload.result.rows) ??
     (payload.payload && payload.payload.rows) ??
     (payload.response && payload.response.rows) ??

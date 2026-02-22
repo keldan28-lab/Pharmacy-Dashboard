@@ -590,6 +590,9 @@ window.requestChartStateMirror = function() {
                 });
             }
 
+            return { apiKey, clientId, sheetId, tabName };
+        }
+
 
         
 function __setSpikeBridgeFrameSrc(execUrl){
