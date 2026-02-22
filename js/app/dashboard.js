@@ -5402,7 +5402,12 @@ async function adminLoadSpikeFactors() {
                 _spikeSetLoadedSummary('Loaded');
             } catch (e) {
                 console.error(e);
-                _spikeSetStatus('Error: ' + (e && e.message ? e.message : String(e)));
+                const msg = (e && e.message ? e.message : String(e));
+                if (String(msg).includes('JSONP timeout')) {
+                    _spikeSetStatus('Error: Apps Script read timed out; try again (first read after write can be slow).');
+                    return;
+                }
+                _spikeSetStatus('Error: ' + msg);
             }
         }
 

@@ -751,25 +751,51 @@ function _jsonp(url, timeoutMs = 15000){
   return new Promise((resolve, reject) => {
     const cbName = '__spike_jsonp_cb_' + Math.random().toString(36).slice(2);
     const script = document.createElement('script');
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('JSONP timeout'));
-    }, timeoutMs);
+    let settled = false;
+    let timedOut = false;
+    let scriptLoaded = false;
+    let timeoutTimer = null;
 
-    function cleanup(){
-      clearTimeout(timer);
-      try{ delete window[cbName]; }catch(_){}
+    function removeScript(){
       if (script && script.parentNode) script.parentNode.removeChild(script);
     }
 
+    function cleanupCallbackAfterGrace(){
+      setTimeout(() => {
+        try{ delete window[cbName]; }catch(_){}
+      }, 60000);
+    }
+
+    function finalize(resultHandler, value){
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutTimer);
+      removeScript();
+      resultHandler(value);
+    }
+
+    timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      finalize(reject, new Error('JSONP timeout'));
+      cleanupCallbackAfterGrace();
+    }, timeoutMs);
+
     window[cbName] = (data) => {
-      cleanup();
-      resolve(data);
+      clearTimeout(timeoutTimer);
+      if (timedOut) {
+        cleanupCallbackAfterGrace();
+        return;
+      }
+      finalize(resolve, data);
     };
 
     const sep = url.includes('?') ? '&' : '?';
     script.src = url + sep + 'callback=' + encodeURIComponent(cbName);
-    script.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
+    script.onload = () => { scriptLoaded = true; };
+    script.onerror = () => {
+      finalize(reject, new Error(scriptLoaded ? 'JSONP callback missing' : 'JSONP load error'));
+      cleanupCallbackAfterGrace();
+    };
     document.head.appendChild(script);
   });
 }
@@ -818,7 +844,7 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
   async function verifyReadBackOrThrow(){
     await new Promise(r=>setTimeout(r, 500));
     const qs = _buildReadQuery(sheetId, tabName);
-    const raw = await _jsonp(`${webAppUrl}?${qs}`, 15000);
+    const raw = await _jsonp(`${webAppUrl}?${qs}`, 45000);
     const norm = _normalizeReadResponse(raw);
     if(!norm.ok) throw new Error(norm.error || 'read-back failed');
     if(expectedRows > 0 && (!norm.rows || !norm.rows.length)) throw new Error('read-back returned 0 rows');
@@ -949,7 +975,7 @@ async function loadFromWebApp(webAppUrl,sheetId,tabName){
 
   // Local file origin: use JSONP (no CORS)
   if(_isLocalFileOrigin()){
-    const raw = await _jsonp(url, 15000);
+    const raw = await _jsonp(url, 45000);
     const norm = _normalizeReadResponse(raw);
     if(!norm.ok) throw new Error(norm.error || (raw && raw.error) || 'read failed');
     return _ingestRows(norm.rows || []);
