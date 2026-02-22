@@ -3,6 +3,38 @@ const CONFIG = { DEFAULT_TAB: "min_spike_factors" };
 function doGet(e) {
   const p = (e && e.parameter) || {};
   const action = p.action || "";
+  const fn = p.fn || "";
+
+
+  if (fn === "sun") {
+    const callback = p.callback;
+    const lat = Number(p.lat);
+    const lng = Number(p.lng);
+
+    if (!isFinite(lat) || !isFinite(lng)) {
+      return jsonOrJsonp_({ status: "ERROR", error: "Missing or invalid lat/lng" }, callback);
+    }
+
+    try {
+      const apiUrl = `https://api.sunrise-sunset.org/json?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&formatted=0`;
+      const response = UrlFetchApp.fetch(apiUrl, { muteHttpExceptions: true });
+      const code = response.getResponseCode();
+      if (code < 200 || code >= 300) {
+        return jsonOrJsonp_({ status: "ERROR", error: `Sun API request failed: ${code}` }, callback);
+      }
+
+      const body = response.getContentText();
+      let payload = {};
+      try {
+        payload = JSON.parse(body);
+      } catch (_) {
+        return jsonOrJsonp_({ status: "ERROR", error: "Invalid sun API response" }, callback);
+      }
+      return jsonOrJsonp_(payload, callback);
+    } catch (err) {
+      return jsonOrJsonp_({ status: "ERROR", error: String((err && err.message) || err || "Unknown error") }, callback);
+    }
+  }
 
   if (action === "read") {
     const sheetId = p.sheetId;

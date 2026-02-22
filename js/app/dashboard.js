@@ -65,6 +65,50 @@ window.requestChartStateMirror = function() {
         };
         
         let darkModeOverride = null; // null = auto, true = force dark, false = force light
+
+        function jsonp(url, { callbackParam = 'callback', timeoutMs = 8000 } = {}) {
+            return new Promise((resolve, reject) => {
+                const callbackName = `__pbJsonpCb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                const separator = url.includes('?') ? '&' : '?';
+                const script = document.createElement('script');
+                let timeoutId;
+                let settled = false;
+
+                const cleanup = () => {
+                    if (timeoutId) clearTimeout(timeoutId);
+                    try {
+                        delete window[callbackName];
+                    } catch (_) {
+                        window[callbackName] = undefined;
+                    }
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                };
+
+                window[callbackName] = function(payload) {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    resolve(payload);
+                };
+
+                script.onerror = function() {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(new Error('JSONP script load failed'));
+                };
+
+                timeoutId = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(new Error(`JSONP request timed out after ${timeoutMs}ms`));
+                }, timeoutMs);
+
+                script.src = `${url}${separator}${encodeURIComponent(callbackParam)}=${encodeURIComponent(callbackName)}`;
+                document.head.appendChild(script);
+            });
+        }
         
         /**
          * Get user's geographic location using IP-based lookup
@@ -86,15 +130,8 @@ window.requestChartStateMirror = function() {
                     }
                 }
                 
-                // Note: IP geolocation may fail in local file mode due to CORS
-                console.log('Attempting to fetch location from IP...');
-                const response = await fetch('https://ipapi.co/json/');
-                
-                if (!response.ok) {
-                    throw new Error('IP geolocation failed');
-                }
-                
-                const data = await response.json();
+                console.log('Attempting JSONP location lookup via ipapi...');
+                const data = await jsonp('https://ipapi.co/jsonp/', { callbackParam: 'callback' });
                 
                 if (data.latitude && data.longitude) {
                     const location = {
@@ -133,14 +170,14 @@ window.requestChartStateMirror = function() {
          */
         async function fetchSunsetTimes(latitude, longitude) {
             try {
-                const url = `https://api.sunrise-sunset.org/json?lat=${latitude}&lng=${longitude}&formatted=0`;
-                const response = await fetch(url);
-                
-                if (!response.ok) {
-                    throw new Error(`API request failed: ${response.status}`);
+                const baseWebAppUrl = (localStorage.getItem('jsonp_proxy_webAppUrl') || localStorage.getItem('spike_webAppUrl') || '').trim();
+                if (!baseWebAppUrl) {
+                    throw new Error('Missing Apps Script Web App URL. Configure spike_webAppUrl in Settings for file:// JSONP proxy usage.');
                 }
-                
-                const data = await response.json();
+
+                const url = `${baseWebAppUrl}?fn=sun&lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`;
+                console.log('Attempting JSONP sunset lookup via Apps Script proxy...');
+                const data = await jsonp(url, { callbackParam: 'callback' });
                 
                 if (data.status !== 'OK') {
                     throw new Error('API returned error status');
@@ -165,7 +202,7 @@ window.requestChartStateMirror = function() {
                 
                 return sunsetData;
             } catch (error) {
-                console.error('Error fetching sunset times:', error);
+                console.error('Error fetching sunset times via JSONP proxy. Configure spike_webAppUrl in Settings if missing.', error);
                 return null;
             }
         }
