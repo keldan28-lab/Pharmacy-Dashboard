@@ -112,6 +112,15 @@ class Statistics {
     static std(arr) {
         return Math.sqrt(this.variance(arr));
     }
+
+    static median(arr) {
+        if (!arr || arr.length === 0) return 0;
+        const sorted = [...arr].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 === 0
+            ? (sorted[mid - 1] + sorted[mid]) / 2
+            : sorted[mid];
+    }
     
     static linearRegression(x, y) {
         const n = x.length;
@@ -162,6 +171,195 @@ class Statistics {
 
     static normalCDF(z) {
         return 0.5 * (1 + this.erf(z / Math.sqrt(2)));
+    }
+}
+
+// ============================================================================
+// SEASONALITY + FORECAST HELPERS
+// ============================================================================
+
+class SeasonalityDetector {
+    static inferPeriod(options = {}) {
+        if (options && Number.isFinite(options.period) && options.period > 1) {
+            return Math.round(options.period);
+        }
+
+        const dates = Array.isArray(options.dates) ? options.dates : null;
+        if (dates && dates.length >= 3) {
+            const timestamps = dates
+                .map(d => (d instanceof Date ? d.getTime() : new Date(d).getTime()))
+                .filter(t => Number.isFinite(t));
+
+            if (timestamps.length >= 3) {
+                const intervals = [];
+                for (let i = 1; i < timestamps.length; i++) {
+                    const deltaDays = (timestamps[i] - timestamps[i - 1]) / (1000 * 60 * 60 * 24);
+                    if (Number.isFinite(deltaDays) && deltaDays > 0) intervals.push(deltaDays);
+                }
+
+                const medianIntervalDays = Statistics.median(intervals);
+                if (medianIntervalDays >= 24 && medianIntervalDays <= 35) return 12;
+                if (medianIntervalDays >= 5 && medianIntervalDays <= 9) return 52;
+            }
+        }
+
+        return options.defaultPeriod || 52;
+    }
+
+    static detect(data, period) {
+        const safePeriod = Math.max(2, Math.round(period || 52));
+        const minRequired = safePeriod * 2;
+        if (!Array.isArray(data) || data.length < minRequired) {
+            return {
+                indices: null,
+                adjustedData: [...(data || [])],
+                strength: 0,
+                peakPhase: null,
+                troughPhase: null,
+                period: safePeriod
+            };
+        }
+
+        const eps = 1e-6;
+        const phaseSums = Array(safePeriod).fill(0);
+        const phaseCounts = Array(safePeriod).fill(0);
+
+        for (let i = 0; i < data.length; i++) {
+            const v = Number(data[i]);
+            if (!Number.isFinite(v)) continue;
+            const phase = i % safePeriod;
+            phaseSums[phase] += Math.max(v, eps);
+            phaseCounts[phase] += 1;
+        }
+
+        const rawIndices = phaseSums.map((sum, idx) => {
+            if (!phaseCounts[idx]) return 1;
+            return sum / phaseCounts[idx];
+        });
+        const meanIndex = Statistics.mean(rawIndices) || 1;
+        const indices = rawIndices.map(v => Math.max(eps, v / meanIndex));
+
+        const adjustedData = data.map((v, i) => {
+            const safeVal = Math.max(Number(v) || 0, eps);
+            return safeVal / indices[i % safePeriod];
+        });
+
+        const rawVar = Statistics.variance(data);
+        const adjustedVar = Statistics.variance(adjustedData);
+        const strength = rawVar <= eps ? 0 : Math.max(0, Math.min(1, (rawVar - adjustedVar) / rawVar));
+
+        let peakPhase = 0;
+        let troughPhase = 0;
+        for (let i = 1; i < indices.length; i++) {
+            if (indices[i] > indices[peakPhase]) peakPhase = i;
+            if (indices[i] < indices[troughPhase]) troughPhase = i;
+        }
+
+        return {
+            indices,
+            adjustedData,
+            strength,
+            peakPhase,
+            troughPhase,
+            period: safePeriod
+        };
+    }
+}
+
+class ForecastPlanner {
+    static wrapPhase(phase, period) {
+        return ((phase % period) + period) % period;
+    }
+
+    static offsetUntilPhase(lastPhase, targetPhase, period) {
+        const raw = this.wrapPhase(targetPhase - lastPhase, period);
+        return raw === 0 ? period : raw;
+    }
+
+    static build(analysisSeries, seasonal, options = {}) {
+        const period = seasonal.period;
+        const threshold = Number.isFinite(options.seasonalityThreshold) ? options.seasonalityThreshold : 0.4;
+        const hasSeasonality = !!(seasonal.indices && seasonal.strength >= threshold);
+        if (!hasSeasonality) {
+            return {
+                forecast: {
+                    nextPeakOffset: null,
+                    peakPhase: null,
+                    peakMultiplier: null,
+                    peakWindow: null,
+                    seasonalBaseline: null,
+                    projectedPeak: null,
+                    projectedPeakTrendAdj: null
+                },
+                reorder: {
+                    leadTimeSteps: Number.isFinite(options.leadTimeSteps) ? options.leadTimeSteps : 2,
+                    safetyBufferSteps: Number.isFinite(options.safetyBufferSteps) ? options.safetyBufferSteps : 1,
+                    recommendedOrderOffset: null,
+                    recommendedArrivalOffset: null,
+                    rationale: 'No strong seasonality detected; keep standard replenishment cadence.',
+                    severity: 'low'
+                }
+            };
+        }
+
+        const peakPhase = seasonal.peakPhase;
+        const peakMultiplier = seasonal.indices[peakPhase];
+        const startPhase = this.wrapPhase(peakPhase - 2, period);
+        const endPhase = this.wrapPhase(peakPhase + 2, period);
+        const lastPhase = (analysisSeries.length - 1) % period;
+        const nextPeakOffset = this.offsetUntilPhase(lastPhase, peakPhase, period);
+        const peakStartOffset = this.offsetUntilPhase(lastPhase, startPhase, period);
+
+        const baselineMedian = Statistics.median(seasonal.adjustedData);
+        const seasonalBaseline = Number.isFinite(baselineMedian) && baselineMedian > 0
+            ? baselineMedian
+            : Statistics.mean(seasonal.adjustedData);
+        const projectedPeak = seasonalBaseline * peakMultiplier;
+
+        const x = Array.from({ length: seasonal.adjustedData.length }, (_, i) => i);
+        const slope = Statistics.linearRegression(x, seasonal.adjustedData).slope || 0;
+        const baselineSafe = Math.max(seasonalBaseline, 1e-6);
+        const trendFactor = 1 + (slope * nextPeakOffset / baselineSafe);
+        const clampedTrendFactor = Math.max(0.75, Math.min(1.5, trendFactor));
+        const projectedPeakTrendAdj = projectedPeak * clampedTrendFactor;
+
+        const leadTimeSteps = Number.isFinite(options.leadTimeSteps) ? options.leadTimeSteps : 2;
+        const safetyBufferSteps = Number.isFinite(options.safetyBufferSteps) ? options.safetyBufferSteps : 1;
+
+        let recommendedOrderOffset = peakStartOffset - leadTimeSteps - safetyBufferSteps;
+        let rationale = 'Order to arrive before the seasonal peak window opens.';
+        if (recommendedOrderOffset < 0) {
+            recommendedOrderOffset = 0;
+            rationale = 'Peak window is near; order ASAP so lead time and safety buffer are covered.';
+        }
+
+        const recentWindow = analysisSeries.slice(-8);
+        const recentAverage = Statistics.mean(recentWindow.slice(-Math.max(4, Math.min(8, recentWindow.length))));
+        let severity = 'low';
+        if (recentAverage > 0) {
+            if (projectedPeakTrendAdj > recentAverage * 1.25) severity = 'high';
+            else if (projectedPeakTrendAdj > recentAverage * 1.10) severity = 'medium';
+        }
+
+        return {
+            forecast: {
+                nextPeakOffset,
+                peakPhase,
+                peakMultiplier,
+                peakWindow: { startPhase, endPhase },
+                seasonalBaseline,
+                projectedPeak,
+                projectedPeakTrendAdj
+            },
+            reorder: {
+                leadTimeSteps,
+                safetyBufferSteps,
+                recommendedOrderOffset,
+                recommendedArrivalOffset: recommendedOrderOffset + leadTimeSteps,
+                rationale,
+                severity
+            }
+        };
     }
 }
 
@@ -627,45 +825,51 @@ class TrendAnalysisEngine {
         this.ruleEngine = new TrendDecisionRuleEngine(this.config);
     }
     
-    analyze(data) {
+    analyze(data, options = {}) {
         // Convert to array
         const rawData = Array.isArray(data) ? data : [data];
-        
+
         // Preprocess
-        const { data: cleanedData, metadata: preprocessingMetadata } = 
+        const { data: cleanedData, metadata: preprocessingMetadata } =
             DataPreprocessor.cleanData(rawData, this.config);
-        
+
         // Check if enough data
         if (cleanedData.length < this.config.minDataPoints) {
             return this.insufficientDataResult(preprocessingMetadata);
         }
-        
-        // Multi-scale trend detection
+
+        const period = SeasonalityDetector.inferPeriod(options);
+        const seasonalityThreshold = Number.isFinite(options.seasonalityThreshold) ? options.seasonalityThreshold : 0.4;
+        const seasonal = SeasonalityDetector.detect(cleanedData, period);
+        const hasSeasonalCoverage = cleanedData.length >= (period * 2);
+        const trendData = hasSeasonalCoverage ? seasonal.adjustedData : cleanedData;
+
+        // Multi-scale trend detection (seasonality-adjusted when available)
         const shortTermTrends = this.analyzeWindow(
-            cleanedData, this.config.shortTermWindow
+            trendData, this.config.shortTermWindow
         );
         const mediumTermTrends = this.analyzeWindow(
-            cleanedData, this.config.mediumTermWindow
+            trendData, this.config.mediumTermWindow
         );
         const longTermTrends = this.analyzeWindow(
-            cleanedData, this.config.longTermWindow
+            trendData, this.config.longTermWindow
         );
-        
+
         // Change point detection
         const changePoints = ChangePointDetector.detectCUSUM(cleanedData, this.config);
-        
-        // Anomaly detection
+
+        // Anomaly detection stays on cleaned/raw-like data for compatibility
         const anomalies = AnomalyDetector.detectAnomalies(cleanedData, this.config);
-        
+
         // Determine overall trend (base)
         const baseOverall = this.determineOverallTrend(shortTermTrends, mediumTermTrends, longTermTrends);
-        
+
         // Advanced methods
-        const mannKendall = MannKendall.test(cleanedData);
-        const theilSen = TheilSen.slope(cleanedData, this.config);
-        const piecewiseSegments = PiecewiseLinear.segment(cleanedData, 1.5, this.config);
+        const mannKendall = MannKendall.test(trendData);
+        const theilSen = TheilSen.slope(trendData, this.config);
+        const piecewiseSegments = PiecewiseLinear.segment(trendData, 1.5, this.config);
         const piecewiseSummary = PiecewiseLinear.summarize(piecewiseSegments);
-        const holtWinters = HoltWinters.trend(cleanedData, 0.3, 0.1, this.config);
+        const holtWinters = HoltWinters.trend(trendData, 0.3, 0.1, this.config);
 
         // Ensemble decision
         const ensemble = this.determineEnsembleTrend(baseOverall, {
@@ -696,12 +900,27 @@ class TrendAnalysisEngine {
         const finalDirection = ruleDecision ? ruleDecision.direction : ensemble.direction;
         const finalConfidence = ensemble.confidence;
 
+        const seasonalOutput = {
+            detected: !!(seasonal.indices && seasonal.strength >= seasonalityThreshold),
+            strength: seasonal.indices ? seasonal.strength : 0,
+            indices: seasonal.indices,
+            period: seasonal.period,
+            peakPhase: seasonal.indices ? seasonal.peakPhase : null,
+            troughPhase: seasonal.indices ? seasonal.troughPhase : null
+        };
+
+        const plan = ForecastPlanner.build(cleanedData, seasonal, {
+            seasonalityThreshold,
+            leadTimeSteps: options.leadTimeSteps,
+            safetyBufferSteps: options.safetyBufferSteps
+        });
+
         // Generate summary
         const summary = this.generateSummary(
-            cleanedData, shortTermTrends, mediumTermTrends, longTermTrends,
+            trendData, shortTermTrends, mediumTermTrends, longTermTrends,
             changePoints, anomalies, finalDirection
         );
-        
+
         return {
             shortTermTrends: shortTermTrends,
             mediumTermTrends: mediumTermTrends,
@@ -720,11 +939,15 @@ class TrendAnalysisEngine {
                 piecewiseSegments,
                 holtWinters
             },
+            seasonal: seasonalOutput,
+            forecast: plan.forecast,
+            reorder: plan.reorder,
             summary: summary,
             metadata: {
                 preprocessing: preprocessingMetadata,
                 dataPoints: cleanedData.length,
-                originalDataPoints: rawData.length
+                originalDataPoints: rawData.length,
+                adjustedData: trendData
             }
         };
     }
@@ -911,6 +1134,31 @@ class TrendAnalysisEngine {
             },
             ruleDecision: null,
             advanced: {},
+            seasonal: {
+                detected: false,
+                strength: 0,
+                indices: null,
+                period: 52,
+                peakPhase: null,
+                troughPhase: null
+            },
+            forecast: {
+                nextPeakOffset: null,
+                peakPhase: null,
+                peakMultiplier: null,
+                peakWindow: null,
+                seasonalBaseline: null,
+                projectedPeak: null,
+                projectedPeakTrendAdj: null
+            },
+            reorder: {
+                leadTimeSteps: 2,
+                safetyBufferSteps: 1,
+                recommendedOrderOffset: null,
+                recommendedArrivalOffset: null,
+                rationale: 'Insufficient data for reorder planning.',
+                severity: 'low'
+            },
             summary: 'Insufficient data for trend analysis.',
             metadata: { preprocessing: preprocessingMetadata }
         };
@@ -935,7 +1183,9 @@ if (typeof module !== 'undefined' && module.exports) {
         TrendAnalysisEngine,
         TrendDetectionConfig,
         TrendDirection,
-        ConfidenceLevel
+        ConfidenceLevel,
+        SeasonalityDetector,
+        ForecastPlanner
     };
 }/**
  * Advanced Trending Items Calculator
@@ -1065,8 +1315,11 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
         
         try {
             // Analyze trend using advanced engine
-            const analysis = engine.analyze(completeWeeks);
-            
+            const analysis = engine.analyze(completeWeeks, { defaultPeriod: 52 });
+            const seriesForRanking = Array.isArray(analysis.metadata && analysis.metadata.adjustedData)
+                ? analysis.metadata.adjustedData
+                : completeWeeks;
+
             // Skip if insufficient data or very low confidence
             if (analysis.overallDirection === TrendDirection.INSUFFICIENT_DATA ||
                 analysis.overallConfidence < 0.2) {
@@ -1092,8 +1345,8 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
             // Compute percent change vs prior window for sorting ("uptrend" ranking)
             // recentWindow: last 4 complete weeks
             // baselineWindow: the 4 weeks immediately before recentWindow
-            const recentWindow = completeWeeks.slice(-4);
-            const baselineWindow = completeWeeks.slice(-8, -4);
+            const recentWindow = seriesForRanking.slice(-4);
+            const baselineWindow = seriesForRanking.slice(-8, -4);
 
             const avgNonZero = (arr) => {
                 const v = (arr || []).filter(x => typeof x === 'number' && isFinite(x));
@@ -1163,7 +1416,20 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
                 recentAvgWeeklyUsage: recentAvg,
                 baselineAvgWeeklyUsage: baselineAvg,
                 percentChange: percentChange,
-                isNew: isNew
+                isNew: isNew,
+
+                // Seasonal + flu planning fields (additive)
+                seasonalDetected: analysis.seasonal.detected,
+                seasonalStrength: analysis.seasonal.strength,
+                peakPhase: analysis.forecast.peakPhase,
+                nextPeakOffset: analysis.forecast.nextPeakOffset,
+                projectedPeakTrendAdj: analysis.forecast.projectedPeakTrendAdj,
+                reorderRecommendedOffset: analysis.reorder.recommendedOrderOffset,
+                reorderSeverity: analysis.reorder.severity,
+
+                // Internal ranking helper
+                seasonalUrgencyBoost: (analysis.seasonal.strength > 0.6 &&
+                    (analysis.reorder.severity === 'high' || analysis.reorder.severity === 'medium')) ? 1.08 : 1
             };
             
             // Categorize based on direction
@@ -1182,8 +1448,8 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
     const sortTrendingUp = (a, b) => {
         const aHasPct = (typeof a.percentChange === 'number' && isFinite(a.percentChange));
         const bHasPct = (typeof b.percentChange === 'number' && isFinite(b.percentChange));
-        const aPct = aHasPct ? a.percentChange : -Infinity;
-        const bPct = bHasPct ? b.percentChange : -Infinity;
+        const aPct = aHasPct ? a.percentChange * (a.seasonalUrgencyBoost || 1) : -Infinity;
+        const bPct = bHasPct ? b.percentChange * (b.seasonalUrgencyBoost || 1) : -Infinity;
 
         // Primary: Items with real % deltas first; sort by higher percent increase
         if (aHasPct !== bHasPct) {
