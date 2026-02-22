@@ -9810,12 +9810,13 @@ if (shouldGenerateOutlook && lastRealWeekEnd) {
         return Math.max(0, avgDaily * 7);
     };
 
-    let projectedWeeklyUsage = computeProjectedWeekly(aggregatedData.usage);
+    let projectedWeeklyUsageBaseline = computeProjectedWeekly(aggregatedData.usage);
+    let projectedUsageSpikeMult = 1.0;
 
     // Optional: apply cached trend spike multiplier to Outlook usage projection.
     // Granularity: itemCode + location when item context is active; otherwise fallback to 1.0.
     // This is intentionally conservative: if factors are missing, projection remains unchanged.
-    
+
 try {
     const sf = window.SpikeFactors || null;
     const itemCodeForSpike = String((costChartState && costChartState.itemSublocItemCode) ? costChartState.itemSublocItemCode : '').trim();
@@ -9836,7 +9837,7 @@ try {
 
     if (!(mult > 0)) mult = 1.0;
 
-    projectedWeeklyUsage = projectedWeeklyUsage * mult;
+    projectedUsageSpikeMult = mult;
 
     costChartState._projUsageSpikeMultiplier = mult;
     costChartState._projUsageSpikeKey = (locFilterForSpike && locFilterForSpike !== 'ALL')
@@ -9849,7 +9850,7 @@ try {
 }
 
     // Persist for downstream drill levels (e.g., Day view within a projected week)
-    costChartState._projectedWeeklyUsage = projectedWeeklyUsage;
+    costChartState._projectedWeeklyUsage = projectedWeeklyUsageBaseline * projectedUsageSpikeMult;
 
     // --- Expiry-based projected waste ---
     // Builds a map weekEndISO -> projectedWasteQty, where waste occurs only at the expiry date
@@ -10079,6 +10080,8 @@ try {
     costChartState._projectedWeeklyWaste = projectedWeeklyWasteFallback;
 
     const futureWeeks = Math.max(1, Math.ceil(outlookDays / 7));
+    costChartState._projectionTailBaseline = [];
+    costChartState._projectionTailSpikeAdjusted = [];
     try {
         // Keep this as a single line so it doesn't spam when verbose debug is off
         chartsDebugLog('🟦 Outlook enabled:', outlookDays, 'days =>', futureWeeks, 'future weeks');
@@ -10095,7 +10098,7 @@ try {
         
 // Usage projection for usage/all views (multi-year seasonality + annual trend + uncertainty)
 if (view === 'usage' || view === 'all') {
-    let proj = projectedWeeklyUsage;
+    let projBaseline = projectedWeeklyUsageBaseline;
 
     try {
         const sf = window.SpikeFactors || null;
@@ -10120,7 +10123,7 @@ if (view === 'usage' || view === 'all') {
         // Seasonality
         if (sf && itemCode && typeof sf.getSeasonalityFactorForScope === 'function') {
             const seasonF = Number(sf.getSeasonalityFactorForScope(itemCode, locF, subF, woy)) || 1.0;
-            proj = proj * seasonF;
+            projBaseline = projBaseline * seasonF;
             costChartState._projUsageSeasonFactor = seasonF;
             costChartState._projUsageSeasonWeek = woy;
             costChartState._projUsageSeasonKey = (locF && locF !== 'ALL')
@@ -10135,7 +10138,7 @@ if (view === 'usage' || view === 'all') {
         if (sf && itemCode && typeof sf.getTrendRelForScope === 'function') {
             const trendRel = Number(sf.getTrendRelForScope(itemCode, locF, subF)) || 0.0;
             const trendF = Math.max(0.5, Math.min(2.0, 1 + trendRel * horizonWeeks));
-            proj = proj * trendF;
+            projBaseline = projBaseline * trendF;
             costChartState._projUsageTrendRel = trendRel;
             costChartState._projUsageTrendFactor = trendF;
         }
@@ -10148,8 +10151,8 @@ if (view === 'usage' || view === 'all') {
             if (typeof sf.getPiRelBoundsForScope === 'function') {
                 const b = sf.getPiRelBoundsForScope(itemCode, locF, subF);
                 if (b && Number.isFinite(b.lo) && Number.isFinite(b.hi)) {
-                    low = Math.max(0, proj * (1 + b.lo));
-                    high = Math.max(low, proj * (1 + b.hi));
+                    low = Math.max(0, projBaseline * (1 + b.lo));
+                    high = Math.max(low, projBaseline * (1 + b.hi));
                     costChartState._projUsagePiMethod = b.method || 'pi';
                     costChartState._projUsagePiN = b.n || 0;
                 }
@@ -10159,8 +10162,8 @@ if (view === 'usage' || view === 'all') {
             if ((low == null || high == null) && typeof sf.getSigmaRelForScope === 'function') {
                 const sigmaRel = Math.max(0, Number(sf.getSigmaRelForScope(itemCode, locF, subF)) || 0);
                 const z = 1.28; // ~80% interval
-                low = Math.max(0, proj * (1 - z * sigmaRel));
-                high = Math.max(low, proj * (1 + z * sigmaRel));
+                low = Math.max(0, projBaseline * (1 - z * sigmaRel));
+                high = Math.max(low, projBaseline * (1 + z * sigmaRel));
                 costChartState._projUsageSigmaRel = sigmaRel;
             }
 
@@ -10194,8 +10197,17 @@ if (view === 'usage' || view === 'all') {
         // ignore
     }
 
-    aggregatedData.usage.push(proj);
+    const projSpikeAdjusted = projBaseline * projectedUsageSpikeMult;
+    if (!costChartState._projectionTailBaseline) costChartState._projectionTailBaseline = [];
+    if (!costChartState._projectionTailSpikeAdjusted) costChartState._projectionTailSpikeAdjusted = [];
+    costChartState._projectionTailBaseline.push(projBaseline);
+    costChartState._projectionTailSpikeAdjusted.push(projSpikeAdjusted);
+    aggregatedData.usage.push(projSpikeAdjusted);
 } else {
+    if (!costChartState._projectionTailBaseline) costChartState._projectionTailBaseline = [];
+    if (!costChartState._projectionTailSpikeAdjusted) costChartState._projectionTailSpikeAdjusted = [];
+    costChartState._projectionTailBaseline.push(0);
+    costChartState._projectionTailSpikeAdjusted.push(0);
     aggregatedData.usage.push(0);
 }
 
@@ -11747,6 +11759,35 @@ if (view === 'all') {
                 ctx.restore();
             }
             
+            if ((view === 'usage' || view === 'all') && shouldGenerateOutlook && projectionStartIndex >= 0) {
+                const baseSeries = costChartState._projectionTailBaseline || [];
+                const spikeSeries = costChartState._projectionTailSpikeAdjusted || [];
+                const xAt = (i) => padding.left + i * barGroupWidth + (barGroupWidth / 2);
+                const yAt = (v) => (displayHeight - padding.bottom) - (Number(v || 0) / maxValue) * chartHeight;
+                const tailLen = Math.min(baseSeries.length, weekCount - projectionStartIndex);
+
+                const drawTailLine = (series, stroke) => {
+                    if (!tailLen) return;
+                    ctx.save();
+                    ctx.strokeStyle = stroke;
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 4]);
+                    ctx.beginPath();
+                    for (let j = 0; j < tailLen; j++) {
+                        const idx = projectionStartIndex + j;
+                        const x = xAt(idx);
+                        const y = yAt(series[j]);
+                        if (j === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+                    ctx.restore();
+                };
+
+                drawTailLine(baseSeries, 'rgba(48, 79, 254, 0.95)');
+                drawTailLine(spikeSeries, 'rgba(239, 108, 0, 0.95)');
+            }
+
             // Draw X-axis title
             const axisTitle = (drillLevel === 0) ? 'Month' : (drillLevel === 2 ? 'Date' : 'Week Ending');
             ctx.save();
@@ -11772,6 +11813,35 @@ if (view === 'all') {
                 ctx.fillStyle = getCSSVar('--text-primary');
                 ctx.fillText('Usage', legendX + 20, legendY + 12);
                 legendY += 25;
+
+                if (shouldGenerateOutlook && projectionStartIndex >= 0) {
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(48, 79, 254, 0.95)';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(legendX, legendY + 8);
+                    ctx.lineTo(legendX + 15, legendY + 8);
+                    ctx.stroke();
+                    ctx.restore();
+                    ctx.fillStyle = getCSSVar('--text-primary');
+                    ctx.fillText('Projection (baseline)', legendX + 20, legendY + 12);
+                    legendY += 25;
+
+                    const sm = Number(costChartState._projUsageSpikeMultiplier || 1);
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(239, 108, 0, 0.95)';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(legendX, legendY + 8);
+                    ctx.lineTo(legendX + 15, legendY + 8);
+                    ctx.stroke();
+                    ctx.restore();
+                    ctx.fillStyle = getCSSVar('--text-primary');
+                    ctx.fillText(`Projection (spike-adjusted x${sm.toFixed(2)})`, legendX + 20, legendY + 12);
+                    legendY += 25;
+                }
             }
             
             if (view === 'all' || view === 'restock') {

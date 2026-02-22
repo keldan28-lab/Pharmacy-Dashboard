@@ -41,6 +41,50 @@ function _ensureSpikeFactorsLoaded() {
     });
 }
 
+function getSpikeMultForScope(itemCode, loc, subloc) {
+    if (!window.SpikeFactors?.getSpikeMultiplierForScope) return 1.0;
+    const m = window.SpikeFactors.getSpikeMultiplierForScope(
+        String(itemCode || '').trim(),
+        String(loc || 'ALL').trim().toUpperCase(),
+        String(subloc || 'ALL').trim().toUpperCase()
+    );
+    return (Number.isFinite(m) && m > 0) ? m : 1.0;
+}
+
+function _getSpikeScopeForItem(item) {
+    const loc = String(
+        item?.sendToLocation || item?.location || item?.mainLocation || item?.loc || 'ALL'
+    ).trim().toUpperCase() || 'ALL';
+    const subloc = String(
+        item?.sendToSublocation || item?.sendToSubLocation || item?.sendToSubLoc || item?.sublocation || item?.subLocation || item?.unit || item?.department || 'ALL'
+    ).trim().toUpperCase() || 'ALL';
+    return { loc, subloc };
+}
+
+function updateForecastSpikeLabel(spikeMult, horizonDays) {
+    try {
+        const host = document.getElementById('budPeriodValue')?.parentElement;
+        if (!host) return;
+        let note = document.getElementById('forecastSpikeFactorLabel');
+        if (!note) {
+            note = document.createElement('div');
+            note.id = 'forecastSpikeFactorLabel';
+            note.style.fontSize = '11px';
+            note.style.opacity = '0.85';
+            note.style.marginTop = '4px';
+            host.appendChild(note);
+        }
+        if (Number(spikeMult) !== 1) {
+            note.textContent = `Forecast spike factor: x${Number(spikeMult).toFixed(2)} (applied to next ${horizonDays} days)`;
+            note.title = note.textContent;
+            note.style.display = '';
+        } else {
+            note.textContent = '';
+            note.style.display = 'none';
+        }
+    } catch (_) {}
+}
+
 // Manual request: ask child frames to resend chart projection state
 window.requestChartStateMirror = function() {
     try {
@@ -1711,6 +1755,25 @@ Subloc: ${counts.subloc}`);
                     __flushPendingMockDataRequests();
                     __setAppLoading(false);
                 } else {
+                    try {
+                        if (window.SpikeFactors?.loadFromLocalStorage) {
+                            window.SpikeFactors.loadFromLocalStorage();
+                        }
+                        console.log('[SpikeFactors] summary', window.SpikeFactors?.getCacheSummary?.());
+                        const webAppUrl = (localStorage.getItem('spike_webAppUrl') || '').trim();
+                        const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
+                        const tabName = (localStorage.getItem('spike_tabName') || 'min_spike_factors').trim() || 'min_spike_factors';
+                        if (webAppUrl && sheetId && window.SpikeFactors?.loadFromWebApp) {
+                            window.SpikeFactors.loadFromWebApp(webAppUrl, sheetId, tabName)
+                                .then(() => {
+                                    console.log('[SpikeFactors] summary', window.SpikeFactors?.getCacheSummary?.());
+                                })
+                                .catch((err) => console.warn('[SpikeFactors] best-effort load failed', err));
+                        }
+                    } catch (err) {
+                        console.warn('[SpikeFactors] init warning', err);
+                    }
+
                     // Warm up compute/cache up-front so chart switches don't feel laggy.
                     // This also precomputes full-range weekly bins so week/day views include all months.
                     __setAppLoading(true, 'Building analytics cache…');
@@ -2424,7 +2487,14 @@ Subloc: ${counts.subloc}`);
                 
                 // Calculate average usage and projected usage over shelf life
                 const averageUsagePerPeriod = totalUsage / dataPointCount;
-                const projectedUsageOverShelfLife = averageUsagePerPeriod * shelfLife;
+                const horizonDays = shelfLife * 7;
+                const baselineProjectedUsage = averageUsagePerPeriod * shelfLife;
+                const { loc, subloc } = _getSpikeScopeForItem(item);
+                const spikeMult = getSpikeMultForScope(item.itemCode, loc, subloc);
+                const projectedUsageOverShelfLife = baselineProjectedUsage * spikeMult;
+                if (spikeMult !== 1) {
+                    console.log('[SpikeFactors] applying spike', { itemCode: item.itemCode, loc, subloc, spikeMult, horizon: `${horizonDays} days` });
+                }
                 
                 // Calculate excess inventory (what will be left after shelf life period)
                 const excessInventory = totalInventory - projectedUsageOverShelfLife;
@@ -2438,12 +2508,18 @@ Subloc: ${counts.subloc}`);
                         excessInventory: excessInventory,
                         wasteValue: wasteValue,
                         averageUsagePerPeriod: averageUsagePerPeriod,
+                        baselineProjectedUsageOverShelfLife: baselineProjectedUsage,
+                        spikeMult: spikeMult,
                         projectedUsageOverShelfLife: projectedUsageOverShelfLife,
                         dataPointCount: dataPointCount,
                         shelfLife: shelfLife
                     });
                 }
             });
+
+            const spikeItems = projectedWasteItemsList.filter(x => Number(x.spikeMult) !== 1);
+            const displaySpike = spikeItems.length ? (spikeItems[0].spikeMult || 1) : 1;
+            updateForecastSpikeLabel(displaySpike, shelfLife * 7);
             
             // Store projected waste results in MOCK_DATA for sharing with iframes
             MOCK_DATA.projectedWaste = {
@@ -2499,7 +2575,14 @@ Subloc: ${counts.subloc}`);
                 
                 // Calculate average usage and projected usage over shelf life
                 const averageUsagePerPeriod = totalUsage / dataPointCount;
-                const projectedUsageOverShelfLife = averageUsagePerPeriod * shelfLife;
+                const horizonDays = shelfLife * 7;
+                const baselineProjectedUsage = averageUsagePerPeriod * shelfLife;
+                const { loc, subloc } = _getSpikeScopeForItem(item);
+                const spikeMult = getSpikeMultForScope(item.itemCode, loc, subloc);
+                const projectedUsageOverShelfLife = baselineProjectedUsage * spikeMult;
+                if (spikeMult !== 1) {
+                    console.log('[SpikeFactors] applying spike', { itemCode: item.itemCode, loc, subloc, spikeMult, horizon: `${horizonDays} days` });
+                }
                 
                 // Calculate excess Pyxis inventory (what will be left after shelf life period)
                 const excessPyxisInventory = pyxisInventory - projectedUsageOverShelfLife;
@@ -2513,6 +2596,8 @@ Subloc: ${counts.subloc}`);
                         excessPyxisInventory: excessPyxisInventory,
                         pyxisWasteValue: pyxisWasteValue,
                         averageUsagePerPeriod: averageUsagePerPeriod,
+                        baselineProjectedUsageOverShelfLife: baselineProjectedUsage,
+                        spikeMult: spikeMult,
                         projectedUsageOverShelfLife: projectedUsageOverShelfLife,
                         dataPointCount: dataPointCount,
                         shelfLife: shelfLife
