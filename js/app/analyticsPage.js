@@ -2621,14 +2621,19 @@
                         ? 'NEW'
                         : (pct === null ? '' : `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`);
 
+                    const suggestion = String(item.suggestion ?? item.recommendation ?? '').trim();
+                    const displayName = item.description || item.drugName || item.itemCode || 'Unknown';
+                    const avgWeeklyUsage = _num(item.avgWeeklyUsage ?? item.weeklyUsage ?? item.avgUsage, 0);
+
                     const li = document.createElement('li');
                     li.className = 'trend-item';
                     li.innerHTML = `
-                        <span class="trend-name">
-                            ${item.description || item.drugName}
+                        <span class="trend-name-block">
+                            <span class="trend-name">${displayName}</span>
+                            ${suggestion ? `<span class="trend-suggestion">${suggestion}</span>` : ''}
                         </span>
                         <span class="trend-value">
-                            ${item.avgWeeklyUsage.toFixed(1)}/wk
+                            ${avgWeeklyUsage.toFixed(1)}/wk
                             ${pctText ? `<span class="trend-pct ${isNew ? 'trend-new' : ''}">${pctText}</span>` : ''}
                         </span>
                     `;
