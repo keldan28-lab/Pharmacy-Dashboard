@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FDA Drug Label Formatter (v1.4 - Enhanced Image View)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            display: flex;
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+
+        .nav-sidebar {
+            width: 300px;
+            background-color: #2c3e50;
+            color: white;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .nav-content {
+            padding: 20px;
+        }
+
+        .nav-sidebar h2 {
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #3498db;
+            color: #3498db;
+        }
+
+        .nav-sidebar ul {
+            list-style: none;
+        }
+
+        .nav-sidebar li {
+            margin-bottom: 5px;
+        }
+
+        .nav-sidebar a {
+            color: #ecf0f1;
+            text-decoration: none;
+            display: block;
+            padding: 8px 10px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+            line-height: 1.4;
+            cursor: pointer;
+        }
+
+        .nav-sidebar a:hover {
+            background-color: #34495e;
+            padding-left: 15px;
+        }
+
+        .nav-sidebar a.active {
+            background-color: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .drug-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .drug-header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .drug-header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            scroll-margin-top: 20px;
+        }
+
+        .section-title {
+            font-size: 1.8em;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #3498db;
+            font-weight: 700;
+        }
+
+        .subsection {
+            margin-top: 25px;
+            margin-left: 20px;
+        }
+
+        .subsection-title {
+            font-size: 1.4em;
+            color: #34495e;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+
+        .subsection-title strong {
+            color: #3498db;
+            font-weight: 900;
+        }
+
+        .subsection-title u {
+            text-decoration: underline;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 3px;
+        }
+
+        .content-block {
+            margin-bottom: 15px;
+            line-height: 1.8;
+            text-align: justify;
+            font-size: 1em;
+        }
+
+        .highlight-box {
+            background-color: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+
+        .warning-box {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 0.9em;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        table th {
+            background-color: #3498db;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+
+        table tr:hover {
+            background-color: #e8f4f8;
+        }
+
+        sup {
+            color: #3498db;
+            font-weight: bold;
+        }
+
+        .back-to-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background-color: #3498db;
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .back-to-top.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .back-to-top:hover {
+            background-color: #2980b9;
+            transform: translateY(-5px);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 1.2em;
+            color: #666;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 20px;
+            margin: 20px;
+            border-radius: 4px;
+            color: #721c24;
+        }
+
+        .info-box {
+            background-color: #d1ecf1;
+            border-left: 4px solid #0c5460;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            color: #0c5460;
+        }
+
+        /* Images section styles */
+        .images-container {
+            display: none;
+        }
+
+        .images-container.active {
+            display: block;
+        }
+
+        .images-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .image-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .image-wrapper {
+            width: 100%;
+            height: 280px;
+            background: #f8f9fa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .image-wrapper img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .image-card-info {
+            display: none;
+        }
+
+        /* Modal overlay for expanded image */
+        .image-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .image-modal.active {
+            display: flex;
+        }
+
+        .image-modal-content {
+            max-width: 95%;
+            max-height: 95%;
+            object-fit: contain;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.5);
+            border-radius: 8px;
+        }
+
+        @media (max-width: 968px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .nav-sidebar {
+                width: 100%;
+                height: auto;
+                position: relative;
+            }
+
+            .main-content {
+                padding: 20px;
+            }
+
+            .images-grid {
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="appContainer"></div>
+    
+    <!-- Image modal for full-size view -->
+    <div id="imageModal" class="image-modal" onclick="closeImageModal()">
+        <img id="modalImage" class="image-modal-content" src="" alt="">
+    </div>
+
+    <script src="FDADrugLabelFormatter_v1_3.js"></script>
+    <script>
+        let currentSetId = null;
+        
+        /**
+         * Expand image in modal
+         */
+        function expandImage(imageUrl) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            modal.classList.add('active');
+            modalImg.src = imageUrl;
+        }
+        
+        /**
+         * Close image modal
+         */
+        function closeImageModal() {
+            const modal = document.getElementById('imageModal');
+            modal.classList.remove('active');
+        }
+        
+        /**
+         * Get URL parameter by name
+         */
+        function getURLParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+        
+        /**
+         * Fetch and parse media.xml using CORS proxy
+         * Extracts actual <url> nodes from XML
+         */
+        async function fetchProductImages(setId) {
+            console.log('📸 Fetching images for set_id:', setId);
+            
+            try {
+                // Use CORS proxy to fetch XML
+                const mediaUrl = `https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/${setId}/media.xml`;
+                const corsProxy = 'https://api.allorigins.win/raw?url=';
+                const proxyUrl = corsProxy + encodeURIComponent(mediaUrl);
+                
+                console.log('🌐 Fetching XML via proxy:', proxyUrl);
+                
+                const response = await fetch(proxyUrl);
+                
+                if (!response.ok) {
+                    console.warn(`⚠️ Proxy returned status ${response.status}`);
+                    return [];
+                }
+                
+                const xmlText = await response.text();
+                console.log('📄 XML Response received, parsing...');
+                
+                // Parse XML
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+                
+                // Check for parsing errors
+                const parserError = xmlDoc.querySelector('parsererror');
+                if (parserError) {
+                    console.error('❌ XML parsing error:', parserError.textContent);
+                    return [];
+                }
+                
+                // Extract all <url> nodes from <file> elements
+                const urlElements = xmlDoc.querySelectorAll('file url');
+                const images = [];
+                
+                urlElements.forEach((urlEl, index) => {
+                    const url = urlEl.textContent.trim();
+                    
+                    // Get name from sibling <n> element
+                    const fileEl = urlEl.parentElement;
+                    const nameEl = fileEl ? fileEl.querySelector('n') : null;
+                    const name = nameEl ? nameEl.textContent.trim() : `Image ${index + 1}`;
+                    
+                    if (url) {
+                        images.push({
+                            url: url,
+                            name: name,
+                            index: index + 1
+                        });
+                    }
+                });
+                
+                console.log(`✅ Found ${images.length} images from XML <url> nodes`);
+                return images;
+                
+            } catch (error) {
+                console.error('❌ Error fetching/parsing XML:', error);
+                return [];
+            }
+        }
+        
+        /**
+         * Open image in new popup window
+         */
+        function openImagePopup(imageUrl, title) {
+            const width = 900;
+            const height = 700;
+            const left = (screen.width - width) / 2;
+            const top = (screen.height - height) / 2;
+            
+            window.open(
+                imageUrl,
+                title,
+                `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+            );
+        }
+        
+        /**
+         * Display images from XML <url> nodes
+         */
+        function displayImages(images) {
+            const imagesSection = document.getElementById('images-section');
+            
+            if (!images || images.length === 0) {
+                imagesSection.innerHTML = `
+                    <div class="section-title">Product Images</div>
+                    <div class="info-box">
+                        <strong>No product images available</strong>
+                        <br>
+                        This drug label does not have any images in the DailyMed database.
+                    </div>
+                `;
+                return;
+            }
+            
+            let imagesHtml = `
+                <div class="section-title">Product Images</div>
+                <div class="info-box">
+                    <strong>Displaying ${images.length} product image${images.length !== 1 ? 's' : ''}</strong>
+                    <br>
+                    Images loaded from DailyMed media API. Click any image to view full size.
+                </div>
+                <div class="images-grid">
+            `;
+            
+            images.forEach(image => {
+                imagesHtml += `
+                    <div class="image-card" onclick="expandImage('${image.url}')">
+                        <div class="image-wrapper">
+                            <img src="${image.url}" 
+                                 alt="${image.name}"
+                                 loading="lazy">
+                        </div>
+                    </div>
+                `;
+            });
+            
+            imagesHtml += '</div>';
+            imagesSection.innerHTML = imagesHtml;
+        }
+        
+        /**
+         * Switch between drug label and images view
+         */
+        function switchView(view) {
+            const labelContent = document.getElementById('label-content');
+            const imagesContent = document.getElementById('images-section');
+            const navLinks = document.querySelectorAll('.nav-sidebar a');
+            
+            if (view === 'images') {
+                labelContent.style.display = 'none';
+                imagesContent.classList.add('active');
+                
+                // Load images if not already loaded
+                if (currentSetId && imagesContent.innerHTML.trim() === '') {
+                    imagesContent.innerHTML = '<div class="loading">Loading product images from DailyMed...</div>';
+                    fetchProductImages(currentSetId).then(images => {
+                        displayImages(images);
+                    });
+                }
+                
+                // Update active nav
+                navLinks.forEach(link => link.classList.remove('active'));
+                const imagesLink = document.querySelector('[data-view="images"]');
+                if (imagesLink) imagesLink.classList.add('active');
+            } else {
+                labelContent.style.display = 'block';
+                imagesContent.classList.remove('active');
+                
+                // Update active nav for section links
+                navLinks.forEach(link => {
+                    if (link.getAttribute('data-view') !== 'images') {
+                        link.classList.remove('active');
+                    }
+                });
+            }
+        }
+        
+        async function loadDrugLabel() {
+            // Get set_id from URL parameters
+            const setIdFromURL = getURLParameter('set_id');
+            
+            if (!setIdFromURL) {
+                const container = document.getElementById('appContainer');
+                container.innerHTML = `
+                    <div class="error">
+                        <h3>Missing set_id Parameter</h3>
+                        <p>This page requires a <code>set_id</code> URL parameter.</p>
+                        <p>Example: <code>?set_id=31d5a37a-0e90-4e88-be14-75c877be9de2</code></p>
+                    </div>
+                `;
+                return;
+            }
+            
+            currentSetId = setIdFromURL;
+            const apiUrl = `https://api.fda.gov/drug/label.json?search=set_id:"${setIdFromURL}"`;
+            console.log('🔗 Using set_id from URL:', setIdFromURL);
+            console.log('🌐 API URL:', apiUrl);
+            
+            const container = document.getElementById('appContainer');
+            
+            container.innerHTML = '<div class="loading">Loading drug label data...</div>';
+
+            try {
+                console.log('🌐 Fetching from:', apiUrl);
+                const response = await fetch(apiUrl);
+                
+                const data = await response.json();
+                console.log('📦 FDA API Response:', data);
+                
+                // Check for FDA API error response
+                if (data.error) {
+                    if (data.error.code === 'NOT_FOUND') {
+                        throw new Error(`No drug label found for set_id: ${setIdFromURL}`);
+                    }
+                    throw new Error(data.error.message || 'API returned an error');
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                if (!data.results || data.results.length === 0) {
+                    throw new Error(`No results found for set_id: ${setIdFromURL}`);
+                }
+                
+                const formatter = new FDADrugLabelFormatter();
+                const formatted = formatter.format(data);
+
+                // Build navigation with Images tab
+                let navHtml = formatted.navigation.replace('</ul>', `
+                    <li><a data-view="images" onclick="switchView('images')">Images</a></li>
+                </ul>`);
+
+                container.innerHTML = `
+                    <div class="container">
+                        <nav class="nav-sidebar">
+                            <div class="nav-content">
+                                ${navHtml}
+                            </div>
+                        </nav>
+                        <main class="main-content">
+                            <div id="label-content">
+                                ${formatted.content}
+                            </div>
+                            <div id="images-section" class="images-container"></div>
+                        </main>
+                    </div>
+                    <div class="back-to-top" id="backToTop">↑</div>
+                `;
+
+                initializeInteractivity();
+
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="error">
+                        <h3>Error Loading Drug Label</h3>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <p><strong>Set ID:</strong> <code>${setIdFromURL}</code></p>
+                        <p><strong>API URL:</strong> <code>${apiUrl}</code></p>
+                        <p>Possible reasons:</p>
+                        <ul>
+                            <li>The set_id does not exist in the FDA database</li>
+                            <li>The drug label has not been submitted to the FDA</li>
+                            <li>Network connectivity issues</li>
+                        </ul>
+                    </div>
+                `;
+                console.error('❌ Error:', error);
+                console.error('🔍 API URL:', apiUrl);
+            }
+        }
+
+        function initializeInteractivity() {
+            // Handle section navigation clicks
+            document.querySelectorAll('.nav-sidebar a[data-section]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    
+                    // Switch back to label view if in images view
+                    switchView('label');
+                    
+                    const targetId = this.getAttribute('href');
+                    const targetElement = document.querySelector(targetId);
+                    
+                    if (targetElement) {
+                        targetElement.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
+                        
+                        document.querySelectorAll('.nav-sidebar a').forEach(link => {
+                            link.classList.remove('active');
+                        });
+                        this.classList.add('active');
+                    }
+                });
+            });
+
+            const backToTopButton = document.getElementById('backToTop');
+            const mainContent = document.querySelector('.main-content');
+
+            if (mainContent && backToTopButton) {
+                mainContent.addEventListener('scroll', () => {
+                    if (mainContent.scrollTop > 300) {
+                        backToTopButton.classList.add('visible');
+                    } else {
+                        backToTopButton.classList.remove('visible');
+                    }
+                });
+
+                backToTopButton.addEventListener('click', () => {
+                    mainContent.scrollTo({
+                        top: 0,
+                        behavior: 'smooth'
+                    });
+                });
+
+                const sections = document.querySelectorAll('.section');
+                const navLinks = document.querySelectorAll('.nav-sidebar a[data-section]');
+
+                mainContent.addEventListener('scroll', () => {
+                    let current = '';
+                    
+                    sections.forEach(section => {
+                        const sectionTop = section.offsetTop;
+                        if (mainContent.scrollTop >= (sectionTop - 100)) {
+                            current = section.getAttribute('id');
+                        }
+                    });
+
+                    navLinks.forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('href') === `#${current}`) {
+                            link.classList.add('active');
+                        }
+                    });
+                });
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadDrugLabel();
+        });
+    </script>
+</body>
+</html>

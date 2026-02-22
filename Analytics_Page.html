@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics</title>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <link rel="stylesheet" href="styles/analytics.css">
+    <script src="js/shared/namespace.js"></script>
+    <script src="js/shared/postMessage.js"></script>
+    <!-- Location reference map (department/mainLocation for each sublocation) -->
+    <script src="location_ref_mockdata.js"></script>
+    <script src="js/app/analyticsPage.js" defer></script>
+</head>
+<body>
+    <div class="analytics-container">
+        <!-- Sticky Header -->
+        <div class="analytics-header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M13 3v6h8V3m-8 18h8V11h-8M3 21h8v-6H3m0-2h8V3H3v10Z"/>
+                    </svg>
+                </div>
+                <h1>Overview</h1>
+            </div>
+        </div>
+        
+        <!-- Scroll Arrows -->
+        <div class="scroll-arrow up" id="scrollArrowUp">
+            <svg viewBox="0 0 24 24">
+                <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+        </div>
+        <div class="scroll-arrow down" id="scrollArrowDown">
+            <svg viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        </div>
+        
+        <div class="analytics-content">
+            <!-- Filter Chip -->
+            <div id="filterChip" class="filter-chip" style="display: none;">
+                <span id="filterChipLabel"></span>
+                <button id="clearFilterBtn" class="clear-filter-btn" title="Clear filter" onclick="clearAnalyticsFilter()">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                        <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Summary Cards -->
+            <div class="analytics-grid">
+                <div class="analytics-card clickable" id="totalItemsCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M3,13H5V11H3M3,17H5V15H3M3,9H5V7H3M7,13H21V11H7M7,17H21V15H7M7,9H21V7H7V9Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title">Total Items</div>
+                                <div class="card-subtitle">Click to view inventory</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-value" id="totalItems">--</div>
+                    <div class="card-change" id="totalItemsChange">Loading...</div>
+                </div>
+
+                <div class="analytics-card clickable" id="criticalItemsCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon" style="background: #ff5454;">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title">Critical Status</div>
+                                <div class="card-subtitle">Requiring immediate action</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-value" style="color: var(--status-critical);" id="criticalItems">--</div>
+                    <div class="card-change" id="criticalItemsChange">Loading...</div>
+                </div>
+
+                <div class="analytics-card clickable" id="resolvedItemsCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon" style="background: #5cb85c;">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title">FDA Shortages</div>
+                                <div class="card-subtitle">Manufacturer reported shortages</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-value" style="color: var(--status-resolved);" id="resolvedItems">--</div>
+                    <div class="card-change" id="resolvedItemsChange">Loading...</div>
+                </div>
+
+                <div class="analytics-card clickable" id="expiredEtaCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon" id="etaCardIcon" style="background: #ff5454;">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M9,10H7V12H9V10M13,10H11V12H13V10M17,10H15V12H17V10M19,3H18V1H16V3H8V1H6V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M19,19H5V8H19V19Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title" id="etaCardTitle">Expired ETA</div>
+                                <div class="card-subtitle" id="etaCardSubtitle">Items with past ETA dates</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-value" id="expiredEtaItems" style="color: var(--status-critical);">--</div>
+                    <div class="card-change" id="expiredEtaChange">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Inventory Health -->
+            <div class="analytics-card section-spacing">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M11,16.5L6.5,12L7.91,10.59L11,13.67L16.59,8.09L18,9.5L11,16.5Z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="card-title">Inventory Health</div>
+                            <div class="card-subtitle">Stock levels by days supply</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="status-bar" id="statusBar">
+                    <div class="status-segment clickable" style="background: #ff5454; width: 0%; cursor: pointer;" id="outOfStockSegment" title="Out of Stock: 0 items"></div>
+                    <div class="status-segment clickable" style="background: #ff8400; width: 0%; cursor: pointer;" id="lowStockSegment" title="Low Stock: 0 items"></div>
+                    <div class="status-segment clickable" style="background: #f2c94c; width: 0%; cursor: pointer;" id="expiringSoonSegment" title="Expiring: 0 items"></div>
+                    <div class="status-segment clickable" style="background: #5cb85c; width: 0%; cursor: pointer;" id="normalStockSegment" title="Normal Stock: 0 items"></div>
+                    <div class="status-segment clickable" style="background: #667eea; width: 0%; cursor: pointer;" id="overStockSegment" title="Overstock: 0 items"></div>
+                </div>
+
+                <div class="status-legend">
+                    <div class="legend-item legend-frame-outofstock" onclick="filterByStockStatus('outOfStock')">
+                        <span id="outOfStockLegend">Out of Stock - 0 days (0%)</span>
+                    </div>
+                    <div class="legend-item legend-frame-lowstock" onclick="filterByStockStatus('lowStock')">
+                        <span id="lowStockLegend">Low Stock - &lt;7 days (0%)</span>
+                    </div>
+                    <div class="legend-item legend-frame-expiring" onclick="filterByStockStatus('expiringSoon')" title="Items with any on-hand inventory expiring within the configured window">
+                        <span id="expiringSoonLegend">0 - Expiring ≤3 months</span>
+                    </div>
+                    <div class="legend-item legend-frame-normalstock" onclick="filterByStockStatus('normalStock')">
+                        <span id="normalStockLegend">Normal Stock - 7-60 days (0%)</span>
+                    </div>
+                    <div class="legend-item legend-frame-overstock" onclick="filterByStockStatus('overStock')">
+                        <span id="overStockLegend">Overstock - &gt;60 days (0%)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trend Analysis -->
+            <div class="analytics-grid section-spacing insights-grid">
+                <div class="analytics-card clickable" id="topUsedItemsCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M16,6L18.29,8.29L13.41,13.17L9.41,9.17L2,16.59L3.41,18L9.41,12L13.41,16L19.71,9.71L22,12V6H16Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title">Top Used Items</div>
+                                <div class="card-subtitle">Trending by consecutive usage</div>
+                            </div>
+                        </div>
+                    </div>
+                    <ul class="trend-list" id="topCategoriesList">
+                        <li class="trend-item">
+                            <span class="trend-name">Loading...</span>
+                            <span class="trend-value">--</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="analytics-card pyxis-metrics-card" id="pyxisMetricsCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon" style="background: #ff8400;">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M16.59,7.58L10,14.17L7.41,11.59L6,13L10,17L18,9L16.59,7.58Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title">Pyxis Metrics</div>
+                                <div class="card-subtitle">Inventory Projection</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metric-row">
+                        <div class="metric-item clickable-metric" onclick="openPyxisModal('stockOut')">
+                            <div class="metric-label">Stock Outs</div>
+                            <div class="metric-value" id="stockOuts">--</div>
+                        </div>
+                        <div class="metric-item clickable-metric" onclick="openPyxisModal('waste')">
+                            <div class="metric-label">Waste</div>
+                            <div class="metric-value" id="wasteCount">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analytics-card stockout-timeline-card" id="stockOutTimelineCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon" style="background: #ff5454;">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,7H11V13H17V11H13V7Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title">Stock-out Risk Timeline</div>
+                                <div class="card-subtitle">Gantt Forecast</div>
+                            </div>
+                        </div>
+                    
+                        <div class="stockout-kpi-right">
+                            <div class="stockout-kpi-total" id="stockOutItemsCount">0</div>
+                            <div class="stockout-kpi-caption">Items</div>
+                        </div>
+</div>
+                    <div class="stockout-timeline-legend">
+                        <span class="legend-pill risk-standard">Standard</span>
+                        <span class="legend-pill risk-nonstandard">Non-standard</span>
+                        <span class="legend-note">Position = Stock-out score (Daily Usage / Min Qty)</span>
+                    </div>
+                    <div id="stockOutTimeline" class="stockout-timeline"></div>
+                </div>
+
+                <div class="analytics-card inventory-cost-card" id="inventoryCostCard">
+                    <div class="inventory-cost-header">
+                        <div class="inventory-cost-left">
+                            <div class="card-icon" style="background: var(--teal-primary);">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M7,15H9C9,16.08 10.37,17 12,17C13.63,17 15,16.08 15,15C15,13.9 13.96,13.5 11.76,12.97C9.64,12.44 7,11.78 7,9C7,7.21 8.47,5.69 10.5,5.18V3H13.5V5.18C15.53,5.69 17,7.21 17,9H15C15,7.92 13.63,7 12,7C10.37,7 9,7.92 9,9C9,10.1 10.04,10.5 12.24,11.03C14.36,11.56 17,12.22 17,15C17,16.79 15.53,18.31 13.5,18.82V21H10.5V18.82C8.47,18.31 7,16.79 7,15Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="inventory-cost-title">Inventory Cost</div>
+                                <div class="inventory-cost-subtitle">
+                                    Restock Efficiency <span class="restock-efficiency-value" id="usageVsRestockOverall">0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="inventory-cost-right">
+                            <div class="inventory-cost-total" id="totalInventoryCost">$0.00</div>
+                            <div class="inventory-cost-caption">Carrying Cost</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Line Graph for Usage vs Restock -->
+                    <div class="usage-restock-line-chart">
+                        <canvas id="usageRestockLineCanvas" width="600" height="200"></canvas>
+                    </div>
+                </div>
+
+                <div class="analytics-card waste-usage-card" id="wasteUsageCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon" style="background: #667eea;">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M3,3V21H21V19H5V3H3M19,7L15,11L12,8L7,13L8.4,14.4L12,10.8L15,13.8L20.4,8.4L19,7Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title">Waste vs Usage</div>
+                                <div class="card-subtitle">Correlation View</div>
+                            </div>
+                        </div>
+
+                        <div class="waste-usage-header-right" id="wasteUsageHeaderRight" style="display:none;">
+                            <div class="waste-usage-selected-total" id="wasteUsageSelectedTotal">$0</div>
+                            <div class="waste-usage-selected-caption" id="wasteUsageSelectedCaption">MONTH</div>
+                        </div>
+                    </div>
+                    <div class="waste-usage-wrap">
+                        <div id="wasteUsageScatter" class="waste-usage-scatter" aria-label="Waste vs Usage scatter plot"></div>
+                    </div>
+                </div>
+
+                <div class="analytics-card inventory-waste-card" id="wasteCard">
+                    <div class="inventory-waste-header">
+                        <div class="inventory-waste-left">
+                            <div class="card-icon" style="background: #ff6b6b;">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M9,3V4H4V6H5V19A2,2 0 0,0 7,21H17A2,2 0 0,0 19,19V6H20V4H15V3H9M7,6H17V19H7V6M9,8V17H11V8H9M13,8V17H15V8H13Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="inventory-waste-title">Inventory Waste</div>
+                                <div class="inventory-waste-subtitle">Projected Waste</div>
+                            </div>
+                        </div>
+                        <div class="inventory-waste-right">
+                            <div class="inventory-waste-total" id="currentWasteCost">$0.00</div>
+                            <div class="inventory-waste-caption">12-month Outlook</div>
+                        </div>
+                    </div>
+                    
+                    <div class="waste-chart-section">
+                        <div class="waste-mini-chart" id="wasteMiniChart">
+                            <!-- Bars will be dynamically generated -->
+                        </div>
+                    </div>
+                
+            
+
+</div>
+            </div>
+
+            
+        </div>
+    </div>
+
+    <!-- Custom Tooltip for Health Bar -->
+    <div class="custom-tooltip" id="customTooltip"></div>
+
+    <!-- Stock Out Details Modal -->
+    <!-- Consolidated Pyxis Metrics Modal (Shortage Bulletin Design) -->
+    <div class="modal-overlay" id="pyxisModal">
+        <div class="modal-container">
+	            <div class="modal-header">
+                <div class="modal-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="pyxisModalIcon">
+                        <!-- Icon will be updated dynamically -->
+                    </svg>
+                    <span id="pyxisModalTitle">Pyxis Details by Area</span>
+                </div>
+	                <div class="modal-header-actions">
+	                    <button class="modal-close-btn" onclick="closePyxisModal()">&times;</button>
+	                </div>
+            </div>
+            <div class="modal-body">
+	                <div class="pyxis-modal-hint" id="pyxisModalHint">Select a summary card to view details</div>
+
+                <div class="pyxis-summary-row" id="pyxisSummaryRow">
+                    <button class="pyxis-summary-card" id="pyxisSummaryItems" onclick="selectPyxisSummary('items')">
+                        <div class="pyxis-summary-label">Total Items</div>
+                        <div class="pyxis-summary-value" id="pyxisSummaryItemsValue">--</div>
+                    </button>
+                    <button class="pyxis-summary-card" id="pyxisSummaryLocations" onclick="selectPyxisSummary('locations')">
+                        <div class="pyxis-summary-label">Total Locations</div>
+                        <div class="pyxis-summary-value" id="pyxisSummaryLocationsValue">--</div>
+                    </button>
+                    <button class="pyxis-summary-card" id="pyxisSummaryCost" onclick="selectPyxisSummary('cost')">
+                        <div class="pyxis-summary-label">Total Cost</div>
+                        <div class="pyxis-summary-value" id="pyxisSummaryCostValue">--</div>
+                    </button>
+                </div>
+
+	                <div class="pyxis-list-section" id="pyxisListSection" style="display:none;">
+	                    <div class="pyxis-list-header">
+	                        <div class="pyxis-list-header-left">
+	                            <div class="pyxis-list-title" id="pyxisListTitle">DETAILS</div>
+	                            <div class="pyxis-list-subtitle" id="pyxisListSubtitle"></div>
+	                        </div>
+	                        <div class="pyxis-list-header-right">
+	                            <select id="pyxisSortSelect" class="pyxis-sort-select" onchange="onPyxisSortChange()" aria-label="Sort Pyxis list">
+	                                <option value="cost">Cost</option>
+	                                <option value="frequency">Frequency</option>
+	                                <option value="location">Location</option>
+	                            </select>
+	                            <button class="pyxis-print-btn" id="pyxisPrintBtn" title="Print" onclick="printPyxisModal(event)">
+	                                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+	                                    <path fill="currentColor" d="M19,8H5A2,2 0 0,0 3,10V16H7V20H17V16H21V10A2,2 0 0,0 19,8M15,18H9V14H15V18M19,14H17V12H19V14M17,3H7V7H17V3Z"/>
+	                                </svg>
+	                                <span>Print</span>
+	                            </button>
+	                        </div>
+	                    </div>
+	                    <div class="pyxis-list-body" id="pyxisListBody"></div>
+	                </div>
+
+	                <!-- Legacy container (kept for backward compatibility / fallback rendering) -->
+	                <div id="pyxisAreaList" style="display:none;">
+            
+            
+
+</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    
+   
+
+				
+</body>
+</html>

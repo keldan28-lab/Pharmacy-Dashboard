@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pharmacy Dashboard</title>
+    
+    <!-- Load Mock Data Files -->
+    <script src="items_details_mockdata.js"></script>
+    
+    <script src="items_inventory_mockdata.js"></script>
+    <script src="pricing_mockdata.js"></script>
+    <script src="location_ref_mockdata.js"></script>
+
+    <!-- Transaction Scripts Manifest + Loader (recommended)
+         Add new daily/monthly files in data/transactions_manifest.js
+         Example daily file name: transaction_2026_01_19_mockdata.js -->
+    <script src="data/transactions_manifest.js"></script>
+    <script src="js/data/transactionLoader.js"></script>
+    
+    <!-- Data Migration Helpers - Bridges old and new data structures -->
+    <script src="data_migration_helpers.js"></script>
+
+    <!-- Shared namespace + data plumbing (static, no modules) -->
+    <script src="js/shared/namespace.js"></script>
+    <script src="js/data/transactionMerge.js"></script>
+    <script src="js/domain/forecasting.js"></script>
+    <script src="js/domain/compute.js"></script>
+
+    <!-- Google Sheets API (only used when admin computes spike factors) -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    
+    <!-- Advanced Trend Detection with Pharmaceutical Integration -->
+    <script src="trend_detection_integrated.js"></script>
+    <script src="js/app/spikeFactors.js"></script>
+    <script defer src="js/app/dashboard.js"></script>
+
+    <link rel="stylesheet" href="styles/dashboard.css">
+
+    <style>
+        .app-loading-spinner {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            border: 3px solid rgba(255,255,255,0.20);
+            border-top-color: rgba(255,255,255,0.85);
+            animation: appSpin 0.9s linear infinite;
+        }
+        @keyframes appSpin { to { transform: rotate(360deg); } }
+    </style>
+
+</head>
+<body>
+    <!-- App Loading Overlay (shown while data + compute caches warm up) -->
+    <div id="appLoadingOverlay" style="position:fixed; inset:0; z-index:99999; display:none; align-items:center; justify-content:center; background:rgba(10,12,16,0.72); backdrop-filter: blur(6px);">
+        <div style="display:flex; flex-direction:column; align-items:center; gap:14px; padding:22px 26px; border-radius:14px; background:rgba(24,28,38,0.72); border:1px solid rgba(255,255,255,0.10); box-shadow:0 12px 34px rgba(0,0,0,0.35);">
+            <div class="app-loading-spinner" aria-label="Loading" role="status"></div>
+            <div id="appLoadingText" style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; font-size:14px; color: rgba(255,255,255,0.86);">Loading inventory data…</div>
+        </div>
+    </div>
+    <!-- Sidebar Navigation -->
+    <div class="sidebar">
+        <button class="sidebar-tab active" data-tab="overview" onclick="switchTab('overview')">
+            <svg viewBox="0 0 24 24">
+                <path d="M13 3v6h8V3m-8 18h8V11h-8M3 21h8v-6H3m0-2h8V3H3v10Z"/>
+            </svg>
+            <span class="sidebar-tab-label">Overview</span>
+        </button>
+        
+        <button class="sidebar-tab" data-tab="inventory" onclick="switchTab('inventory')">
+            <svg viewBox="0 0 24 24">
+                <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/>
+            </svg>
+            <span class="sidebar-tab-label">Inventory</span>
+        </button>
+        
+        <button class="sidebar-tab" data-tab="analytics" onclick="switchTab('analytics')">
+            <svg viewBox="0 0 24 24">
+                <path d="M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z"/>
+            </svg>
+            <span class="sidebar-tab-label">Analytics</span>
+        </button>
+
+        <button class="sidebar-tab" data-tab="optimization" onclick="switchTab('optimization')">
+            <svg viewBox="0 0 24 24">
+                <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,7H11V13H17V11H13V7Z"/>
+            </svg>
+            <span class="sidebar-tab-label">Optimization</span>
+        </button>
+
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-spacer"></div>
+
+        <!-- User Avatar -->
+        <div class="sidebar-avatar">
+            <div class="sidebar-avatar-icon">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="8" r="4" stroke="#11998e" stroke-width="2"/>
+                    <path d="M4 20c0-4 3-7 8-7s8 3 8 7" stroke="#11998e" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <span class="sidebar-avatar-name">SARV</span>
+        </div>
+
+        <button class="sidebar-tab" data-tab="settings" onclick="openSettings()">
+            <svg viewBox="0 0 24 24">
+                <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/>
+            </svg>
+            <span class="sidebar-tab-label">Settings</span>
+        </button>
+    </div>
+
+    <!-- Page Containers -->
+    <div class="page-container">
+        <!-- Overview Tab (Analytics Page) -->
+        <div id="overviewContainer" class="tab-container active">
+            <iframe id="overviewFrame" 
+                    src="Analytics_Page.html" 
+                    style="width: 100%; height: 100%; border: none;">
+            </iframe>
+        </div>
+
+        <!-- Inventory Tab (original page embedded) -->
+        <div id="inventoryContainer" class="tab-container">
+            <!-- The entire original inventory page will be loaded here via iframe -->
+            <iframe id="inventoryFrame" 
+                    src="Shortage_Bulletin.html" 
+                    style="width: 100%; height: 100%; border: none;">
+            </iframe>
+        </div>
+        
+        <!-- Analytics Tab (Charts page) -->
+        <div id="analyticsContainer" class="tab-container">
+            <iframe id="analyticsFrame" 
+                    src="Charts.html?v23k" 
+                    style="width: 100%; height: 100%; border: none;">
+            </iframe>
+        </div>
+
+        <!-- Stock-Out Tab (Full Stock-Out Timeline) -->
+        <div id="optimizationContainer" class="tab-container">
+            <iframe id="optimizationFrame"
+                    src="Optimization_Timeline.html"
+                    style="width: 100%; height: 100%; border: none;">
+            </iframe>
+        </div>
+
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="settings-modal" id="settingsModal">
+        <div class="settings-content">
+            <div class="settings-header">
+                <h2>Settings</h2>
+                <button class="modal-close-btn" onclick="closeSettings()">&times;</button>
+            </div>
+            <div class="settings-body">
+                <div class="settings-section">
+                    <h3>Display Options</h3>
+                    <div class="settings-option">
+                        <div class="settings-option-info">
+                            <div class="settings-option-title">Dark Mode</div>
+                            <div class="settings-option-description">Automatically adjusts based on sunset/sunrise</div>
+                        </div>
+                        <label class="toggle-switch-settings">
+                            <input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()">
+                            <span class="toggle-slider-settings"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Inventory Options</h3>
+                    <div class="settings-option">
+                        <div class="settings-option-info">
+                            <div class="settings-option-title">Exclude Standard Inventory</div>
+                            <div class="settings-option-description">Exclude pyxisStandard amount from all calculations (quantity, usage, projections)</div>
+                        </div>
+                        <label class="toggle-switch-settings">
+                            <input type="checkbox" id="excludeStandardToggle" onchange="toggleExcludeStandard()">
+                            <span class="toggle-slider-settings"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Calculation Settings</h3>
+                    <div class="usage-params-card">
+                        <div class="usage-params-title">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M7,2H17A2,2 0 0,1 19,4V20A2,2 0 0,1 17,22H7A2,2 0 0,1 5,20V4A2,2 0 0,1 7,2M7,4V8H17V4H7M7,10V12H9V10H7M11,10V12H13V10H11M15,10V12H17V10H15M7,14V16H9V14H7M11,14V16H13V14H11M15,14V16H17V14H15M7,18V20H9V18H7M11,18V20H13V18H11M15,18V20H17V18H15Z"/>
+                            </svg>
+                            Usage Calculation Parameters
+                        </div>
+
+                        <div class="slider-control">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Trending Threshold</span>
+                                <span class="slider-value" id="trendThresholdValue">2 weeks</span>
+                            </div>
+                            <input type="range" class="slider-input" id="trendThresholdSlider" 
+                                   min="1" max="10" value="2" step="1" 
+                                   oninput="updateTrendThresholdValue(this.value)">
+                            <div class="slider-description">
+                                Number of consecutive weeks of increase/decrease to identify trending items
+                            </div>
+                        </div>
+
+                        <div class="slider-control">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Percentile Cutoff</span>
+                                <span class="slider-value" id="percentileCutoffValue">25th</span>
+                            </div>
+                            <input type="range" class="slider-input" id="percentileCutoffSlider" 
+                                   min="0" max="75" value="25" step="1" 
+                                   oninput="updatePercentileCutoffValue(this.value); updateBarGraph()">
+                            <div class="slider-description">
+                                Values below this percentile are filtered as outliers (supply constraints)
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 18px; margin-bottom: 12px;">
+                            <label style="display: block; font-size: 0.85em; font-weight: 500; color: var(--text-primary); margin-bottom: 8px;">
+                                Test Data (comma or space separated):
+                            </label>
+                            <textarea 
+                                class="data-input-field" 
+                                id="testDataInput" 
+                                placeholder="Paste or enter values, e.g.: 1,14,8,12,3,3,1,2"
+                                oninput="updateBarGraph()"
+                            >1,14,8,12,3,3,1,2</textarea>
+                        </div>
+
+                        <div id="barGraphContainer" class="bar-graph-container">
+                            <!-- Generated dynamically -->
+                        </div>
+
+                        <div class="graph-legend">
+                            <div class="legend-item">
+                                <div class="legend-color kept"></div>
+                                <span>Kept</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color filtered"></div>
+                                <span>Filtered Out</span>
+                            </div>
+                        </div>
+
+                        <div class="stats-row" id="statsRow">
+                            <div class="stat-item">
+                                <div class="stat-label">Original Avg</div>
+                                <div class="stat-value" id="originalAvg">-</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">New Avg</div>
+                                <div class="stat-value" id="newAvg">-</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Filtered</div>
+                                <div class="stat-value" id="filteredCount">-</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Threshold</div>
+                                <div class="stat-value" id="thresholdValue">-</div>
+                            </div>
+                        </div>
+
+                        
+                    </div>
+
+                    <!-- Restock Efficiency Threshold Section -->
+                    <div class="usage-params-card" style="margin-top: 20px;">
+                        <div class="usage-params-title">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <!-- Box outline -->
+                                <rect x="6" y="6" width="12" height="12" rx="1" />
+                                <!-- Circular arrow around box (clockwise) -->
+                                <path d="M 12 2 A 8 8 0 0 1 20 10" stroke-linecap="round" />
+                                <path d="M 22 12 A 8 8 0 0 1 14 20" stroke-linecap="round" />
+                                <path d="M 12 22 A 8 8 0 0 1 4 14" stroke-linecap="round" />
+                                <path d="M 2 12 A 8 8 0 0 1 10 4" stroke-linecap="round" />
+                                <!-- Arrow heads -->
+                                <path d="M 20 9 L 20 11 L 18 10 Z" fill="currentColor" />
+                            </svg>
+                            Restock Efficiency Threshold
+                        </div>
+
+                        <div class="slider-control">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Threshold Line Position</span>
+                                <span class="slider-value" id="thresholdLineValue">0.50</span>
+                            </div>
+                            <input type="range" class="slider-input" id="thresholdLineSlider" 
+                                   min="0.2" max="1.0" value="0.5" step="0.05" 
+                                   oninput="updateThresholdLineValue(this.value)">
+                            <div class="slider-description">
+                                Sets the threshold line position (0.2 - 1.0) for the Restock Efficiency ratio chart and filters items below this value
+                            </div>
+                        </div>
+
+                        <!-- Pyxis Restock Frequency (restocks per day) -->
+                        <div class="slider-control" style="margin-top: 14px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Pyxis Restock Frequency</span>
+                                <span class="slider-value" id="pyxisRestockFreqValue">1.00</span>
+                            </div>
+                            <input type="range" class="slider-input" id="pyxisRestockFreqSlider"
+                                   min="0.25" max="6" value="1" step="0.25"
+                                   oninput="updatePyxisRestockFreqValue(this.value)">
+                            <div class="slider-description">
+                                Assumed Pyxis restocks per day used for IUR calculations in Optimization (default: 1×/day)
+                            </div>
+                        </div>
+
+                        <!-- IUR Trend Weight (w) -->
+                        <div class="slider-control" style="margin-top: 14px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">IUR Trend Weight (w)</span>
+                                <span class="slider-value" id="iurTrendWeightValue">2.00</span>
+                            </div>
+                            <input type="range" class="slider-input" id="iurTrendWeightSlider"
+                                   min="0" max="6" value="2" step="0.25"
+                                   oninput="updateIurTrendWeightValue(this.value)">
+                            <div class="slider-description">
+                                Subtracts w × TrendScore from IUR to increase risk sensitivity when usage is trending up (can push IUR negative)
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Shelf Life Period Section -->
+                    <div class="usage-params-card" style="margin-top: 20px;">
+                        <div class="usage-params-title">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M19,3H18V1H16V3H8V1H6V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M19,19H5V9H19V19M5,7V5H19V7H5M10.56,17.46L16.5,11.53L15.43,10.47L10.56,15.34L8.45,13.23L7.39,14.29L10.56,17.46Z"/>
+                            </svg>
+                            Shelf Life Period
+                        </div>
+
+                        <div class="slider-control">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Projection Period (weeks)</span>
+                                <span class="slider-value" id="budPeriodValue">52</span>
+                            </div>
+                            <input type="range" class="slider-input" id="budPeriodSlider" 
+                                   min="1" max="104" value="52" step="1" 
+                                   oninput="updateBudPeriodValue(this.value)">
+                            <div class="slider-description">
+                                Period (in weeks) used to project inventory waste based on average usage rate and expected shelf life (default: 52 weeks)
+                            </div>
+                        </div>
+
+                        <!-- Expiring Window Section -->
+                        <div class="slider-control" style="margin-top: 14px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Expiring Window (months)</span>
+                                <span class="slider-value" id="expiringMonthsValue">3</span>
+                            </div>
+                            <input type="range" class="slider-input" id="expiringMonthsSlider"
+                                   min="1" max="12" value="3" step="1"
+                                   oninput="updateExpiringMonthsValue(this.value)">
+                            <div class="slider-description">
+                                Counts items with any on-hand inventory expiring within the selected number of months (default: 3)
+                            </div>
+                        </div>
+                    </div>
+
+                                        <!-- What-if Controls (Optimization) -->
+                    <div class="usage-params-card" style="margin-top: 20px;">
+                        <div class="usage-params-title">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M3 13h2v-2H3v2zm4 0h14v-2H7v2zM3 6v2h2V6H3zm4 2h14V6H7v2zm-4 9v2h2v-2H3zm4 2h14v-2H7v2z"/>
+                            </svg>
+                            What-if (Optimization)
+                        </div>
+
+                        <div class="settings-option" style="margin-top: 6px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Apply lead-time adjustments to</div>
+                                <div class="settings-option-description">Choose which departments receive lead-time what-if adjustments</div>
+                            </div>
+                            <select id="applyLeadTimeToSelect" style="padding: 8px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15); background: var(--card-bg, #fff); color: var(--text-primary);">
+                                <option value="ALL">All</option>
+                                <option value="PHARMACY_ONLY">Pharmacy only</option>
+                                <option value="PYXIS_ONLY">Pyxis only</option>
+                            </select>
+                        </div>
+
+                        <div class="slider-control" style="margin-top: 14px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Lead time multiplier</span>
+                                <span class="slider-value" id="leadTimeMultiplierValue">1.00×</span>
+                            </div>
+                            <input type="range" class="slider-input" id="leadTimeMultiplierSlider"
+                                   min="0.5" max="2.0" value="1" step="0.05"
+                                   oninput="updateLeadTimeMultiplierValue(this.value)">
+                            <div class="slider-description">
+                                Scales replenishment lead time (e.g., delays, staffing constraints, courier issues)
+                            </div>
+                        </div>
+
+                        <div class="slider-control" style="margin-top: 14px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Lead time adjustment (days)</span>
+                                <span class="slider-value" id="leadTimeAddDaysValue">+0.0</span>
+                            </div>
+                            <input type="range" class="slider-input" id="leadTimeAddDaysSlider"
+                                   min="-2" max="7" value="0" step="0.5"
+                                   oninput="updateLeadTimeAddDaysValue(this.value)">
+                            <div class="slider-description">
+                                Adds/subtracts days to lead time (positive = slower replenishment)
+                            </div>
+                        </div>
+
+                        <div class="slider-control" style="margin-top: 14px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Demand surge multiplier</span>
+                                <span class="slider-value" id="surgeMultiplierValue">1.00×</span>
+                            </div>
+                            <input type="range" class="slider-input" id="surgeMultiplierSlider"
+                                   min="0.5" max="3.0" value="1" step="0.05"
+                                   oninput="updateSurgeMultiplierValue(this.value)">
+                            <div class="slider-description">
+                                Multiplies daily usage (e.g., flu season, special events, shortages causing substitutions)
+                            </div>
+                        </div>
+
+                        <div class="slider-control" style="margin-top: 14px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Service level</span>
+                                <span class="slider-value" id="serviceLevelPresetValue">95%</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button type="button" class="recalculate-btn" style="flex: 1; padding: 10px; margin-top: 0;" onclick="setServiceLevelPreset('90')">90%</button>
+                                <button type="button" class="recalculate-btn" style="flex: 1; padding: 10px; margin-top: 0;" onclick="setServiceLevelPreset('95')">95%</button>
+                                <button type="button" class="recalculate-btn" style="flex: 1; padding: 10px; margin-top: 0;" onclick="setServiceLevelPreset('975')">97.5%</button>
+                                <button type="button" class="recalculate-btn" style="flex: 1; padding: 10px; margin-top: 0;" onclick="setServiceLevelPreset('99')">99%</button>
+                            </div>
+                            <input type="hidden" id="serviceLevelPresetHidden" value="95" />
+                            <div class="slider-description" style="margin-top: 8px;">
+                                Controls safety stock sensitivity (higher = more conservative reorder points)
+                            </div>
+                        </div>
+
+                        <div class="slider-control" style="margin-top: 14px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Review period (days)</span>
+                                <span class="slider-value" id="reviewPeriodDaysValue">1</span>
+                            </div>
+                            <input type="range" class="slider-input" id="reviewPeriodDaysSlider"
+                                   min="1" max="7" value="1" step="1"
+                                   oninput="updateReviewPeriodDaysValue(this.value)">
+                            <div class="slider-description">
+                                Time between replenishment decisions (increases coverage horizon for reorder point)
+                            </div>
+                        </div>
+
+                        <div class="settings-option" style="margin-top: 14px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Horizon</div>
+                                <div class="settings-option-description">Used for probability-based outputs (when enabled)</div>
+                            </div>
+                            <select id="whatIfHorizonSelect" style="padding: 8px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15); background: var(--card-bg, #fff); color: var(--text-primary);">
+                                <option value="7">7 days</option>
+                                <option value="14" selected>14 days</option>
+                                <option value="30">30 days</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Admin: Spike Factors (cached trend multipliers for Min Suggestions) -->
+                    <div class="usage-params-card" style="margin-top: 14px;">
+                        <div class="usage-params-title">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm1 15h-2v-2h2Zm0-4h-2V7h2Z"/>
+                            </svg>
+                            Min Suggestion Trend Cache (Admin)
+                        </div>
+
+                        <div style="font-size: 0.85em; opacity: 0.85; margin-bottom: 10px;">
+                            Computes Dispense-only weekly trend multipliers (spike factors) and caches them in Google Sheets so Min Suggestions can load instantly.
+                        </div>
+
+                        <div class="slider-control" style="margin-top: 10px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Apps Script Web App URL</span>
+                            </div>
+                            <input id="spikeWebAppUrl" type="text" placeholder="https://script.google.com/macros/s/.../exec"
+                                   style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15);" />
+                        </div>
+
+                        <div class="slider-control" style="margin-top: 10px;">
+                            <div class="slider-label">
+                                <span class="slider-label-text">Spreadsheet ID</span>
+                            </div>
+                            <input id="spikeSheetId" type="text" placeholder="1abcDEF…"
+                                   style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15);" />
+                        </div>
+
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Sheet Tab</div>
+                                <div class="settings-option-description">Where spike multipliers are stored</div>
+                            </div>
+                            <input id="spikeTabName" type="text" value="min_spike_factors" disabled
+                                   style="padding: 8px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15); width: 200px; opacity: 0.75;" />
+                        </div>
+
+                        <div style="display:flex; gap: 10px; align-items:center; margin-top: 12px; flex-wrap: wrap;">
+                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px;" onclick="adminComputeAndSaveSpikeFactors()">
+                                Compute &amp; Save (Dispense Weekly)
+                            </button>
+                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminLoadSpikeFactorsFromSheet()">
+                                Load From Sheet
+                            </button>
+                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminTestSpikeWebApp()">
+                                Test Connection
+                            </button>
+                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.75;" onclick="adminClearLocalSpikeCache()">
+                                Clear Local Cache
+                            </button>
+                            <div id="spikeAdminStatusText" style="font-size: 0.85em; opacity: 0.85;">Not loaded</div>
+                        </div>
+                    </div>
+
+
+<!-- Apply Button (outside all cards) -->
+                    <button class="recalculate-btn" onclick="applyAllSettings()" style="margin-top: 20px;">
+                        <span style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/>
+                            </svg>
+                            Apply Settings & Recalculate
+                        </span>
+                    </button>
+                </div>
+            </div>
+            <div class="settings-footer">
+                <div style="margin-bottom: 8px;">Dashboard Settings</div>
+                <div style="font-size: 0.85em;">Dark mode syncs across all pages automatically</div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Stockout Details Modal -->
+    <div class="modal-overlay" id="stockoutModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M16.59,7.58L10,14.17L7.41,11.59L6,13L10,17L18,9L16.59,7.58Z"/>
+                    </svg>
+                    <span>Stock Out Items by Pyxis Location</span>
+                </div>
+                <div class="modal-header-actions">
+                    <button class="modal-close-btn" onclick="closeStockoutModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body" id="stockoutModalBody">
+                <div class="pyxis-summary" id="stockoutListContainer">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+            <!-- Scroll Arrows -->
+            <div class="modal-scroll-arrow up" id="stockoutScrollUp">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+            </div>
+            <div class="modal-scroll-arrow down" id="stockoutScrollDown">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Waste Modal -->
+    <div class="modal-overlay" id="wasteModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M9,3V4H4V6H5V19A2,2 0 0,0 7,21H17A2,2 0 0,0 19,19V6H20V4H15V3H9M7,6H17V19H7V6M9,8V17H11V8H9M13,8V17H15V8H13Z"/>
+                    </svg>
+                    <span>Wasted Items by Pyxis Location</span>
+                </div>
+                <div class="modal-header-actions">
+                    <button class="modal-close-btn" onclick="closeWasteModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body" id="wasteModalBody">
+                <div class="pyxis-summary" id="wasteSummaryContainer">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+            <!-- Scroll Arrows -->
+            <div class="modal-scroll-arrow up" id="wasteScrollUp">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+            </div>
+            <div class="modal-scroll-arrow down" id="wasteScrollDown">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Unused Modal -->
+    <div class="modal-overlay" id="unusedModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M16.59,7.58L10,14.17L7.41,11.59L6,13L10,17L18,9L16.59,7.58Z"/>
+                    </svg>
+                    <span>Unused Items by Pyxis Location</span>
+                </div>
+                <div class="modal-header-actions">
+                    <button class="modal-close-btn" onclick="closeUnusedModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body" id="unusedModalBody">
+                <div class="pyxis-summary" id="unusedSummaryContainer">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+            <!-- Scroll Arrows -->
+            <div class="modal-scroll-arrow up" id="unusedScrollUp">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+            </div>
+            <div class="modal-scroll-arrow down" id="unusedScrollDown">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overload Modal -->
+    <div class="modal-overlay" id="overloadModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
+                    </svg>
+                    <span>Overloaded Items by Pyxis Location</span>
+                </div>
+                <div class="modal-header-actions">
+                    <button class="modal-close-btn" onclick="closeOverloadModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body" id="overloadModalBody">
+                <div class="pyxis-summary" id="overloadSummaryContainer">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+            <!-- Scroll Arrows -->
+            <div class="modal-scroll-arrow up" id="overloadScrollUp">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+            </div>
+            <div class="modal-scroll-arrow down" id="overloadScrollDown">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+
+    <iframe id="spikeBridgeFrame" style="display:none;width:0;height:0;border:0;"></iframe>
+
+</body>
+</html>
+

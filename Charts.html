@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Charts</title>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <link rel="stylesheet" href="styles/charts_v23k.css">
+    <script src="js/shared/namespace.js"></script>
+    <script src="js/shared/postMessage.js"></script>
+    <!-- Location reference map (department/mainLocation for each sublocation) -->
+    <script src="location_ref_mockdata.js"></script>
+    <script src="js/app/chartsPage.js" defer></script>
+
+    <style>
+      /* Remove vertical scrollbar in vertical bar chart view */
+      .charts-content { overflow-y: auto !important; }
+      .cost-chart-side { overflow-y: auto !important; }
+
+      /* Calendar zoom animations (day -> month -> year zooms OUT; reverse zooms IN) */
+      .chart-cal-card.zoom-out .chart-cal-zoom-panel { animation: calZoomOut 200ms ease-out both; }
+      .chart-cal-card.zoom-in  .chart-cal-zoom-panel { animation: calZoomIn  200ms ease-out both; }
+
+      @keyframes calZoomOut {
+        from { opacity: 0; transform: scale(1.08) translateY(-6px); }
+        to   { opacity: 1; transform: scale(1.00) translateY(0); }
+      }
+      @keyframes calZoomIn {
+        from { opacity: 0; transform: scale(0.92) translateY(6px); }
+        to   { opacity: 1; transform: scale(1.00) translateY(0); }
+      }
+    </style>
+
+
+<style>
+/* Ensure header controls (including breadcrumb) remain clickable above canvases/overlays */
+.controls, .controls-right, #costBreadcrumb {
+  position: relative;
+  z-index: 50;
+}
+#costBreadcrumb * { pointer-events: auto; }
+.chart-container, .charts-content { position: relative; }
+#costChartCanvas { position: relative; z-index: 1; }
+</style>
+
+</head>
+<body>
+    <!-- Keyboard Search Bar -->
+    <div id="keyboardSearchBar">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input type="text" id="searchInput" placeholder="Type to search..." readonly>
+    </div>
+
+    <div class="container">
+        <!-- Sticky Header -->
+        <div class="charts-header">
+            <div class="header-content">
+                <div class="header-left">
+                    <div class="header-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z"/>
+                        </svg>
+                    </div>
+                    <h1>Analytics Charts</h1>
+                </div>
+                
+                <div class="header-right">
+                    <!-- Back Button -->
+                    <div id="backButton" class="back-button">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Controls Row -->
+            <div class="chart-controls-header">
+                <div class="controls-left">
+                    <div class="view-selector-group">
+                        <span class="view-selector-label">View by:</span>
+                        <div id="customDropdown" class="custom-dropdown">
+                            <div class="dropdown-header" id="dropdownHeader">
+                                <span class="dropdown-selected" id="dropdownSelected">Class</span>
+                                <svg class="dropdown-arrow" id="dropdownArrow" viewBox="0 0 24 24" width="16" height="16">
+                                    <path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>
+                                </svg>
+                            </div>
+<div class="dropdown-options" id="dropdownOptions">
+                                <div class="dropdown-option" data-value="itemClass">Class</div>
+                                <div class="dropdown-option" data-value="drugName">Name</div>
+                                <div class="dropdown-option" data-value="description">Item</div>
+                                <div class="dropdown-option" data-value="formulary">Formulary</div>
+                            </div>
+                        </div>
+                        <!-- Hidden select for compatibility -->
+                        <select id="costChartViewSelector" style="display: none;">
+                            <option value="itemClass">Class</option>
+                            <option value="drugName">Name</option>
+                            <option value="description">Item</option>
+                            <option value="formulary">Formulary</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Vertical Divider -->
+                    <div class="controls-divider"></div>
+
+                    <!-- Date Range (persistent in header across all chart views) -->
+                    <div id="chartDateRangeContainer" class="chart-date-range">
+                        <!-- Single pill control (like "01-15-2018 → 01-28-2018") -->
+                        <button id="chartRangePill" class="chart-range-pill" type="button" aria-label="Open date range">
+                            <span class="chart-range-pill-left">
+                                <svg class="chart-range-pill-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <rect x="3" y="5" width="18" height="16" rx="2" ry="2"></rect>
+                                    <line x1="16" y1="3" x2="16" y2="7" stroke-linecap="round"></line>
+                                    <line x1="8" y1="3" x2="8" y2="7" stroke-linecap="round"></line>
+                                    <line x1="3" y1="9" x2="21" y2="9" stroke-linecap="round"></line>
+                                    <rect x="7" y="12" width="2" height="2" rx="0.4" ry="0.4" fill="currentColor" stroke="none"></rect>
+                                    <rect x="11" y="12" width="2" height="2" rx="0.4" ry="0.4" fill="currentColor" stroke="none"></rect>
+                                    <rect x="15" y="12" width="2" height="2" rx="0.4" ry="0.4" fill="currentColor" stroke="none"></rect>
+                                </svg>
+                                <span id="chartRangePillText" class="chart-range-pill-text">— → —</span>
+                            </span>
+                            <span class="chart-range-pill-caret">▾</span>
+                        </button>
+
+                        <!-- Popover: preset list (left), date inputs (center), projection selector (right) -->
+                        <div id="chartRangePopover" class="chart-range-popover" aria-hidden="true">
+                            <div class="chart-range-popover-inner">
+                                <div class="chart-range-presets">
+                                    <button class="range-preset-btn" type="button" data-preset="all">All</button>
+                                    <button class="range-preset-btn" type="button" data-preset="7">Last Week</button>
+                                    <button class="range-preset-btn" type="button" data-preset="30">Last Month</button>
+                                    <button class="range-preset-btn" type="button" data-preset="90">Last 3 months</button>
+                                    <button class="range-preset-btn" type="button" data-preset="180">Last 6 months</button>
+                                    <button class="range-preset-btn" type="button" data-preset="270">Last 9 months</button>
+                                    <button class="range-preset-btn" type="button" data-preset="custom">Custom</button>
+                                </div>
+
+                                <!-- Middle: two calendar boxes (From / To) -->
+                                <div class="chart-range-calendars" aria-label="Date range calendars">
+                                    <!-- calendars are rendered by chartsPage.js -->
+                                </div>
+
+                                <!-- Keep inputs/select for persistence/state, but hide them visually -->
+                                <div class="chart-range-hidden-inputs" aria-hidden="true">
+                                    <input id="chartFromDate" class="chart-date-input" type="date" tabindex="-1"/>
+                                    <input id="chartToDate" class="chart-date-input" type="date" tabindex="-1"/>
+                                    <select id="chartDatePreset" class="chart-date-range-select" tabindex="-1">
+                                        <option value="all">All</option>
+                                        <option value="7">Last Week</option>
+                                        <option value="30">Last Month</option>
+                                        <option value="90">Last 3 months</option>
+                                        <option value="180">Last 6 months</option>
+                                        <option value="270">Last 9 months</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                </div>
+
+                                <div class="chart-range-projection">
+                                    <div class="chart-range-projection-title">Projection</div>
+                                    <div class="chart-range-projection-buttons" role="group" aria-label="Projection period">
+                                        <button class="projection-btn" type="button" data-outlook="0">Off</button>
+                                        <button class="projection-btn" type="button" data-outlook="90">3 Months</button>
+                                        <button class="projection-btn" type="button" data-outlook="180">6 Months</button>
+                                        <button class="projection-btn" type="button" data-outlook="270">9 Months</button>
+                                    </div>
+                                    <select id="chartOutlookDays" class="chart-date-range-select" aria-label="Projection period" tabindex="-1" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;">
+                                        <option value="0">Off</option>
+                                        <option value="90">3 Months</option>
+                                        <option value="180">6 Months</option>
+                                        <option value="270">9 Months</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Vertical Divider -->
+                    <div class="controls-divider"></div>
+
+                    <!-- Chart Type Icons -->
+                    <div id="chartTypeIcons" class="chart-type-icons"></div>
+
+
+                </div>
+                
+                <div class="controls-center">
+                </div>
+                
+                <div class="controls-right">
+                    <div id="costBreadcrumb" class="cost-breadcrumb"></div>
+                    <div id="filterChip" class="filter-chip" style="display: none;">
+                        <span id="filterChipLabel"></span>
+                        <button id="clearFilterBtn" class="clear-filter-btn" title="Clear filter">
+                            <svg viewBox="0 0 24 24" width="16" height="16">
+                                <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="searchChip" class="filter-chip" style="display: none;">
+                        <span id="searchChipLabel"></span>
+                        <button id="clearSearchBtn" class="clear-filter-btn" title="Clear search">
+                            <svg viewBox="0 0 24 24" width="16" height="16">
+                                <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="totalInventoryCost" class="total-cost-value">$0.00</div>
+                </div>
+            </div>
+
+                        <div id="chartContextControls" class="chart-context-controls">
+                <div class="chart-context-inner">
+				<div id="verticalDrillContainer" class="chart-drill">
+                        <span class="chart-context-divider">|</span>
+                        <span class="chart-drill-label">Drill</span>
+                        <div class="chart-drill-controls">
+                            <span class="chart-drill-text">Month</span>
+                            <input id="chartDrillSlider" class="chart-drill-slider" type="range" min="0" max="2" step="1" value="1" aria-label="Drilldown level"/>
+                            <span class="chart-drill-text">Day</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scale/Header Container -->
+            <div id="costChartScaleContainer" class="cost-chart-scale-container"></div>
+        </div>
+        
+        <div class="charts-content">
+            <!-- Scrollable Chart Canvas -->
+            <div class="cost-chart-side">
+                <canvas id="costChart"></canvas>
+                <!-- Sankey Chart Container (hidden by default) -->
+                <div id="sankeyChart" style="width: 100%; height: 690px; display: none; padding-left: 15px; padding-right: 15px; padding-top: 15px;"></div>
+            </div>
+            <!-- Pie Chart Tooltip -->
+            <div id="pieTooltip" class="pie-tooltip"></div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,438 @@
+/* ================================================================
+   COMPANION MODAL - ITEM DETAILS STYLING (EXACT MATCH)
+   Updated: January 9, 2026
+   ================================================================ */
+
+/* Container */
+.item-details-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 10px;
+}
+
+/* Summary Cards Row */
+.summary-cards-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+    margin-bottom: 10px;
+}
+
+.companion-summary-card {
+    background: linear-gradient(135deg, var(--modal-card-bg) 0%, var(--modal-card-bg-alt) 100%);
+    border: 2px solid var(--modal-card-border);
+    border-radius: 10px;
+    padding: 15px;
+    text-align: center;
+    /* Static - no hover effects */
+}
+
+.summary-card-label {
+    font-size: clamp(0.75em, 1.2vw, 0.85em);
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.summary-card-value {
+    font-size: clamp(1.5em, 2.5vw, 2em);
+    color: var(--teal-primary);
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.summary-card-sublabel {
+    font-size: clamp(0.7em, 1vw, 0.8em);
+    color: var(--text-secondary);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--modal-card-border);
+}
+
+/* Section Containers - Match Details Modal */
+.companion-section {
+    background: var(--modal-card-bg);
+    border: 1px solid var(--modal-card-border);
+    border-radius: 10px;
+    padding: 15px;
+}
+
+/* Section Headers - No icon wrapper, just text */
+.companion-section .section-header {
+    font-size: clamp(1em, 1.5vw, 1.1em);
+    font-weight: 700;
+    color: var(--teal-primary);
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--teal-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+}
+
+/* Remove icon styling from companion modal */
+.companion-section .section-icon {
+    display: none;
+}
+
+.companion-section .section-title {
+    /* Not needed - header is just text */
+}
+
+.companion-section .section-content {
+    padding: 0;
+}
+
+/* Labeler List - No scrolling, expand to fit */
+.labeler-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    /* No max-height or overflow - expands to fit content */
+}
+
+.labeler-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background: var(--modal-card-bg-alt);
+    border: 2px solid var(--modal-card-border-alt);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.labeler-item:hover {
+    border-color: var(--modal-card-border-alt-hover);
+    background: var(--modal-card-bg-alt-hover);
+    transform: translateX(5px);
+}
+
+.labeler-item.active {
+    background: var(--modal-card-list-bg-active);
+    border-color: var(--modal-card-list-border-active);
+    border-width: 3px;
+}
+
+.labeler-name {
+    font-size: clamp(0.9em, 1.3vw, 1em);
+    font-weight: 600;
+    color: var(--modal-card-list-text);
+}
+
+.labeler-badge {
+    background: var(--modal-card-list-badge-bg);
+    color: var(--text-primary);
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: clamp(0.75em, 1.1vw, 0.85em);
+    font-weight: 600;
+}
+
+/* Package Details Grid */
+.package-details-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Package Details Headers */
+.package-details-headers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--teal-primary);
+}
+
+.package-header,
+.unit-header {
+    font-size: clamp(0.9em, 1.3vw, 1em);
+    font-weight: 700;
+    color: var(--teal-primary);
+    text-align: left;
+    padding-left: 12px;
+}
+
+/* NDC Card Rows */
+.ndc-card-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.ndc-column {
+    display: flex;
+    flex-direction: column;
+}
+
+/* NDC Cards */
+.ndc-card {
+    background: var(--modal-card-bg-alt);
+    border: 2px solid var(--modal-card-border-alt);
+    border-radius: 8px;
+    padding: 12px;
+    transition: all 0.3s ease;
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.ndc-card:hover {
+    border-color: var(--teal-primary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--shadow-color);
+}
+
+.package-ndc-card {
+    cursor: pointer;
+}
+
+.package-ndc-card::after {
+    content: '🔗';
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 1.2em;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.package-ndc-card:hover::after {
+    opacity: 0.6;
+}
+
+.unit-ndc-card {
+    background: var(--modal-card-bg);
+    border-color: var(--modal-card-border);
+}
+
+.ndc-code {
+    font-size: clamp(0.95em, 1.4vw, 1.1em);
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    font-family: 'Courier New', monospace;
+}
+
+.ndc-packaging {
+    font-size: clamp(0.8em, 1.2vw, 0.9em);
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    line-height: 1.4;
+    flex: 1;
+}
+
+/* Branded/Generic Badges */
+.branded-badge,
+.generic-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: clamp(0.7em, 1vw, 0.8em);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    align-self: flex-start;
+}
+
+.branded-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.generic-badge {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    color: white;
+}
+
+/* Drug Label Button */
+#drugLabelButtonContainer {
+    margin-top: 20px;
+}
+
+.drug-label-section {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.drug-label-section .section-content {
+    padding: 12px 0;
+    text-align: right;
+}
+
+.drug-label-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: transparent;
+    color: var(--teal-primary);
+    border: 2px solid var(--teal-primary);
+    border-radius: 6px;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+    min-width: 140px;
+}
+
+.drug-label-button:hover:not(:disabled) {
+    background: var(--teal-primary);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
+}
+
+.drug-label-button:disabled,
+.drug-label-button.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: transparent;
+    border-color: #6b7280;
+    color: #6b7280;
+}
+
+.drug-label-button svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .ndc-card-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .package-details-headers {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .summary-cards-row {
+        grid-template-columns: 1fr;
+    }
+}
+/* ================================================================
+   PRICING ENHANCEMENTS - Item Details Modal
+   Adds styling for price comparison indicators and badges
+   Version: 1.0.0
+   ================================================================ */
+
+/* Price Card Enhancement - Orange color for higher prices */
+.summary-card-value.price-higher {
+    color: #ff8400 !important;
+}
+
+/* Up arrow indicator for higher prices */
+.price-indicator-arrow {
+    font-size: 0.7em;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+/* Best Price Badge in Labeler List */
+.best-price-badge {
+    background: linear-gradient(135deg, #10b981 0%, #34d399 100%) !important;
+    color: white !important;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: clamp(0.7em, 1vw, 0.8em);
+    font-weight: 600;
+    margin-left: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    animation: priceBadgePulse 2s ease-in-out infinite;
+}
+
+/* Subtle pulse animation for best price badge */
+@keyframes priceBadgePulse {
+    0%, 100% {
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    }
+    50% {
+        box-shadow: 0 2px 12px rgba(16, 185, 129, 0.5);
+    }
+}
+
+/* Price sublabel styling */
+.summary-card-sublabel.price-default {
+    font-size: clamp(0.7em, 1vw, 0.8em);
+    color: var(--text-secondary);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--modal-card-border);
+    font-weight: 500;
+}
+
+/* Labeler item with best price highlight */
+.labeler-item.has-best-price {
+    border-left: 4px solid #10b981;
+}
+
+/* Price comparison tooltip (optional enhancement) */
+.price-comparison-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.price-comparison-tooltip.show {
+    opacity: 1;
+}
+
+/* Price value when selected labeler has best price */
+.summary-card-value.best-price-selected {
+    color: #10b981 !important;
+}
+
+/* Enhanced labeler badge container for multiple badges */
+.labeler-item > div:last-child {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .best-price-badge {
+        font-size: 0.65em;
+        padding: 3px 8px;
+    }
+    
+    .price-indicator-arrow {
+        font-size: 0.65em;
+    }
+}
+
+/* Dark mode compatibility (if dark mode is implemented) */
+.dark-mode .best-price-badge {
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+}
+
+.dark-mode .price-comparison-tooltip {
+    background: rgba(255, 255, 255, 0.95);
+    color: #1f2937;
+}

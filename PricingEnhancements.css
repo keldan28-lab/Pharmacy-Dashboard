@@ -1,0 +1,112 @@
+/* ================================================================
+   PRICING ENHANCEMENTS - Item Details Modal
+   Adds styling for price comparison indicators and badges
+   Version: 1.0.0
+   ================================================================ */
+
+/* Price Card Enhancement - Orange color for higher prices */
+.summary-card-value.price-higher {
+    color: #ff8400 !important;
+}
+
+/* Up arrow indicator for higher prices */
+.price-indicator-arrow {
+    font-size: 0.7em;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+/* Best Price Badge in Labeler List */
+.best-price-badge {
+    background: linear-gradient(135deg, #10b981 0%, #34d399 100%) !important;
+    color: white !important;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: clamp(0.7em, 1vw, 0.8em);
+    font-weight: 600;
+    margin-left: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    animation: priceBadgePulse 2s ease-in-out infinite;
+}
+
+/* Subtle pulse animation for best price badge */
+@keyframes priceBadgePulse {
+    0%, 100% {
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    }
+    50% {
+        box-shadow: 0 2px 12px rgba(16, 185, 129, 0.5);
+    }
+}
+
+/* Price sublabel styling */
+.summary-card-sublabel.price-default {
+    font-size: clamp(0.7em, 1vw, 0.8em);
+    color: var(--text-secondary);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--modal-card-border);
+    font-weight: 500;
+}
+
+/* Labeler item with best price highlight */
+.labeler-item.has-best-price {
+    border-left: 4px solid #10b981;
+}
+
+/* Price comparison tooltip (optional enhancement) */
+.price-comparison-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.price-comparison-tooltip.show {
+    opacity: 1;
+}
+
+/* Price value when selected labeler has best price */
+.summary-card-value.best-price-selected {
+    color: #10b981 !important;
+}
+
+/* Enhanced labeler badge container for multiple badges */
+.labeler-item > div:last-child {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .best-price-badge {
+        font-size: 0.65em;
+        padding: 3px 8px;
+    }
+    
+    .price-indicator-arrow {
+        font-size: 0.65em;
+    }
+}
+
+/* Dark mode compatibility (if dark mode is implemented) */
+.dark-mode .best-price-badge {
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+}
+
+.dark-mode .price-comparison-tooltip {
+    background: rgba(255, 255, 255, 0.95);
+    color: #1f2937;
+}

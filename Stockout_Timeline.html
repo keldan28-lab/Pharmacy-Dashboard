@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock-out Timeline</title>
+    <link rel="stylesheet" href="styles/dashboard.css" />
+    <link rel="stylesheet" href="styles/analytics.css" />
+    <style>
+        .stockout-full-wrap{ padding: 18px; height: 100%; box-sizing: border-box; display:flex; flex-direction:column; gap:12px;}
+        .stockout-full-header{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px;}
+        .stockout-full-title{ font-size: 1.15em; font-weight: 800; }
+        .stockout-full-controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+        .stockout-input{
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+            background: rgba(255,255,255,0.03);
+            color: var(--text-primary);
+            min-width: 260px;
+            outline: none;
+        }
+        .stockout-full-body{ flex:1; min-height:0; }
+        #stockoutFullTimeline{ height: 100%; }
+    </style>
+</head>
+<body>
+    <div class="stockout-full-wrap">
+        <div class="stockout-full-header">
+            <div>
+                <div class="stockout-full-title">Stock-out Risk Timeline</div>
+                <div class="card-subtitle">All Items • Score > 1 • Excludes PHARMACY</div>
+            </div>
+            <div class="stockout-full-controls">
+                <input id="stockoutSearch" class="stockout-input" placeholder="Search item description…" />
+                <div class="stockout-kpi-right">
+                    <div class="stockout-kpi-total" id="stockoutFullCount">0</div>
+                    <div class="stockout-kpi-caption">Items</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stockout-full-body">
+            <div id="stockoutFullTimeline" class="stockout-timeline"></div>
+        </div>
+    </div>
+
+    <script src="js/app/stockoutPage.js"></script>
+</body>
+</html>

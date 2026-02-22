@@ -1,0 +1,72 @@
+const CONFIG = { DEFAULT_TAB: "min_spike_factors" };
+
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  const action = p.action || "";
+
+  if (action === "read") {
+    const sheetId = p.sheetId;
+    const tabName = p.tabName || CONFIG.DEFAULT_TAB;
+    const callback = p.callback;
+    const result = spikeRead_(sheetId, tabName);
+    return jsonOrJsonp_(result, callback);
+  }
+
+  if (action === "ping") {
+    return jsonOrJsonp_({ ok: true, ts: new Date().toISOString() }, p.callback);
+  }
+
+  return ContentService.createTextOutput("ok");
+}
+
+function doPost(e) {
+  const p = (e && e.parameter) || {};
+  const action = p.action || "";
+
+  if (action === "write") {
+    const sheetId = p.sheetId;
+    const tabName = p.tabName || CONFIG.DEFAULT_TAB;
+    const payloadStr = p.payload || "{}";
+    const payload = JSON.parse(payloadStr);
+    const rows2d = Array.isArray(payload.rows) ? payload.rows : [];
+    const result = spikeWrite_(sheetId, tabName, rows2d);
+    // Return simple HTML so hidden iframe completes a load event
+    return HtmlService.createHtmlOutput(`<html><body>ok:${result.written || 0}</body></html>`);
+  }
+
+  return HtmlService.createHtmlOutput("<html><body>unknown op</body></html>");
+}
+
+// ===== helpers =====
+
+function spikeRead_(sheetId, tabName) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sh = ss.getSheetByName(tabName);
+  if (!sh) return { ok: true, rows: [], tabName };
+  const values = sh.getDataRange().getValues(); // includes header
+  return { ok: true, rows: values, tabName };
+}
+
+function spikeWrite_(sheetId, tabName, rows2d) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  let sh = ss.getSheetByName(tabName);
+  if (!sh) sh = ss.insertSheet(tabName);
+
+  sh.clearContents();
+  if (!rows2d.length) return { ok: true, written: 0, tabName };
+
+  sh.getRange(1, 1, rows2d.length, rows2d[0].length).setValues(rows2d);
+  return { ok: true, written: rows2d.length, tabName };
+}
+
+function jsonOrJsonp_(obj, callback) {
+  const json = JSON.stringify(obj);
+  if (callback) {
+    return ContentService
+      .createTextOutput(`${callback}(${json});`)
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService
+    .createTextOutput(json)
+    .setMimeType(ContentService.MimeType.JSON);
+}

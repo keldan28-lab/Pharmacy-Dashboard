@@ -1,0 +1,780 @@
+
+/* Optimization page specific overrides */
+.view-by-label{
+  font-size: 0.92em;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.view-by-select{
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: none;
+  background: rgba(255,255,255,0.03);
+  color: var(--text-primary);
+  font-size: 0.92em;
+  font-weight: 700;
+  outline: none;
+}
+.optimization-list{
+  display:flex;
+  flex-direction:column;
+  /* Match Charts horizontal bar density: ~30px bars with ~10px gaps */
+  gap: 10px;
+  padding: 18px 18px 18px 18px;
+}
+/* Base row layout (further refined below) */
+.opt-row{
+  display: grid;
+  grid-template-columns: 240px 1fr 70px;
+  gap: 12px;
+  align-items: center;
+  transition: opacity 360ms ease;
+
+}
+
+/* Expand hover hit-area across full label column */
+.opt-row-left{
+  width: 100%;
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.opt-row-left:hover .opt-row-title{
+  font-weight: 700;
+  color: var(--teal-primary);
+}
+.opt-row-title{
+  flex: 1;
+  font-weight: 400;
+  /* Match Charts horizontal bar labels: allow wrapping */
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Keep fallback hover if structure differs */
+.opt-row:hover .opt-row-title{ font-weight: 700; color: var(--teal-primary); }
+.opt-row-sub{
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.opt-bar-wrap{
+  position: relative;
+  /* Match Charts horizontal bars: crisp, flat, rectangular */
+  height: 30px;
+  overflow: hidden;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* Track is a simple flex row; outer wrap provides radius + shadow */
+.opt-bar-track{
+  height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+/* Remove the previous pill "cap" styling */
+.opt-bar-wrap::before{ display:none; }
+
+.opt-seg{ height: 100%; border-radius: 0; }
+
+/* Hover highlight (no frames) */
+.opt-seg.opt-seg-hover{
+  filter: brightness(1.12) saturate(1.08);
+}
+
+/* Segment tooltip */
+.opt-tooltip{
+  position: fixed;
+  /* Ensure tooltip appears above bar/tick overlays and iframe UI chrome */
+  z-index: 99999;
+  pointer-events: none;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  background: rgba(20, 20, 20, 0.92);
+  color: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.28);
+  backdrop-filter: blur(8px);
+}
+
+
+.opt-tt-title{ font-weight: 800; margin-bottom: 2px; }
+.opt-tt-sub{ font-weight: 700; opacity: 0.9; }
+/* Click affordances */
+.opt-clickable{ cursor: pointer; }
+.opt-row-title.opt-clickable:hover{ text-decoration: underline; text-underline-offset: 3px; }
+
+/* Nested (expanded) sublocation rows */
+.opt-nested-list{
+  display:flex;
+  flex-direction:column;
+  gap: 10px;
+  padding-left: 18px;
+  margin-top: -2px;
+  margin-bottom: 8px;
+}
+
+.opt-row-nested{
+  opacity: 0.95;
+}
+
+.opt-row-title-nested{
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/* Segment palette + ORDER (left→right):
+   translucent teal → more opaque teal → teal → muted orange → muted coral
+   Mapping from tier classes:
+     gray   = translucent teal
+     blue   = more opaque teal
+     green  = teal
+     yellow/orange = muted orange
+     coral  = muted coral
+*/
+.opt-seg.gray{  background: rgba(150, 160, 170, 0.50); }
+.opt-seg.blue{  background: rgba(120, 220, 210, 0.78); }
+.opt-seg.green{ background: rgba(0, 200, 170, 0.86); }
+.opt-seg.yellow,
+.opt-seg.orange{ background: rgba(255, 165, 0, 0.78); }
+.opt-seg.coral{ background: rgba(255, 127, 80, 0.78); }
+.opt-row-val{
+  text-align:right;
+  font-weight: 800;
+}
+.opt-scale{
+  display:flex;
+  justify-content:space-between;
+  font-size: 11px;
+  opacity: 0.65;
+  margin-top: 6px;
+  padding: 0 6px;
+}
+
+/* --- Refinement: match the horizontal bar chart label + bar alignment --- */
+
+/* Two-column rows: label + bar (hide right totals) */
+.opt-row{
+  grid-template-columns: 280px 1fr;
+  column-gap: 18px;
+  align-items: center;
+  min-height: 40px; /* 30px bar + ~10px gap */
+}
+
+/* Label block: match Charts HBar alignment (left-aligned labels) */
+.opt-row > div:first-child{
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding-right: 0;
+}
+
+.opt-row-title{
+  font-size: 13.5px;
+  letter-spacing: 0.15px;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.opt-row-sub{
+  display: none; /* keep layout clean like the reference */
+}
+
+/* Bars are flat (no frame, no shadow, no rounding) */
+.opt-bar-wrap{ box-shadow: none; border-radius: 0; border: none; }
+
+/* Hide any right value column if still present */
+.opt-row-val{ display:none !important; }
+
+/* Remove previous "pull left" hacks so bars line up cleanly */
+.opt-bar-wrap,
+.opt-scale-track{
+  margin-left: 0 !important;
+}
+
+/* Ensure dropdown overlays */
+#optDropdown { position: relative; }
+#optDropdownOptions { z-index: 9999; }
+
+/* Scrollable content area */
+#stockoutFullTimeline{
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Ensure the inner card and content can scroll */
+.charts-content .card.full-width{ min-height: 0; }
+
+
+
+/* --- Charts-style icon buttons (shared visual language) --- */
+.chart-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: rgba(128, 128, 128, 0.1);
+  border: 2px solid rgba(128, 128, 128, 0.2);
+  backdrop-filter: blur(4px);
+  }
+
+.chart-icon-btn:hover {
+  background: rgba(17, 153, 142, 0.15);
+  border-color: rgba(17, 153, 142, 0.4);
+  box-shadow: 0 0 12px rgba(17, 153, 142, 0.4);
+  }
+
+.chart-icon-btn.active {
+  background: rgba(17, 153, 142, 0.25);
+  border-color: rgba(17, 153, 142, 0.6);
+  box-shadow: 0 0 12px rgba(17, 153, 142, 0.5);
+  }
+
+.chart-icon-btn svg {
+  width: 20px;
+  height: 20px;
+  color: #666666;  /* Dark gray in light mode - currentColor in SVGs will use this */
+    pointer-events: none;
+}
+
+body.dark-mode .chart-icon-btn svg {
+  color: var(--text-primary);
+  }
+
+/* --- Optimization layout notes --- */
+/* Keep bars flush with the bar column; no negative-margin alignment hacks. */
+
+/* Expand content frame to fill container */
+.charts-content{ height: calc(100vh - 160px); }
+.charts-content .card.full-width{ height: 100%; min-height: 0; }
+#stockoutFullTimeline{ height: 100%; overflow-y:auto; }
+
+/* Minimal alphabetical sort toggle (unframed) */
+.sort-toggle-btn{
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin-left: 10px;
+  cursor: pointer;
+  border-radius: 10px;
+  background: transparent;
+  opacity: 0.85;
+  transition: transform .12s ease, opacity .12s ease, filter .12s ease;
+}
+.sort-toggle-btn svg{
+  width: 18px;
+  height: 18px;
+}
+.sort-toggle-btn:hover{ opacity: 1; transform: translateY(-1px); }
+.sort-toggle-btn.active{ opacity: 1; }
+body.dark-mode .sort-toggle-btn{ color: rgba(255,255,255,0.82); }
+body:not(.dark-mode) .sort-toggle-btn{ color: rgba(40,40,40,0.75); }
+body.dark-mode .sort-toggle-btn.active{
+  color: rgba(255, 234, 136, 0.95);
+  filter: drop-shadow(0 0 8px rgba(255, 234, 136, 0.35));
+}
+body:not(.dark-mode) .sort-toggle-btn.active{
+  color: rgba(0, 160, 155, 0.95);
+  filter: drop-shadow(0 0 8px rgba(0, 160, 155, 0.25));
+}
+
+/* Ensure dropdown + sort toggle stay on one line */
+.view-selector-group{
+  display:flex;
+  align-items:center;
+  flex-wrap:nowrap;
+  gap:10px;
+}
+
+/* Fill container: no padding/gap below header */
+.charts-content{
+  padding: 0 !important;
+  margin: 0 !important;
+}
+.charts-content .card.full-width{
+  margin: 0 !important;
+}
+
+/* Keep view-by + sort toggle inline */
+.view-selector-group{
+  display:flex;
+  align-items:center;
+  flex-wrap:nowrap;
+  gap:10px;
+}
+
+/* Match charts icon neutral tone */
+.sort-toggle-btn{ color: rgba(230,230,230,0.72); }
+body:not(.dark-mode) .sort-toggle-btn{ color: rgba(120,120,120,0.75); }
+
+/* Make sort toggle minimal like chart icons */
+.sort-toggle-btn{
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  opacity: 0.9;
+}
+
+/* Force View By row inline; prevent dropdown from stretching full width */
+.view-selector-group{
+  display:flex !important;
+  align-items:center !important;
+  flex-wrap:nowrap !important;
+  gap:10px !important;
+}
+.view-selector-group .custom-dropdown{
+  display:inline-flex !important;
+  width: 180px !important;
+  flex: 0 0 180px !important;
+}
+.view-selector-group .sort-toggle-btn{
+  display:inline-flex !important;
+  flex: 0 0 auto !important;
+  margin-left: 6px !important;
+}
+
+/* Dropdown menu fixed width to control */
+.custom-dropdown{ position: relative; }
+.view-selector-group .custom-dropdown{
+  width: 150px !important; /* tighter wrap like charts page */
+  flex: 0 0 150px !important;
+}
+.view-selector-group .dropdown-header{
+  width: 100% !important;
+  box-sizing: border-box;
+  justify-content: space-between;
+}
+
+/* tighter padding in the dropdown header so the frame hugs text */
+.view-selector-group .dropdown-header{
+  padding-left: 12px !important;
+  padding-right: 10px !important;
+}
+.custom-dropdown .dropdown-options{
+  width: 100% !important;
+  min-width: 100% !important;
+  box-sizing: border-box;
+}
+
+/* Graph icon buttons neutral gray like charts page */
+.header-icon-btn, .chart-icon-btn, .graph-icon-btn{
+  background: rgba(255,255,255,0.32) !important;
+  border: 1px solid rgba(0,0,0,0.08) !important;
+  color: rgba(70,70,70,0.85) !important;
+}
+.header-icon-btn svg, .chart-icon-btn svg, .graph-icon-btn svg{
+  opacity: 0.75;
+  filter: none;
+}
+body.dark-mode .header-icon-btn, body.dark-mode .chart-icon-btn, body.dark-mode .graph-icon-btn{
+  background: rgba(255,255,255,0.08) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  color: rgba(230,230,230,0.78) !important;
+}
+body.dark-mode .header-icon-btn svg, body.dark-mode .chart-icon-btn svg, body.dark-mode .graph-icon-btn svg{
+  opacity: 0.7;
+}
+
+/* Scale header like horizontal bar chart */
+.opt-scale-header{
+  display:block;
+  padding: 10px 15px 6px 15px;
+  font-size: 12px;
+  color: rgba(80,80,80,0.75);
+}
+body.dark-mode .opt-scale-header{ color: rgba(230,230,230,0.6); }
+/* Dark mode keeps the same layout; only text tone changes */
+body.dark-mode .opt-scale-header{ color: rgba(230,230,230,0.6); }
+.opt-scale-mid{ opacity:0.6; font-weight:600; }
+
+/* Bar length scaling */
+.opt-bar-scale{ position: relative; overflow: hidden; }
+.opt-bar-inner{
+  height: 100%;
+  display:flex;
+  overflow:hidden;
+  border-radius: 999px;
+}
+
+/* Legend chips */
+.opt-scale-legend{
+  display:flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  opacity: 0.85;
+}
+.opt-legend-chip{
+  display:inline-flex;
+  align-items:center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1;
+}
+.opt-legend-swatch{
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display:inline-block;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.08) inset;
+}
+body.dark-mode .opt-legend-swatch{ box-shadow: 0 0 0 1px rgba(255,255,255,0.10) inset; }
+.opt-legend-swatch.gray{ background: rgba(180,180,180,0.28); }
+.opt-legend-swatch.blue{ background: rgba(74, 163, 255, 0.62); }
+.opt-legend-swatch.green{ background: rgba(73, 209, 125, 0.68); }
+.opt-legend-swatch.yellow{ background: rgba(255, 216, 74, 0.66); }
+.opt-legend-swatch.coral{ background: rgba(255, 127, 110, 0.78); }
+.opt-legend-swatch.orange{ background: rgba(255, 179, 71, 0.72); }
+
+
+
+/* Match Charts page graph icon button styling */
+.chart-type-icons{
+  display:flex !important;
+  gap:8px !important;
+  align-items:center !important;
+}
+
+.chart-icon-btn{
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 8px !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  cursor:pointer !important;
+  transition: all 0.2s ease !important;
+  background: rgba(128, 128, 128, 0.1) !important;
+  border: 2px solid rgba(128, 128, 128, 0.2) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.chart-icon-btn:hover{
+  background: rgba(17, 153, 142, 0.15) !important;
+  border-color: rgba(17, 153, 142, 0.4) !important;
+  box-shadow: 0 0 12px rgba(17, 153, 142, 0.4) !important;
+}
+
+.chart-icon-btn.active{
+  background: rgba(17, 153, 142, 0.25) !important;
+  border-color: rgba(17, 153, 142, 0.6) !important;
+  box-shadow: 0 0 12px rgba(17, 153, 142, 0.5) !important;
+  color: rgba(17, 153, 142, 0.95) !important;
+}
+
+.chart-icon-btn svg{
+  width: 20px !important;
+  height: 20px !important;
+  color: #666666 !important;
+}
+
+/* Dark mode icon tone */
+body.dark-mode .chart-icon-btn{
+  /* Match Charts page dark icon buttons */
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+body.dark-mode .chart-icon-btn svg{
+  color: rgba(240,240,240,0.88) !important;
+}
+
+body.dark-mode .chart-icon-btn.active{
+  color: rgba(32, 200, 181, 0.98) !important;
+}
+
+
+/* Unified SVG sprite icon styling */
+.ui-icon{
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.9;
+  vector-effect: non-scaling-stroke;
+}
+.ui-icon use{ pointer-events: none; }
+
+
+/* Scale labels (legend is rendered as dynamic chips near the header) */
+.opt-scale-track{ display:flex; flex-direction:column; gap:6px; }
+.opt-scale-track{ position: relative; }
+.opt-scale-track.has-back{ padding-left: 58px; }
+
+/* Track left row: back arrow + segmented sublocation control */
+.opt-scale-track-left{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 15px;
+  width: 100%;
+}
+.opt-scale-left-group{ display:flex; align-items:center; gap: 12px; }
+.opt-scale-right-group{ display:flex; align-items:center; gap: 10px; margin-left: auto; }
+
+.opt-subloc-toggle{
+  display:flex;
+  gap: 8px;
+  padding: 2px;
+  border-radius: 999px;
+  border: 2px solid rgba(120,120,120,0.25);
+  background: rgba(255,255,255,0.10);
+}
+body.dark-mode .opt-subloc-toggle{
+  border-color: rgba(220,220,220,0.18);
+  background: rgba(0,0,0,0.10);
+}
+
+.opt-subloc-btn{
+  min-width: 56px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  color: rgba(90,90,90,0.8);
+  background: transparent;
+  transition: transform 0.15s ease, filter 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+body.dark-mode .opt-subloc-btn{ color: rgba(240,240,240,0.80); }
+.opt-subloc-btn:hover{ filter: brightness(1.06); }
+.opt-subloc-btn.active{
+  background: rgba(32, 200, 181, 0.20);
+  color: rgba(32, 200, 181, 0.98);
+}
+
+/* Back button in scale strip (match Charts scale header sizing/placement) */
+.opt-back-arrow{
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: transform 0.18s ease, filter 0.18s ease, opacity 0.18s ease;
+  color: rgba(70,70,70,0.85);
+}
+.opt-back-arrow.visible{ display:flex; }
+.opt-back-arrow .ui-icon{ width: 22px; height: 22px; }
+.opt-back-arrow:hover{ transform: translateX(-3px); filter: drop-shadow(0 2px 4px rgba(17,153,142,0.35)); }
+body.dark-mode .opt-back-arrow{ color: rgba(230,230,230,0.78); }
+
+/* Square off the top corners of the sticky scale strip */
+#optScaleStrip{
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+/* Metric icon buttons: enforce stroke-only + correct dark-mode contrast */
+.chart-type-icons .chart-icon-btn svg{
+  width: 20px;
+  height: 20px;
+}
+.chart-type-icons .chart-icon-btn svg,
+.chart-type-icons .chart-icon-btn svg *{
+  stroke: currentColor !important;
+  fill: none !important;
+  stroke-width: 1.9 !important;
+}
+
+/* Dark mode: lighten icon color to match Charts */
+body.dark-mode .chart-type-icons .chart-icon-btn{
+  color: rgba(230,230,230,0.82);
+}
+body.dark-mode .chart-type-icons .chart-icon-btn.active{
+  color: rgba(17,153,142,1);
+}
+
+/* Focus mode: dim non-focused rows */
+.optimization-list.has-focus .opt-row.dim{ opacity: 0.65; }
+.optimization-list.has-focus .opt-row.focus-parent,
+.optimization-list.has-focus .opt-row.focus-child{ opacity: 1; }
+
+/* Simultaneous width animations (parent collapse + children expand) */
+.opt-bar-track > div{ transition: width 460ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+
+/* IURRate toggle */
+.opt-iurrate-toggle{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 10px;
+}
+.opt-iurrate-end{
+  font-size: 12px;
+  opacity: 0.8;
+  user-select: none;
+}
+.opt-iurrate-btnwrap{
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+}
+.opt-iurrate-btn{
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  opacity: 0.75;
+  cursor: pointer;
+}
+.opt-iurrate-btn.active{
+  opacity: 1;
+  transform: scale(1.05);
+}
+.opt-iurrate-btn.tier-gray{ color: rgba(200,200,200,0.9); }
+.opt-iurrate-btn.tier-blue{ color: rgba(120,220,210,0.9); }
+.opt-iurrate-btn.tier-green{ color: rgba(0,200,170,0.9); }
+.opt-iurrate-btn.tier-yellow{ color: rgba(255,215,80,0.9); }
+.opt-iurrate-btn.tier-coral{ color: rgba(255,120,120,0.9); }
+
+/* Clickable bars */
+.opt-bar-wrap.opt-clickable{ cursor: pointer; }
+
+
+/* Item view comparison mode: dim labels + collapse bars for non-matching toggle selections */
+.opt-row.opt-item-dim .opt-row-title{ color: rgba(160, 168, 176, 0.7); font-weight: 400; }
+.opt-row.opt-item-dim .opt-seg{ opacity: 0.25; }
+
+
+/* Location expand caret */
+.opt-expand-caret{display:inline-block;margin-left:8px;opacity:0;transform:rotate(0deg);transition:transform 120ms ease, opacity 120ms ease;cursor:pointer;color:var(--teal,#32c6c6);pointer-events:none;}
+.opt-row-left:hover .opt-expand-caret{opacity:0.9;pointer-events:auto;}
+.opt-expand-caret.open{transform:rotate(90deg);opacity:1;}
+
+/* Min Suggestions header controls */
+/* Min Suggestions: sort is handled by #optAlphaSortToggle; keep header clean */
+
+/* Print icon: filled glyph, gray on light mode and white on dark mode */
+#optPrintMinReportBtn .ui-icon{ stroke: none; fill: rgba(0,0,0,0.55); }
+.dark-mode #optPrintMinReportBtn .ui-icon{ fill: rgba(255,255,255,0.86); }
+
+/* Min Suggestions item bar: daily dispense + min/max ticks */
+.opt-min-itembar{
+  position:relative;
+  width:100%;
+  height:100%;
+}
+
+.opt-min-du{
+  position:absolute;
+  left:0;
+  top:0;
+  height:100%;
+  width:0%;
+  background: rgba(32, 200, 181, 0.65);
+  /* Don't block hover on min/max ticks */
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Min Suggestions category colors (match legend): No demand=gray, Decrease=blue, OK=green, Increase=coral */
+.opt-min-du.gray{  background: rgba(150,160,170,0.55); }
+.opt-min-du.blue{  background: rgba(120,220,210,0.70); }
+.opt-min-du.green{ background: rgba(0,200,170,0.80); }
+.opt-min-du.coral{ background: rgba(255,120,120,0.78); }
+
+.dark-mode .opt-min-du{ background: rgba(32, 200, 181, 0.55); }
+.dark-mode .opt-min-du.gray{  background: rgba(150,160,170,0.45); }
+.dark-mode .opt-min-du.blue{  background: rgba(120,220,210,0.62); }
+.dark-mode .opt-min-du.green{ background: rgba(0,200,170,0.72); }
+.dark-mode .opt-min-du.coral{ background: rgba(255,120,120,0.70); }
+
+.opt-min-tick{
+  position:absolute;
+  top:0;
+  height:100%;
+  width:10px;
+  transform:translateX(-50%);
+  border:2px solid rgba(0,0,0,0.32);
+  border-radius:2px;
+  background: rgba(255,255,255,0.02);
+  box-sizing:border-box;
+  /* Allow hover so native tooltips (title attr) can show min/max values */
+  pointer-events:auto;
+  z-index: 3;
+}
+
+.dark-mode .opt-min-tick{
+  border-color: rgba(255,255,255,0.38);
+}
+
+/* Differentiate min vs max tick a bit for readability */
+.opt-min-tick.max{ border-style: dashed; }
+.dark-mode .opt-min-tick.max{ border-style: dashed; }
+
+.opt-min-tick.min.standard{
+  border-color: rgba(255,120,120,0.9);
+}
+.opt-min-pill{ display:inline-flex; align-items:center; padding:4px 8px; border:1px solid rgba(0,0,0,0.12); border-radius:999px; font-size:12px; line-height:1; color:rgba(0,0,0,0.75); background:rgba(255,255,255,0.8); cursor:pointer; user-select:none; }
+.dark-mode .opt-min-pill{ border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.78); background: rgba(0,0,0,0.22); }
+.opt-min-pill.active{ border-color: rgba(32,200,181,0.45); background: rgba(32,200,181,0.12); }
+.dark-mode .opt-min-pill.active{ border-color: rgba(32,200,181,0.55); background: rgba(32,200,181,0.18); }
+.opt-min-pill:hover{ filter:brightness(0.98); }
+
+.opt-min-legend{ display:flex; align-items:center; gap:10px; margin-left:0; font-size:12px; color: rgba(0,0,0,0.62); }
+.dark-mode .opt-min-legend{ color: rgba(255,255,255,0.65); }
+.opt-min-legend-item{ display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; padding:4px 8px; border-radius:999px; border:1px solid transparent; }
+.opt-min-legend-item:hover{ background: rgba(0,0,0,0.04); }
+.dark-mode .opt-min-legend-item:hover{ background: rgba(255,255,255,0.06); }
+.opt-min-legend-item.active{ border-color: rgba(32,200,181,0.35); background: rgba(32,200,181,0.12); }
+.dark-mode .opt-min-legend-item.active{ border-color: rgba(32,200,181,0.45); background: rgba(32,200,181,0.18); }
+.opt-min-dot{ width:10px; height:10px; border-radius:999px; display:inline-block; opacity:0.95; }
+.opt-min-dot.gray{ background: rgba(150,160,170,0.65); }
+.opt-min-dot.green{ background: rgba(0,200,170,0.85); }
+.opt-min-dot.blue{ background: rgba(120,220,210,0.85); }
+.opt-min-dot.coral{ background: rgba(255,120,120,0.9); }
+
+/* Scale strip alignment without spacer columns */
+.opt-scale-track{ margin-left: 298px; }
+
+/* Scrollbar: match Charts page horizontal bar chart */
+#stockoutFullTimeline{
+  height: 100%;
+  overflow: auto;
+}
+#stockoutFullTimeline::-webkit-scrollbar{ width: 8px; height: 8px; }
+#stockoutFullTimeline::-webkit-scrollbar-track{
+  background: rgba(0,0,0,0.05);
+  margin-top: 8px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+#stockoutFullTimeline::-webkit-scrollbar-thumb{
+  background: var(--teal-primary);
+  border-radius: 4px;
+}
+#stockoutFullTimeline::-webkit-scrollbar-thumb:hover{
+  background: var(--teal-secondary);
+}

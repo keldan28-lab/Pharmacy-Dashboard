@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Optimization</title>
+    <link rel="stylesheet" href="styles/dashboard.css" />
+    <link rel="stylesheet" href="styles/analytics.css" />
+    <link rel="stylesheet" href="styles/charts_v23k.css" />
+    <link rel="stylesheet" href="styles/optimization.css" />
+    <style>
+        .stockout-full-wrap{ padding: 18px; height: 100%; box-sizing: border-box; display:flex; flex-direction:column; gap:12px;}
+        .stockout-full-header{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px;}
+        .stockout-full-title{ font-size: 1.15em; font-weight: 800; }
+        .stockout-full-controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+        .stockout-input{
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+            background: rgba(255,255,255,0.03);
+            color: var(--text-primary);
+            min-width: 260px;
+            outline: none;
+        }
+        .stockout-full-body{ flex:1; min-height:0; }
+        #stockoutFullTimeline{ height: 100%; }
+    </style>
+</head>
+
+
+<body>
+    <!-- Keyboard Search Bar (matches Charts page behavior) -->
+    <div id="keyboardSearchBar">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input type="text" id="searchInput" placeholder="Type to search..." readonly>
+    </div>
+
+    <!-- Inline SVG sprite for file:// compatibility (avoids cross-origin restrictions on external <use> hrefs) -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+      <symbol id="icon-hbar" viewBox="0 0 24 24">
+        <line x1="4" y1="6" x2="20" y2="6"/>
+        <line x1="4" y1="12" x2="16" y2="12"/>
+        <line x1="4" y1="18" x2="12" y2="18"/>
+      </symbol>
+      <symbol id="icon-vbar" viewBox="0 0 24 24">
+        <line x1="5" y1="20" x2="5" y2="10"/>
+        <line x1="12" y1="20" x2="12" y2="6"/>
+        <line x1="19" y1="20" x2="19" y2="14"/>
+      </symbol>
+      <symbol id="icon-scatter" viewBox="0 0 24 24">
+        <circle cx="7" cy="16" r="1.6"/>
+        <circle cx="12" cy="12" r="1.6"/>
+        <circle cx="17" cy="8" r="1.6"/>
+      </symbol>
+      <symbol id="icon-flow" viewBox="0 0 24 24">
+        <path d="M5 7h6a3 3 0 0 1 3 3v4a3 3 0 0 0 3 3h2"/>
+        <path d="M5 17h6"/>
+      </symbol>
+      <symbol id="icon-trend" viewBox="0 0 24 24">
+        <path d="M4 16l6-6 4 4 6-8"/>
+        <path d="M20 6v6h-6"/>
+      </symbol>
+      <symbol id="icon-pie" viewBox="0 0 24 24">
+        <path d="M12 12V3a9 9 0 1 1-9 9h9Z"/>
+        <path d="M12 3a9 9 0 0 1 9 9h-9V3Z"/>
+      </symbol>
+      <symbol id="icon-back" viewBox="0 0 24 24">
+        <path d="M15 18l-6-6 6-6"/>
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7"/>
+        <line x1="16" y1="16" x2="21" y2="21"/>
+      </symbol>
+      <symbol id="icon-sort-az" viewBox="0 0 24 24">
+        <path d="M7 6h10"/>
+        <path d="M7 10h7"/>
+        <path d="M7 14h4"/>
+        <path d="M17 18V6"/>
+        <path d="M14 15l3 3 3-3"/>
+      </symbol>
+
+      <!-- Sort icons for Min Suggestions (A vs ! embedded; avoids overlay hacks) -->
+      <symbol id="icon-sort-a" viewBox="0 0 24 24">
+        <!-- list lines -->
+        <path d="M4 7h10"/>
+        <path d="M4 11h8"/>
+        <path d="M4 15h6"/>
+        <!-- down arrow -->
+        <path d="M14 5v12"/>
+        <path d="M12 15l2 2 2-2"/>
+        <!-- A (bigger, text-based so it matches icon height better) -->
+        <text x="17.2" y="16.2" font-size="10" font-weight="600" fill="currentColor" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial">A</text>
+      </symbol>
+      <symbol id="icon-sort-impact" viewBox="0 0 24 24">
+        <!-- list lines -->
+        <path d="M4 7h10"/>
+        <path d="M4 11h8"/>
+        <path d="M4 15h6"/>
+        <!-- down arrow -->
+        <path d="M14 5v12"/>
+        <path d="M12 15l2 2 2-2"/>
+        <!-- ! (bigger, text-based so it matches icon height better) -->
+        <text x="18.0" y="16.2" font-size="12" font-weight="650" fill="currentColor" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial">!</text>
+      </symbol>
+
+      <!-- Charts-style stroke icons used by Optimization metric buttons -->
+      <symbol id="icon-money" viewBox="0 0 24 24">
+        <path d="M12 2v20"/>
+        <path d="M17 6c0-2-2-4-5-4S7 4 7 6s2 3 5 4 5 2 5 4-2 4-5 4-5-2-5-4"/>
+      </symbol>
+      <symbol id="icon-save" viewBox="0 0 24 24">
+        <path d="M5 3h14l2 2v16H5z"/>
+        <path d="M8 3v6h8V3"/>
+        <path d="M8 21v-6h8v6"/>
+      </symbol>
+      <symbol id="icon-print" viewBox="0 0 24 24">
+        <!-- Filled printer icon (matches gray/white style via currentColor) -->
+        <path fill="currentColor" d="M7 3h10v5H7V3zm12 6H5a3 3 0 0 0-3 3v2a3 3 0 0 0 3 3h2v4h10v-4h2a3 3 0 0 0 3-3v-2a3 3 0 0 0-3-3zm-4 10H9v-4h6v4zm3-7a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M20 12a8 8 0 0 1-14.31 4.9"/>
+        <path d="M4 12a8 8 0 0 1 14.31-4.9"/>
+        <path d="M18 4v4h-4"/>
+        <path d="M6 20v-4h4"/>
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M4 7h16"/>
+        <path d="M10 11v6"/>
+        <path d="M14 11v6"/>
+        <path d="M6 7l1 14h10l1-14"/>
+        <path d="M9 7V4h6v3"/>
+      </symbol>
+      <symbol id="icon-list" viewBox="0 0 24 24">
+        <line x1="6" y1="7" x2="20" y2="7"/>
+        <line x1="6" y1="12" x2="20" y2="12"/>
+        <line x1="6" y1="17" x2="20" y2="17"/>
+        <circle cx="4" cy="7" r="1"/>
+        <circle cx="4" cy="12" r="1"/>
+        <circle cx="4" cy="17" r="1"/>
+      </symbol>
+      <symbol id="icon-gear" viewBox="0 0 24 24">
+        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/>
+        <path d="M19.4 15a7.7 7.7 0 0 0 .1-1l2-1.5-2-3.5-2.3.6a7.3 7.3 0 0 0-1.7-1L15 6h-6l-.5 2.6a7.3 7.3 0 0 0-1.7 1L4.5 9 2.5 12.5 4.5 14a7.7 7.7 0 0 0 .1 1l-2 1.5 2 3.5 2.3-.6a7.3 7.3 0 0 0 1.7 1L9 22h6l.5-2.6a7.3 7.3 0 0 0 1.7-1l2.3.6 2-3.5-2-1.5Z"/>
+      </symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24">
+        <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5Z"/>
+      </symbol>
+    </svg>
+  <div class="container">
+    <div class="charts-header">
+      <div class="header-content">
+        <div class="header-left">
+          <div class="header-icon">
+            <svg viewBox="0 0 24 24">
+              <path d="M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z"/>
+            </svg>
+          </div>
+</div>
+      </div>
+
+      <div class="chart-controls-header">
+        <div class="controls-left">
+          <div class="view-selector-group">
+            <span class="view-selector-label">View By:</span>
+            <div id="optDropdown" class="custom-dropdown">
+              <div class="dropdown-header" id="optDropdownHeader">
+                <span class="dropdown-selected" id="optDropdownSelected">Location</span>
+                <svg class="dropdown-arrow" id="optDropdownArrow" viewBox="0 0 24 24" width="16" height="16">
+                  <path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>
+                </svg>
+              </div>
+              <div class="dropdown-options" id="optDropdownOptions">
+                <div class="dropdown-option" data-value="location">Location</div>
+<div class="dropdown-option" data-value="item">Item</div>
+              </div>
+            </div>
+            <div id="optAlphaSortToggle" class="sort-toggle-btn" title="Sort A→Z">
+              <svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-az"></use></svg>
+            </div>
+            <div id="optPrintMinReportBtn" class="sort-toggle-btn" title="Print Min Suggestions" style="display:none;">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-print"></use></svg>
+            </div>
+
+          </div>
+
+	          <!-- divider | graph icons -->
+	          <div class="controls-divider"></div>
+
+          <div id="optChartTypeIcons" class="chart-type-icons"></div>
+        </div>
+
+        <div class="controls-right">
+          <div id="optContextChip" class="filter-chip" style="display:none;">
+            <span id="optContextChipLabel"></span>
+            <button id="optClearContextBtn" class="clear-filter-btn" title="Clear">
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+              </svg>
+            </button>
+          </div>
+          <div id="optSearchChip" class="filter-chip" style="display:none;">
+            <span id="optSearchChipLabel"></span>
+            <button id="optClearSearchBtn" class="clear-filter-btn" title="Clear search">
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+              </svg>
+            </button>
+          </div>
+          <div id="optScale" class="cost-breadcrumb"></div>
+        </div>
+      </div>
+
+      <!-- Sticky scale strip (matches Charts page) - houses back arrow + scale + legend -->
+      <div id="optScaleStrip" class="cost-chart-scale-container"></div>
+    </div>
+
+    <div class="charts-content" style="padding: 14px;">
+      <div class="card full-width" style="height: calc(100vh - 170px); display:flex; flex-direction:column;">
+<div style="padding: 0 16px 16px 16px; flex:1; min-height:0;">
+          <div id="stockoutFullTimeline" style="height: 100%;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="location_ref_mockdata.js"></script>
+  <script src="items_details_mockdata.js"></script>
+  <script src="items_inventory_mockdata.js"></script>
+  <script src="js/app/spikeFactors.js"></script>
+    <script src="js/app/optimizationPage.js"></script>
+</body>
+
+
+</html>

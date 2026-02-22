@@ -1,0 +1,7 @@
+<!-- Not used in local-file mode.
+This project now supports local Dashboard usage (file://) by:
+- Reading via JSONP (GET with ?action=read&callback=...)
+- Writing via hidden form POST (POST to ?action=write with payload field)
+
+You do NOT need an iframe bridge page anymore.
+-->
