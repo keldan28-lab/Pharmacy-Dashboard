@@ -25,7 +25,18 @@
     return Math.abs(isFinite(n) ? n : 0);
   }
   function _txLocation(rec) {
-    return String(rec.sendToLocation || rec.sublocation || '').trim().toUpperCase();
+    const v = (
+      rec.sendToLocation ??
+      rec.sendToLoc ??
+      rec.destinationLocation ??
+      rec.destLocation ??
+      rec.location ??
+      rec.loc ??
+      rec.Loc ??
+      rec.LOC ??
+      ''
+    );
+    return String(v || '').trim().toUpperCase();
   }
 
   // Sublocation / destination-unit extractor used by itemLocSubloc aggregations.
@@ -146,6 +157,7 @@ function _buildWeeklyByItemLocSubloc(transactions, endDateISO, weeksBack) {
   const itemLocSublocMap = new Map();       // itemCode|LOC|SUBLOC -> series
   const locMap = new Map();                 // LOC -> series
   const sublocMap = new Map();              // SUBLOC -> series
+  let skippedMissingLoc = 0;
 
   for (const rec of tx) {
     if (_txTypeLower(rec) !== 'dispense') continue;
@@ -157,7 +169,10 @@ function _buildWeeklyByItemLocSubloc(transactions, endDateISO, weeksBack) {
     if (d < start || d > end) continue;
 
     const loc = _txLocation(rec);
-    if (!loc) continue;
+    if (!loc) {
+      skippedMissingLoc += 1;
+      continue;
+    }
 
     const subloc = _txSublocation(rec) || 'UNKNOWN';
 
@@ -174,6 +189,8 @@ function _buildWeeklyByItemLocSubloc(transactions, endDateISO, weeksBack) {
     _ensureSeries(locMap, loc, weeks.length)[idx] += q;
     _ensureSeries(sublocMap, subloc, weeks.length)[idx] += q;
   }
+
+  console.debug('[SpikeFactors] _buildWeeklyByItemLocSubloc skipped dispense records with missing loc:', skippedMissingLoc);
 
   return { itemMap, itemLocMap, itemLocSublocMap, locMap, sublocMap, weeks };
 }
