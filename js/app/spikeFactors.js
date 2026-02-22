@@ -733,6 +733,19 @@ function _isLocalFileOrigin(){
   return (window.location && (window.location.protocol === 'file:' || window.location.origin === 'null'));
 }
 
+function _buildReadQuery(sheetId, tabName){
+  const p = new URLSearchParams();
+  // Keep canonical params + common aliases used by different Apps Script handlers.
+  p.set('action', 'read');
+  p.set('op', 'read');
+  p.set('mode', 'read');
+  p.set('sheetId', sheetId || '');
+  p.set('spreadsheetId', sheetId || '');
+  p.set('tabName', tabName || '');
+  p.set('sheetName', tabName || '');
+  return p.toString();
+}
+
 // JSONP: load data via <script> tag (works from file://)
 function _jsonp(url, timeoutMs = 15000){
   return new Promise((resolve, reject) => {
@@ -805,9 +818,16 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
     // Use form POST to avoid CORS on file://. Many Apps Script handlers read e.parameter.*
     await _formPost(webAppUrl, {
       action: 'write',
+      op: 'write',
+      mode: 'write',
       sheetId: sheetId,
+      spreadsheetId: sheetId,
       tabName: tabName,
-      payload: JSON.stringify({ rows: rows })
+      sheetName: tabName,
+      payload: JSON.stringify({ rows: rows }),
+      rows: JSON.stringify(rows),
+      data: JSON.stringify(rows),
+      json: JSON.stringify({ rows: rows })
     });
     // Optimistically ingest locally.
     _ingestRows(rows);
@@ -815,7 +835,7 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
     // Verify write by reading back a sample (Apps Script can silently fail if permissions/deployment are wrong).
     try{
       await new Promise(r=>setTimeout(r, 500));
-      const qs = `action=read&sheetId=${encodeURIComponent(sheetId)}&tabName=${encodeURIComponent(tabName)}`;
+      const qs = _buildReadQuery(sheetId, tabName);
       const raw = await _jsonp(`${webAppUrl}?${qs}`, 15000);
       const norm = _normalizeReadResponse(raw);
       if(!norm.ok) throw new Error(norm.error || 'read-back failed');
@@ -872,7 +892,7 @@ function _normalizeReadResponse(payload){
 }
 
 async function loadFromWebApp(webAppUrl,sheetId,tabName){
-  const qs = `action=read&sheetId=${encodeURIComponent(sheetId)}&tabName=${encodeURIComponent(tabName)}`;
+  const qs = _buildReadQuery(sheetId, tabName);
 
   // Local file origin: use JSONP (no CORS)
   if(_isLocalFileOrigin()){
