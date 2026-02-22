@@ -794,10 +794,9 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
       action: 'write',
       sheetId: sheetId,
       tabName: tabName,
-      payload: JSON.stringify({ rows: rows })
+      payload: JSON.stringify({rows: rows})
     });
-    // Optimistically ingest locally.
-    _ingestRows(rows);
+    const postSent = true;
 
     // Verify write by reading back a sample (Apps Script can silently fail if permissions/deployment are wrong).
     try{
@@ -806,12 +805,19 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
       const raw = await _jsonp(`${webAppUrl}?${qs}`, 15000);
       const norm = _normalizeReadResponse(raw);
       if(!norm.ok) throw new Error(norm.error || 'read-back failed');
-      if(!norm.rows || !norm.rows.length) throw new Error('read-back returned 0 rows');
+      const parsed2d = _parseRows2D(norm.rows || []);
+      if(!parsed2d.rows || !parsed2d.rows.length) throw new Error('read-back returned 0 rows');
+      const cache = _ingestRows(parsed2d.rows);
+      return {
+        ok:true,
+        method:'formpost',
+        postSent,
+        verifyRows: parsed2d.rows.length,
+        ingestedRows: _countIngestedRows(cache)
+      };
     }catch(e){
       throw new Error('Write POST was sent, but verification failed (' + (e && e.message ? e.message : String(e)) + '). Check: (1) Web App is deployed as "Anyone" can access, (2) script has permission to edit the target sheet, (3) sheetId/tabName are correct.');
     }
-
-    return { ok:true, method:'formpost' };
   }
 
   // Non-local origins: try fetch JSON
@@ -820,6 +826,33 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
   if(!json.ok) throw new Error(json.error||'write failed');
   _ingestRows(rows);
   return json;
+}
+
+function _countIngestedRows(cache) {
+  const c = cache || _cache || {};
+  return (
+    Object.keys(c.locationMap || {}).length +
+    Object.keys(c.sublocMap || {}).length +
+    Object.keys(c.itemMap || {}).length +
+    Object.keys(c.itemLocMap || {}).length +
+    Object.keys(c.itemLocSublocMap || {}).length +
+    Object.keys(c.seasonItemMap || {}).length +
+    Object.keys(c.seasonItemLocMap || {}).length +
+    Object.keys(c.seasonItemLocSublocMap || {}).length
+  );
+}
+
+function _parseRows2D(rows) {
+  if (!Array.isArray(rows)) return { rows: [] };
+  if (!rows.length) return { rows: [] };
+  const first = rows[0];
+  if (!Array.isArray(first)) return { rows };
+  const header0 = String(first[0] || '').trim().toLowerCase();
+  const header1 = String(first[1] || '').trim().toLowerCase();
+  if (header0 === 'keytype' && header1 === 'key') {
+    return { rows: rows.slice(1), hadHeader: true };
+  }
+  return { rows };
 }
 
 
@@ -847,11 +880,17 @@ function _normalizeReadResponse(payload){
     (payload.response && payload.response.rows) ??
     null;
 
-  if (Array.isArray(rows)) return { ok: payload.ok !== false, rows };
+  if (Array.isArray(rows)) {
+    const parsed = _parseRows2D(rows);
+    return { ok: payload.ok !== false, rows: parsed.rows, hadHeader: !!parsed.hadHeader };
+  }
 
   // Sometimes the sheet API returns {ok:true, values:[[...]]}
   const values = payload.values ?? payload.value ?? null;
-  if (Array.isArray(values)) return { ok: payload.ok !== false, rows: values };
+  if (Array.isArray(values)) {
+    const parsed = _parseRows2D(values);
+    return { ok: payload.ok !== false, rows: parsed.rows, hadHeader: !!parsed.hadHeader };
+  }
 
   // Fallback: if ok is true but rows missing, treat as empty.
   return { ok: payload.ok === true, rows: [], error: payload.error || 'rows missing' };

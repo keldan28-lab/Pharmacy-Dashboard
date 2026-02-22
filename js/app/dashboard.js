@@ -5093,7 +5093,7 @@ Subloc: ${counts.subloc}`);
         // ---- Spike Factor Admin (Apps Script Web App) ----
         function _spikeGetConfigFromUI() {
             const webAppUrl = (document.getElementById('spikeWebAppUrl')?.value || '').trim();
-            const sheetId = (document.getElementById('spikeSheetId')?.value || '').trim();
+            const sheetId = (document.getElementById('spikeSheetId')?.value || '1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ').trim();
             const tabName = 'min_spike_factors';
             return { webAppUrl, sheetId, tabName };
         }
@@ -5107,6 +5107,7 @@ Subloc: ${counts.subloc}`);
                 const savedId = localStorage.getItem('spike_sheetId') || '';
                 if (urlEl && !urlEl.value && savedUrl) urlEl.value = savedUrl;
                 if (idEl && !idEl.value && savedId) idEl.value = savedId;
+                if (idEl && !idEl.value) idEl.value = '1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ';
 
                 if (window.SpikeFactors && typeof window.SpikeFactors.loadFromLocalStorage === 'function') {
                     window.SpikeFactors.loadFromLocalStorage();
@@ -5282,16 +5283,37 @@ Subloc: ${counts.subloc}`);
                 const c = (computed && computed.counts) ? computed.counts : {};
                 _spikeSetStatus(`Saving… (itemLoc=${c.itemLoc || 0}, item=${c.item || 0}, loc=${c.location || 0})`);
 
-                await window.SpikeFactors.saveToWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName, computed.rows);
+                const saveResult = await window.SpikeFactors.saveToWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName, computed.rows);
 
                 // Load back into cache to use immediately
-                await window.SpikeFactors.loadFromWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName);
+                const loadedCache = await window.SpikeFactors.loadFromWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName);
+
+                const computedRows = Array.isArray(computed.rows) ? computed.rows.length : 0;
+                const postSent = !!(saveResult && saveResult.postSent);
+                const verifyRows = Number(saveResult && saveResult.verifyRows) || 0;
+                const ingestedRows = Number(saveResult && saveResult.ingestedRows) || _countSpikeCacheRows(loadedCache);
+
+                _spikeSetStatus(`Saved & loaded: computedRows=${computedRows}, postSent=${postSent}, verifyRows=${verifyRows}, ingestedRows=${ingestedRows}`);
 
                 _spikeSetLoadedSummary('Saved & loaded');
             } catch (e) {
                 console.error(e);
                 _spikeSetStatus('Error: ' + (e && e.message ? e.message : String(e)));
             }
+        }
+
+        function _countSpikeCacheRows(cache) {
+            const c = cache || {};
+            return [
+                c.locationMap,
+                c.sublocMap,
+                c.itemMap,
+                c.itemLocMap,
+                c.itemLocSublocMap,
+                c.seasonItemMap,
+                c.seasonItemLocMap,
+                c.seasonItemLocSublocMap
+            ].reduce((sum, mapObj) => sum + Object.keys(mapObj || {}).length, 0);
         }
 
         // Expose admin functions for inline onclick handlers in the settings modal
@@ -5387,3 +5409,4 @@ async function adminLoadSpikeFactors() {
                 });
             }
         });
+}
