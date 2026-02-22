@@ -2588,8 +2588,125 @@
                 calculatedAt: ti.calculatedAt
             });
             
-            // Get top 4 trending items
-            const top4 = trendingUp.slice(0, 4);
+            function num(value, fallback = 0) {
+                const n = Number(value);
+                return Number.isFinite(n) ? n : fallback;
+            }
+
+            function getMinQtyTotalForItem(itemCode) {
+                const inventory = cachedMockData && cachedMockData.inventory && typeof cachedMockData.inventory === 'object'
+                    ? cachedMockData.inventory
+                    : null;
+                if (!inventory) return null;
+
+                const inv = inventory[String(itemCode)] || inventory[itemCode];
+                if (!inv || !Array.isArray(inv.sublocations)) return null;
+
+                const subMap = (typeof getSublocationMap === 'function') ? getSublocationMap() : null;
+                let sumAll = 0;
+                let countAll = 0;
+                let sumPharmacy = 0;
+                let countPharmacy = 0;
+
+                inv.sublocations.forEach(sub => {
+                    const minQty = Number(sub && sub.minQty);
+                    if (!Number.isFinite(minQty)) return;
+
+                    sumAll += minQty;
+                    countAll += 1;
+
+                    const subCode = String((sub && (sub.sublocation || sub.location)) || '');
+                    const locationInfo = subMap && subCode ? subMap[subCode] : null;
+                    if (locationInfo && locationInfo.department === 'Pharmacy') {
+                        sumPharmacy += minQty;
+                        countPharmacy += 1;
+                    }
+                });
+
+                if (countPharmacy > 0) return sumPharmacy;
+                if (countAll > 0) return sumAll;
+                return null;
+            }
+
+            function minQtyRiskAnalysis(item) {
+                const minQtyTotal = getMinQtyTotalForItem(item.itemCode);
+                const avgWeekly = num(item.avgWeeklyUsage, 0);
+                const projectedPeak = num(item.projectedPeakTrendAdj, NaN);
+                const riskWeekly = Number.isFinite(projectedPeak) ? Math.max(avgWeekly, projectedPeak) : avgWeekly;
+                const requiredMin = riskWeekly * 3;
+                const epsilon = 0.000001;
+
+                if (minQtyTotal === null) {
+                    return {
+                        minQtyTotal: null,
+                        requiredMin,
+                        delta: null,
+                        coverageWeeks: null,
+                        risk: 'low',
+                        boost: 1,
+                        minLine: ''
+                    };
+                }
+
+                const delta = requiredMin - minQtyTotal;
+                const coverageWeeks = minQtyTotal / Math.max(riskWeekly, epsilon);
+
+                if (riskWeekly <= 0) {
+                    return {
+                        minQtyTotal,
+                        requiredMin,
+                        delta,
+                        coverageWeeks,
+                        risk: 'low',
+                        boost: 1,
+                        minLine: `Min OK (covers ${num(coverageWeeks, 0).toFixed(1)}w)`
+                    };
+                }
+
+                let risk = 'low';
+                let boost = 1;
+                if (delta >= riskWeekly) {
+                    risk = 'high';
+                    boost = 1.12;
+                } else if (delta > 0) {
+                    risk = 'medium';
+                    boost = 1.06;
+                }
+
+                const minLine = (risk === 'high' || risk === 'medium')
+                    ? `Min: ${num(minQtyTotal, 0).toFixed(1)} → Need: ${num(requiredMin, 0).toFixed(1)} (+${Math.max(0, num(delta, 0)).toFixed(1)}) • ${risk.toUpperCase()}`
+                    : `Min OK (covers ${num(coverageWeeks, 0).toFixed(1)}w)`;
+
+                return {
+                    minQtyTotal,
+                    requiredMin,
+                    delta,
+                    coverageWeeks,
+                    risk,
+                    boost,
+                    minLine
+                };
+            }
+
+            function boostedScore(item) {
+                const baseScore = num(item.percentChange, 0);
+                const seasonalBoost = num(item.seasonalUrgencyBoost, 1);
+                const minAnalysis = item._minQty || { boost: 1 };
+                const minBoost = num(minAnalysis.boost, 1);
+                const combinedBoost = Math.min(1.15, seasonalBoost * minBoost);
+                return baseScore * combinedBoost;
+            }
+
+            // Get top 4 trending items with minQty-aware ordering boost
+            const top4 = trendingUp
+                .map(item => {
+                    const analysis = minQtyRiskAnalysis(item);
+                    const withAnalysis = Object.assign({}, item, { _minQty: analysis });
+                    withAnalysis._boostedScore = boostedScore(withAnalysis);
+                    return withAnalysis;
+                })
+                .sort((a, b) => b._boostedScore - a._boostedScore)
+                .slice(0, 4);
             
             console.log('📈 Top 4 trending items:', top4.map(item => ({
                 code: item.itemCode,
@@ -2620,6 +2737,7 @@
                     const pctText = isNew
                         ? 'NEW'
                         : (pct === null ? '' : `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`);
+                    const avgWeeklyDisplay = num(item.avgWeeklyUsage, 0);
 
                     const li = document.createElement('li');
                     li.className = 'trend-item';
@@ -2628,8 +2746,9 @@
                             ${item.description || item.drugName}
                         </span>
                         <span class="trend-value">
-                            ${item.avgWeeklyUsage.toFixed(1)}/wk
+                            ${avgWeeklyDisplay.toFixed(1)}/wk
                             ${pctText ? `<span class="trend-pct ${isNew ? 'trend-new' : ''}">${pctText}</span>` : ''}
+                            ${item._minQty && item._minQty.minLine ? `<small class="trend-subtext" style="display:block;font-size:11px;opacity:0.8;">${item._minQty.minLine}</small>` : ''}
                         </span>
                     `;
                     li.title = `${item.consecutiveWeeks} consecutive weeks of increase`;
