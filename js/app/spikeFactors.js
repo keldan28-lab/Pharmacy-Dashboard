@@ -25,26 +25,15 @@
     return Math.abs(isFinite(n) ? n : 0);
   }
   function _txLocation(rec) {
-    return String(rec.sendToLocation || rec.sublocation || '').trim().toUpperCase();
+    const unit = String(rec.sendToLocation || '').trim().toUpperCase();
+    const ref = window.location_ref_mockdata?.[unit] || null;
+    return String(ref?.mainLocation || '').trim().toUpperCase();
   }
 
   // Sublocation / destination-unit extractor used by itemLocSubloc aggregations.
   // Tries multiple common field names across exports.
   function _txSublocation(rec) {
-    const v = (
-      rec.sendToSublocation ??
-      rec.sendToSubLocation ??
-      rec.sendToSubLoc ??
-      rec.sendToUnit ??
-      rec.sendToDept ??
-      rec.sendToDepartment ??
-      rec.subLocation ??
-      rec.subLoc ??
-      rec.sublocation ??
-      rec.unit ??
-      rec.unitName ??
-      ''
-    );
+    const v = rec.sendToLocation ?? '';
     return String(v || '').trim().toUpperCase();
   }
 
@@ -146,6 +135,7 @@ function _buildWeeklyByItemLocSubloc(transactions, endDateISO, weeksBack) {
   const itemLocSublocMap = new Map();       // itemCode|LOC|SUBLOC -> series
   const locMap = new Map();                 // LOC -> series
   const sublocMap = new Map();              // SUBLOC -> series
+  let locRefMissCount = 0;
 
   for (const rec of tx) {
     if (_txTypeLower(rec) !== 'dispense') continue;
@@ -157,7 +147,10 @@ function _buildWeeklyByItemLocSubloc(transactions, endDateISO, weeksBack) {
     if (d < start || d > end) continue;
 
     const loc = _txLocation(rec);
-    if (!loc) continue;
+    if (!loc) {
+      locRefMissCount++;
+      continue;
+    }
 
     const subloc = _txSublocation(rec) || 'UNKNOWN';
 
@@ -174,6 +167,8 @@ function _buildWeeklyByItemLocSubloc(transactions, endDateISO, weeksBack) {
     _ensureSeries(locMap, loc, weeks.length)[idx] += q;
     _ensureSeries(sublocMap, subloc, weeks.length)[idx] += q;
   }
+
+  console.log('[SpikeFactors] Missing mainLocation mapping for dispense rows:', locRefMissCount);
 
   return { itemMap, itemLocMap, itemLocSublocMap, locMap, sublocMap, weeks };
 }
