@@ -1,0 +1,7 @@
+{
+  "name": "pharmacy-dashboard",
+  "private": true,
+  "scripts": {
+    "lint:parse": "node scripts/lint-parse.js"
+  }
+}
