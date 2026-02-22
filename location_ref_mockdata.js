@@ -1,5 +1,6 @@
 (function () {
   const MAP = {
+"94092": {mainLocation: "94092", department: "Unknown", group: "", amshift: "", pmshift: "", eveningshift: "" },
 "1WA": {mainLocation: "1W", department: "Pyxis", group: "2", amshift: "AM2", pmshift: "PM2", eveningshift: "EV1" },
 "1WB": {mainLocation: "1W", department: "Pyxis", group: "2", amshift: "", pmshift: "", eveningshift: "" },
 "2EA": {mainLocation: "2E", department: "Pyxis", group: "2", amshift: "", pmshift: "", eveningshift: "" },

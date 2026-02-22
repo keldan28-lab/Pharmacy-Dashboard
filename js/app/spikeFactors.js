@@ -776,40 +776,21 @@ function _jsonp(url, timeoutMs = 15000){
 
 // Form POST to hidden iframe (works from file:// for cross-origin POST)
 function _formPost(url, fields, timeoutMs = 2000){
-  return new Promise((resolve) => {
-    const iframeName = '__spike_post_iframe_' + Math.random().toString(36).slice(2);
-    const iframe = document.createElement('iframe');
-    iframe.name = iframeName;
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
+  const body = new URLSearchParams();
+  for(const [k,v] of Object.entries(fields || {})) body.set(k, (v == null) ? '' : String(v));
 
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = url;
-    form.target = iframeName;
-    form.style.display = 'none';
-
-    for(const [k,v] of Object.entries(fields || {})){
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = k;
-      input.value = (v == null) ? '' : String(v);
-      form.appendChild(input);
-    }
-
-    document.body.appendChild(form);
-
-    const cleanup = () => {
-      try{ form.remove(); }catch(_){}
-      try{ iframe.remove(); }catch(_){}
-    };
-
-    iframe.onload = () => { cleanup(); resolve({ ok:true }); };
-    form.submit();
-
-    // Best-effort resolve even if onload doesn't fire
-    setTimeout(() => { cleanup(); resolve({ ok:true }); }, timeoutMs);
+  const req = fetch(url, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: body.toString()
   });
+
+  // no-cors responses are opaque; treat as fire-and-forget with timeout guard.
+  return Promise.race([
+    req.then(() => ({ ok:true })).catch(() => ({ ok:true })),
+    new Promise((resolve) => setTimeout(() => resolve({ ok:true }), timeoutMs))
+  ]);
 }
 
 async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
@@ -944,7 +925,7 @@ function _normalizeReadResponse(payload){
 
 async function loadFromWebApp(webAppUrl,sheetId,tabName){
   const qs = _buildReadQuery(sheetId, tabName);
-  const url = `${webAppUrl}?action=read&${qs}`;
+  const url = `${webAppUrl}?${qs}`;
   console.log('[SpikeFactors] loadFromWebApp URL:', url);
 
   // Local file origin: use JSONP (no CORS)
