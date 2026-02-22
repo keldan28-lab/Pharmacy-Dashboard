@@ -21,16 +21,44 @@ function doGet(e) {
 
 function doPost(e) {
   const p = (e && e.parameter) || {};
-  const action = p.action || "";
+  let body = {};
+  try {
+    const raw = e && e.postData && typeof e.postData.contents === "string" ? e.postData.contents : "";
+    body = raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    body = {};
+  }
+
+  const action = p.action || body.action || "";
 
   if (action === "write") {
-    const sheetId = p.sheetId;
-    const tabName = p.tabName || CONFIG.DEFAULT_TAB;
-    const payloadStr = p.payload || "{}";
-    const payload = JSON.parse(payloadStr);
-    const rows2d = Array.isArray(payload.rows) ? payload.rows : [];
+    const sheetId = p.sheetId || body.sheetId;
+    const tabName = p.tabName || body.tabName || CONFIG.DEFAULT_TAB;
+
+    // Support both legacy form-post payload={rows:[...]} and direct JSON rows:[...]
+    let payload = {};
+    try {
+      payload = p.payload ? JSON.parse(p.payload) : {};
+    } catch (_) {
+      payload = {};
+    }
+    const rows2d = Array.isArray(payload.rows)
+      ? payload.rows
+      : (Array.isArray(body.rows) ? body.rows : []);
+
     const result = spikeWrite_(sheetId, tabName, rows2d);
-    // Return simple HTML so hidden iframe completes a load event
+    const callback = p.callback || body.callback;
+    if (callback) {
+      return jsonOrJsonp_(result, callback);
+    }
+
+    // Return simple HTML for hidden iframe form posts; JSON for fetch clients.
+    const contentType = (e && e.postData && e.postData.type) || "";
+    if (String(contentType).toLowerCase().indexOf("application/json") !== -1) {
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     return HtmlService.createHtmlOutput(`<html><body>ok:${result.written || 0}</body></html>`);
   }
 
