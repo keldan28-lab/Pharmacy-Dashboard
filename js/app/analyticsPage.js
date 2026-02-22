@@ -6798,6 +6798,53 @@
             return `stockout|b=${bufferDays}|h=${horizonDays}|inv=${invKey}|items=${itemsKey}|last=${last}`;
         }
 
+        function getMinQtyTotalForItem(invEntry){
+            if (!invEntry || typeof invEntry !== 'object') return null;
+
+            const rows = [];
+
+            if (Array.isArray(invEntry.sublocations)){
+                for (const raw of invEntry.sublocations){
+                    const sub = raw || {};
+                    const sublocCode = String(sub.sublocation ?? sub.location ?? '').trim();
+                    if (!sublocCode) continue;
+                    rows.push({
+                        sublocation: sublocCode,
+                        minQty: _num(sub.minQty ?? sub.min ?? sub.par ?? sub.min_level ?? 0, 0)
+                    });
+                }
+            } else {
+                const skipKeys = new Set(['metadata', 'itemCode', 'sublocations']);
+                for (const [key, value] of Object.entries(invEntry)){
+                    const sublocCode = String(key || '').trim();
+                    if (!sublocCode || skipKeys.has(sublocCode)) continue;
+                    if (!value || typeof value !== 'object') continue;
+
+                    rows.push({
+                        sublocation: sublocCode,
+                        minQty: _num(value.minQty ?? value.min ?? value.par ?? value.min_level ?? 0, 0)
+                    });
+                }
+            }
+
+            if (!rows.length) return null;
+
+            const hasMap = (typeof getSublocationMap === 'function');
+            const subMap = hasMap ? (getSublocationMap() || {}) : null;
+            let targetRows = rows;
+            if (subMap){
+                const pharmacyRows = rows.filter((r) => {
+                    const meta = subMap[r.sublocation] || {};
+                    return String(meta.department || '').toUpperCase() === 'PHARMACY';
+                });
+                if (pharmacyRows.length) targetRows = pharmacyRows;
+            }
+
+            let total = 0;
+            for (const r of targetRows) total += _num(r.minQty, 0);
+            return total;
+        }
+
         
                 function buildStockOutTimeline(md, bufferDays=14, horizonDays=56, limit=5){
             
