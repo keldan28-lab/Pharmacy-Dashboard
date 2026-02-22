@@ -25,7 +25,13 @@
     return Math.abs(isFinite(n) ? n : 0);
   }
   function _txLocation(rec) {
-    return String(rec.sendToLocation || rec.sublocation || '').trim().toUpperCase();
+    return String(
+      rec.sendToLocation ??
+      rec.location ??
+      rec.loc ??
+      rec.destinationLocation ??
+      ''
+    ).trim().toUpperCase();
   }
 
   // Sublocation / destination-unit extractor used by itemLocSubloc aggregations.
