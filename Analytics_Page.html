@@ -10,6 +10,8 @@
     <script src="js/shared/postMessage.js"></script>
     <!-- Location reference map (department/mainLocation for each sublocation) -->
     <script src="location_ref_mockdata.js"></script>
+    <script src="js/app/inventoryNormalizer.js"></script>
+    <script src="js/app/alertEngine.js"></script>
     <script src="js/app/analyticsPage.js" defer></script>
 </head>
 <body>
@@ -215,6 +217,24 @@
                             <div class="metric-value" id="wasteCount">--</div>
                         </div>
                     </div>
+                </div>
+
+                <div class="analytics-card" id="inventoryAlertsCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon" style="background: #9b59b6;">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,7H13V13H11V7M11,15H13V17H11V15Z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="card-title">Inventory Alerts</div>
+                                <div class="card-subtitle">Min qty adequacy + overstock/waste risk</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="inventory-alert-counts" id="inventoryAlertCounts">Loading alerts…</div>
+                    <div id="inventoryAlertsTableWrap" class="inventory-alert-table-wrap"></div>
                 </div>
 
                 <div class="analytics-card stockout-timeline-card" id="stockOutTimelineCard">

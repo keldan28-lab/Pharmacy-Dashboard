@@ -3552,3 +3552,40 @@
   vector-effect: non-scaling-stroke;
 }
 .ui-icon use{ pointer-events: none; }
+
+/* Inventory alerts card */
+.inventory-alert-counts {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 8px 0 12px;
+}
+.inventory-alert-table-wrap {
+    border-top: 1px solid var(--card-border);
+    padding-top: 10px;
+}
+.inventory-alert-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.inventory-alert-table th,
+.inventory-alert-table td {
+    text-align: left;
+    padding: 6px 4px;
+    border-bottom: 1px solid var(--card-border);
+    vertical-align: top;
+}
+.inventory-alert-table tr.alert-main-row { cursor: pointer; }
+.inventory-alert-table tr.alert-main-row:hover { background: rgba(127,127,127,0.08); }
+.alert-drilldown-row td {
+    background: rgba(127,127,127,0.04);
+    font-size: 11px;
+}
+.alert-subline { margin: 2px 0; color: var(--text-secondary); }
+.top-used-alert-note {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}

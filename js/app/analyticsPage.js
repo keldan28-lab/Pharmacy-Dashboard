@@ -404,7 +404,86 @@
         // This page requests pharmaceutical data from the parent Dashboard via postMessage
         
         let cachedMockData = null;
+        let cachedComputed = { inventoryFacts: null, alerts: null };
         let dataRequestCallbacks = [];
+
+        function _alertNum(v, fallback) {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function recomputeInventoryAlerts() {
+            try {
+                if (!cachedMockData || !cachedMockData.inventory || !window.InventoryNormalizer || !window.AlertEngine) return;
+                cachedComputed.inventoryFacts = window.InventoryNormalizer.normalizeInventoryToFacts(cachedMockData.inventory, getSublocationMap());
+                const alertConfig = { leadDays: 14, safetyDays: 7, tolerance: 0.5, maxDosDays: 90 };
+                cachedComputed.alerts = window.AlertEngine.computeAlerts(cachedComputed.inventoryFacts, window.trendingItems || {}, alertConfig);
+                window.__analyticsComputed = cachedComputed;
+                renderInventoryAlertsCard(cachedComputed.alerts);
+                logInventoryAlertsSummary(cachedComputed.alerts);
+            } catch (e) {
+                console.warn('⚠️ Failed to recompute inventory alerts', e);
+            }
+        }
+
+        function logInventoryAlertsSummary(alerts) {
+            if (!alerts || !alerts.totals) return;
+            const mainRows = Object.keys(alerts.byMainLocation || {}).map(function (loc) {
+                return { mainLocation: loc, severity: _alertNum(alerts.byMainLocation[loc].severityScore, 0) };
+            }).sort(function (a, b) { return b.severity - a.severity; });
+            const topAlerts = (alerts.allAlerts || []).slice().sort(function (a, b) { return _alertNum(b.severityScore, 0) - _alertNum(a.severityScore, 0); }).slice(0, 10);
+            console.log('🚨 Inventory Alerts totals:', alerts.totals.countsByType || {});
+            console.log('🚨 Top 5 mainLocations by severity:', mainRows.slice(0, 5));
+            console.log('🚨 Top 10 alerts by severity:', topAlerts);
+        }
+
+        function renderInventoryAlertsCard(alerts) {
+            const countsEl = document.getElementById('inventoryAlertCounts');
+            const tableWrap = document.getElementById('inventoryAlertsTableWrap');
+            if (!countsEl || !tableWrap) return;
+            if (!alerts || !alerts.totals) {
+                countsEl.textContent = 'Alerts unavailable';
+                tableWrap.innerHTML = '';
+                return;
+            }
+            const c = alerts.totals.countsByType || {};
+            countsEl.textContent = `Min Too Low: ${c.minTooLow || 0} • Min Too High: ${c.minTooHigh || 0} • Overstock: ${c.overMax || 0} • Waste Risk: ${c.wasteRisk || 0}`;
+            const rows = Object.keys(alerts.byMainLocation || {}).map(function (mainLocation) {
+                const info = alerts.byMainLocation[mainLocation] || {};
+                const alertCount = Object.values(info.countsByType || {}).reduce(function (a, b) { return a + _alertNum(b, 0); }, 0);
+                const topTypes = Object.keys(info.countsByType || {}).sort(function (a, b) { return _alertNum(info.countsByType[b], 0) - _alertNum(info.countsByType[a], 0); }).slice(0, 2).join(', ');
+                return { mainLocation: mainLocation, severity: _alertNum(info.severityScore, 0), alertCount: alertCount, topTypes: topTypes || 'none', alerts: (info.topAlerts || []).slice(0, 5) };
+            }).sort(function (a, b) { return b.severity - a.severity; });
+
+            if (!rows.length) {
+                tableWrap.innerHTML = '<div class="inventory-alert-counts">No inventory alerts detected.</div>';
+                return;
+            }
+
+            let html = '<table class="inventory-alert-table"><thead><tr><th>MainLocation</th><th>Alerts</th><th>Top issue types</th><th>Severity</th></tr></thead><tbody>';
+            rows.forEach(function (row, idx) {
+                html += `<tr class="alert-main-row" data-alert-main-row="${idx}"><td>${escapeHtml(row.mainLocation)}</td><td>${row.alertCount}</td><td>${escapeHtml(row.topTypes)}</td><td>${row.severity.toFixed(1)}</td></tr>`;
+                html += `<tr class="alert-drilldown-row" data-alert-drill="${idx}" style="display:none;"><td colspan="4">`;
+                if (!row.alerts.length) {
+                    html += '<div class="alert-subline">No detail alerts</div>';
+                } else {
+                    row.alerts.forEach(function (a) {
+                        html += `<div class="alert-subline">${escapeHtml(a.sublocation || '-') } | ${escapeHtml(a.type || '-') } | ${escapeHtml(a.itemCode || '-') } | Min ${_alertNum(a.minQty, 0).toFixed(1)} / Req ${_alertNum(a.requiredMin, 0).toFixed(1)} | Δ ${_alertNum(a.deltaMin, 0).toFixed(1)} | Supply ${a.supplyFeasible ? 'OK' : 'Tight'}</div>`;
+                    });
+                }
+                html += '</td></tr>';
+            });
+            html += '</tbody></table>';
+            tableWrap.innerHTML = html;
+            tableWrap.querySelectorAll('[data-alert-main-row]').forEach(function (tr) {
+                tr.addEventListener('click', function () {
+                    const idx = tr.getAttribute('data-alert-main-row');
+                    const d = tableWrap.querySelector('[data-alert-drill="' + idx + '"]');
+                    if (!d) return;
+                    d.style.display = d.style.display === 'none' ? '' : 'none';
+                });
+            });
+        }
         
         /**
          * Request mock data from parent Dashboard container
@@ -1128,6 +1207,9 @@
                     }
                 }
                 
+                // Compute normalized facts + hierarchical inventory alerts
+                recomputeInventoryAlerts();
+
                 // Resolve all pending callbacks
                 dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
                 dataRequestCallbacks = [];
@@ -2588,8 +2670,28 @@
                 calculatedAt: ti.calculatedAt
             });
             
-            // Get top 4 trending items
-            const top4 = trendingUp.slice(0, 4);
+            const alertsByItem = (cachedComputed && cachedComputed.alerts && cachedComputed.alerts.byItem) ? cachedComputed.alerts.byItem : {};
+            const boosted = trendingUp.map(function (item) {
+                const itemCode = String(item.itemCode || '');
+                const itemAlerts = (alertsByItem[itemCode] && Array.isArray(alertsByItem[itemCode].alerts)) ? alertsByItem[itemCode].alerts : [];
+                const pyxisMinLow = itemAlerts.filter(function (a) { return a.type === 'minTooLow' && a.department === 'Pyxis'; });
+                const hasHigh = pyxisMinLow.some(function (a) { return a.severity === 'high'; });
+                const hasMedium = pyxisMinLow.some(function (a) { return a.severity === 'medium'; });
+                const minAdequacyRiskBoost = hasHigh ? 1.12 : (hasMedium ? 1.06 : 1.0);
+                const seasonalUrgencyBoost = _alertNum(item.seasonalUrgencyBoost, 1);
+                const combinedBoost = Math.min(1.15, seasonalUrgencyBoost * minAdequacyRiskBoost);
+                const pct = _alertNum(item.percentChange, 0);
+                return Object.assign({}, item, {
+                    minAdequacyRiskBoost,
+                    combinedBoost,
+                    boostedScore: pct * combinedBoost,
+                    __itemAlerts: itemAlerts,
+                    __pyxisMinLow: pyxisMinLow
+                });
+            }).sort(function (a, b) { return _alertNum(b.boostedScore, 0) - _alertNum(a.boostedScore, 0); });
+
+            // Get top 4 trending items (card-local boosted ordering)
+            const top4 = boosted.slice(0, 4);
             
             console.log('📈 Top 4 trending items:', top4.map(item => ({
                 code: item.itemCode,
@@ -2625,12 +2727,19 @@
                     const displayName = item.description || item.drugName || item.itemCode || 'Unknown';
                     const avgWeeklyUsage = _num(item.avgWeeklyUsage ?? item.weeklyUsage ?? item.avgUsage, 0);
 
+                    const worstMinAlert = (item.__pyxisMinLow || []).slice().sort(function (a, b) { return _alertNum(b.severityScore, 0) - _alertNum(a.severityScore, 0); })[0] || null;
+                    const coverageDays = worstMinAlert ? _alertNum(worstMinAlert.coverageDays, 0) : 0;
+                    const minNote = worstMinAlert
+                        ? `Min LOW: Need +${Math.ceil(Math.max(0, _alertNum(worstMinAlert.deltaMin, 0)))} (${String(worstMinAlert.severity || 'MED').toUpperCase()}) • Supply ${worstMinAlert.supplyFeasible ? 'OK' : 'Tight'}`
+                        : `Min OK (covers ${Math.round(coverageDays || 21)}d)`;
+
                     const li = document.createElement('li');
                     li.className = 'trend-item';
                     li.innerHTML = `
                         <span class="trend-name-block">
                             <span class="trend-name">${displayName}</span>
                             ${suggestion ? `<span class="trend-suggestion">${suggestion}</span>` : ''}
+                            <span class="top-used-alert-note">${escapeHtml(minNote)}</span>
                         </span>
                         <span class="trend-value">
                             ${avgWeeklyUsage.toFixed(1)}/wk
@@ -3128,6 +3237,7 @@
                     window.trendingItems = ti;
                     window.__lastGoodTrendingItems = ti;
                     window.__hasEverReceivedTrendingItems = true;
+                    recomputeInventoryAlerts();
                     updateTopUsedItemsCard();
                 }
             }
