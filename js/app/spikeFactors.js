@@ -813,6 +813,17 @@ function _formPost(url, fields, timeoutMs = 2000){
 }
 
 async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
+  const expectedRows = Array.isArray(rows) ? rows.length : 0;
+
+  async function verifyReadBackOrThrow(){
+    await new Promise(r=>setTimeout(r, 500));
+    const qs = _buildReadQuery(sheetId, tabName);
+    const raw = await _jsonp(`${webAppUrl}?${qs}`, 15000);
+    const norm = _normalizeReadResponse(raw);
+    if(!norm.ok) throw new Error(norm.error || 'read-back failed');
+    if(expectedRows > 0 && (!norm.rows || !norm.rows.length)) throw new Error('read-back returned 0 rows');
+  }
+
   // Local file origin: use form POST (no CORS) + ingest locally
   if(_isLocalFileOrigin()){
     // Use form POST to avoid CORS on file://. Many Apps Script handlers read e.parameter.*
@@ -834,12 +845,7 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
 
     // Verify write by reading back a sample (Apps Script can silently fail if permissions/deployment are wrong).
     try{
-      await new Promise(r=>setTimeout(r, 500));
-      const qs = _buildReadQuery(sheetId, tabName);
-      const raw = await _jsonp(`${webAppUrl}?${qs}`, 15000);
-      const norm = _normalizeReadResponse(raw);
-      if(!norm.ok) throw new Error(norm.error || 'read-back failed');
-      if(!norm.rows || !norm.rows.length) throw new Error('read-back returned 0 rows');
+      await verifyReadBackOrThrow();
     }catch(e){
       throw new Error('Write POST was sent, but verification failed (' + (e && e.message ? e.message : String(e)) + '). Check: (1) Web App is deployed as "Anyone" can access, (2) script has permission to edit the target sheet, (3) sheetId/tabName are correct.');
     }
@@ -847,12 +853,57 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
     return { ok:true, method:'formpost' };
   }
 
-  // Non-local origins: try fetch JSON
-  const res=await fetch(webAppUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'write',sheetId,tabName,rows})});
-  const json=await res.json();
-  if(!json.ok) throw new Error(json.error||'write failed');
-  _ingestRows(rows);
-  return json;
+  // Non-local origins: try JSON first, then form POST fallback for handlers that only read e.parameter.*
+  const writePayload = {
+    action: 'write',
+    op: 'write',
+    mode: 'write',
+    sheetId,
+    spreadsheetId: sheetId,
+    tabName,
+    sheetName: tabName,
+    rows,
+    payload: { rows },
+    data: rows
+  };
+
+  try {
+    const res = await fetch(webAppUrl, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(writePayload)
+    });
+    const txt = await res.text();
+    let json = null;
+    try { json = JSON.parse(txt); } catch (_) { json = { ok: res.ok, text: txt }; }
+    if (!res.ok || (json && json.ok === false)) throw new Error((json && json.error) || `write failed (http ${res.status})`);
+
+    _ingestRows(rows);
+    await verifyReadBackOrThrow();
+    return json;
+  } catch (jsonErr) {
+    await _formPost(webAppUrl, {
+      action: 'write',
+      op: 'write',
+      mode: 'write',
+      sheetId: sheetId,
+      spreadsheetId: sheetId,
+      tabName: tabName,
+      sheetName: tabName,
+      payload: JSON.stringify({ rows: rows }),
+      rows: JSON.stringify(rows),
+      data: JSON.stringify(rows),
+      json: JSON.stringify({ rows: rows })
+    });
+
+    _ingestRows(rows);
+    try {
+      await verifyReadBackOrThrow();
+      return { ok: true, method: 'formpost-fallback' };
+    } catch (verifyErr) {
+      throw new Error('Write failed after JSON + form fallback (' + (verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr)) + '; json error: ' + (jsonErr && jsonErr.message ? jsonErr.message : String(jsonErr)) + '). Check: (1) Web App is deployed as "Anyone" can access, (2) script has permission to edit the target sheet, (3) sheetId/tabName are correct.');
+    }
+  }
 }
 
 
