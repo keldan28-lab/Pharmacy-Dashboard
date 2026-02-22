@@ -5387,3 +5387,4 @@ async function adminLoadSpikeFactors() {
                 });
             }
         });
+}

@@ -1,0 +1,11 @@
+{
+  "name": "pharmacy-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "lint:parse": "node scripts/lint-parse.js"
+  },
+  "devDependencies": {
+    "acorn": "^8.14.1"
+  }
+}
