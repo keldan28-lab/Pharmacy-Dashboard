@@ -590,8 +590,9 @@ window.requestChartStateMirror = function() {
                 });
             }
 
+            return { apiKey, clientId, sheetId, tabName };
+        }
 
-        
 function __setSpikeBridgeFrameSrc(execUrl){
     // Apps Script Web Apps send X-Frame-Options: SAMEORIGIN which blocks embedding in iframes.
     // Keep as a no-op to avoid console spam; verification uses JSONP read instead.

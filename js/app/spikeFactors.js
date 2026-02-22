@@ -787,22 +787,30 @@ function _formPost(url, fields, timeoutMs = 2000){
 }
 
 async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
+  const payloadRowsJson = JSON.stringify({ rows: rows });
+  const payloadWrite = {
+    action: 'write',
+    sheetId,
+    spreadsheetId: sheetId,
+    tabName,
+    sheetName: tabName,
+    rows,
+    payload: payloadRowsJson
+  };
+
   // Local file origin: use form POST (no CORS) + ingest locally
   if(_isLocalFileOrigin()){
     // Use form POST to avoid CORS on file://. Many Apps Script handlers read e.parameter.*
-    await _formPost(webAppUrl, {
-      action: 'write',
-      sheetId: sheetId,
-      tabName: tabName,
-      payload: JSON.stringify({ rows: rows })
-    });
+    await _formPost(webAppUrl, Object.assign({}, payloadWrite, {
+      rows: JSON.stringify(rows)
+    }));
     // Optimistically ingest locally.
     _ingestRows(rows);
 
     // Verify write by reading back a sample (Apps Script can silently fail if permissions/deployment are wrong).
     try{
       await new Promise(r=>setTimeout(r, 500));
-      const qs = `action=read&sheetId=${encodeURIComponent(sheetId)}&tabName=${encodeURIComponent(tabName)}`;
+      const qs = _buildReadQuery(sheetId, tabName);
       const raw = await _jsonp(`${webAppUrl}?${qs}`, 15000);
       const norm = _normalizeReadResponse(raw);
       if(!norm.ok) throw new Error(norm.error || 'read-back failed');
@@ -815,7 +823,7 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
   }
 
   // Non-local origins: try fetch JSON
-  const res=await fetch(webAppUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'write',sheetId,tabName,rows})});
+  const res=await fetch(webAppUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payloadWrite)});
   const json=await res.json();
   if(!json.ok) throw new Error(json.error||'write failed');
   _ingestRows(rows);
@@ -858,7 +866,7 @@ function _normalizeReadResponse(payload){
 }
 
 async function loadFromWebApp(webAppUrl,sheetId,tabName){
-  const qs = `action=read&sheetId=${encodeURIComponent(sheetId)}&tabName=${encodeURIComponent(tabName)}`;
+  const qs = _buildReadQuery(sheetId, tabName);
 
   // Local file origin: use JSONP (no CORS)
   if(_isLocalFileOrigin()){
@@ -900,6 +908,16 @@ async function pingWebApp(webAppUrl){
   try{ json = JSON.parse(txt); }catch(_){ json = { ok: res.ok, status: res.status, text: txt }; }
   if(!json.ok) throw new Error(json.error||('ping failed: '+(json.status||res.status)));
   return json;
+}
+
+function _buildReadQuery(sheetId, tabName) {
+  const p = new URLSearchParams();
+  p.set('action', 'read');
+  p.set('sheetId', sheetId || '');
+  p.set('spreadsheetId', sheetId || '');
+  p.set('tabName', tabName || '');
+  p.set('sheetName', tabName || '');
+  return p.toString();
 }
 
 window.SpikeFactors={
