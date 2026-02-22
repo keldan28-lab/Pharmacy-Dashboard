@@ -944,17 +944,17 @@ function _normalizeReadResponse(payload){
 
 async function loadFromWebApp(webAppUrl,sheetId,tabName){
   const qs = _buildReadQuery(sheetId, tabName);
+  const url = `${webAppUrl}?action=read&${qs}`;
+  console.log('[SpikeFactors] loadFromWebApp URL:', url);
 
   // Local file origin: use JSONP (no CORS)
   if(_isLocalFileOrigin()){
-    const url = `${webAppUrl}?${qs}`;
     const raw = await _jsonp(url, 15000);
     const norm = _normalizeReadResponse(raw);
     if(!norm.ok) throw new Error(norm.error || (raw && raw.error) || 'read failed');
     return _ingestRows(norm.rows || []);
   }
 
-  const url = `${webAppUrl}?${qs}`;
   const res = await fetch(url, { method: 'GET' });
 
   // Apps Script sometimes returns text/html on errors; parse defensively
