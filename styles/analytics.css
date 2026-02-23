@@ -3552,3 +3552,143 @@
   vector-effect: non-scaling-stroke;
 }
 .ui-icon use{ pointer-events: none; }
+
+/* Pyxis Min Adjustment Overview */
+.pyxis-adj-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-top: 18px;
+}
+
+.pyxis-adj-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pyxis-adj-toggle {
+    border: 1px solid var(--border-color);
+    background: var(--header-columns-bg);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.pyxis-adj-toggle.active {
+    border-color: rgba(17, 153, 142, 0.45);
+    color: var(--teal-primary);
+    background: rgba(17, 153, 142, 0.12);
+}
+
+.pyxis-adj-sort {
+    border: 1px solid var(--border-color);
+    background: var(--header-columns-bg);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.pyxis-adj-sort .ui-icon {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.pyxis-adj-bars {
+    margin-top: 14px;
+    min-height: 180px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+    align-items: end;
+    gap: 8px;
+}
+
+.pyxis-adj-bar {
+    border: 0;
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    cursor: pointer;
+    padding: 0;
+}
+
+.pyxis-adj-bar-col {
+    width: 24px;
+    min-height: 8px;
+    background: rgba(17, 153, 142, 0.45);
+    border-radius: 6px 6px 3px 3px;
+}
+
+.pyxis-adj-bar.selected .pyxis-adj-bar-col {
+    background: var(--teal-primary);
+}
+
+.pyxis-adj-bar-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.pyxis-adj-bar-value {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.pyxis-adj-table-wrap {
+    margin-top: 12px;
+}
+
+.pyxis-adj-table-title {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.pyxis-adj-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.pyxis-adj-table th,
+.pyxis-adj-table td {
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 12px;
+}
+
+.pyxis-adj-table th {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-align: left;
+}
+
+.pyxis-adj-min-arrow {
+    font-weight: 700;
+    color: var(--teal-primary);
+}
+
+.pyxis-adj-empty {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+    font-size: 12px;
+    padding: 18px 8px;
+    text-align: center;
+}
