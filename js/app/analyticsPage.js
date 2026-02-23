@@ -1248,6 +1248,19 @@
                 } catch (e) {}
 
                 window.mockData = cachedMockData; // Make available globally
+
+                // Build canonical facts once for downstream analytics/overview consumers.
+                try {
+                    if (window.FactsEngine && typeof window.FactsEngine.build === 'function') {
+                        window.__facts = window.FactsEngine.build(cachedMockData, { sublocationMap: getSublocationMap() });
+                        if (!window.__factsDebugLogged && typeof window.FactsEngine.debugSummary === 'function') {
+                            window.FactsEngine.debugSummary(window.__facts);
+                            window.__factsDebugLogged = true;
+                        }
+                    }
+                } catch (factsError) {
+                    console.warn('⚠️ FactsEngine build failed:', factsError);
+                }
                 
                 // Store projected waste data from Dashboard (single source of truth)
                 if (cachedMockData.projectedWaste) {
