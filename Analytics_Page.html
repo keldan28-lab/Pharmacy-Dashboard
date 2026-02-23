@@ -180,30 +180,49 @@
             <!-- Command Center Layout -->
             <div class="analytics-grid section-spacing command-center-grid" id="overviewCommandCenter">
                 <div class="analytics-card command-triage-card" id="stockoutTriageCard">
-                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#ff5454;"><svg viewBox="0 0 24 24"><path d="M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z"/></svg></div><div><div class="card-title">Stockout Triage</div><div class="card-subtitle">Pharmacy → MainLocation → Pyxis satellite</div></div></div><div class="pyxis-adj-controls"><button class="pyxis-adj-sort" id="overviewSortToggle" type="button" title="Sort by impact"><svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg></button></div></div>
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon" style="background:#ff5454;"><svg viewBox="0 0 24 24"><path d="M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z"/></svg></div>
+                            <div><div class="card-title">Stockout Triage Command Center</div><div class="card-subtitle">Pharmacy → MainLocation → Pyxis satellites</div></div>
+                        </div>
+                        <div class="pyxis-adj-controls"><button class="pyxis-adj-sort" id="overviewSortToggle" type="button" title="Sort by impact"><svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg></button></div>
+                    </div>
+                    <div class="triage-kpi-row" id="triageKpiRow">
+                        <div class="triage-kpi critical"><span>Critical ≤3d</span><strong id="triageCriticalCount">0</strong></div>
+                        <div class="triage-kpi high"><span>High ≤7d</span><strong id="triageHighCount">0</strong></div>
+                        <div class="triage-kpi med"><span>Min Too Low</span><strong id="triageMinLowCount">0</strong></div>
+                        <div class="triage-kpi"><span>Impacted MainLocations</span><strong id="triageMainCount">0</strong></div>
+                    </div>
+                    <div class="triage-graphic-wrap">
+                        <div class="triage-graphic-title">Stockout urgency skyline</div>
+                        <div class="triage-skyline" id="triageSkyline"></div>
+                    </div>
                     <div class="command-table-wrap"><table class="command-table" id="stockoutTriageTable"><thead><tr><th>Priority</th><th>Item</th><th>MainLocation</th><th>Satellite</th><th>Days Left</th><th>Issue</th><th>Action</th></tr></thead><tbody><tr><td colspan="7">Loading...</td></tr></tbody></table></div>
                 </div>
 
                 <div class="analytics-card pyxis-metrics-card" id="pyxisMetricsCard">
-                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#ff8400;"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2"/></svg></div><div><div class="card-title">Pyxis Structural Risk Overview</div><div class="card-subtitle">MainLocation rollups + drilldown</div></div></div></div>
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#ff8400;"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2"/></svg></div><div><div class="card-title">Pyxis Structural Risk Overview</div><div class="card-subtitle">Graphical rollups + drilldown table</div></div></div></div>
                     <div class="pyxis-adj-top"><div class="pyxis-adj-total"><div class="metric-label">Impacted Locations</div><div class="metric-value" id="pyxisAdjTotalLocations">--</div></div><div class="pyxis-adj-controls"><button class="pyxis-adj-toggle active" id="pyxisAdjIncreaseBtn" type="button">Min ↑ (High usage)</button><button class="pyxis-adj-toggle" id="pyxisAdjDecreaseBtn" type="button">Min ↓ (Low usage)</button><button class="pyxis-adj-sort" id="pyxisAdjSortToggle" type="button" title="Sort by impact"><svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg></button></div></div>
                     <div class="pyxis-adj-bars" id="pyxisAdjBars"></div>
                     <div class="pyxis-adj-table-wrap"><div class="pyxis-adj-table-title" id="pyxisAdjTableTitle">Select a location</div><table class="pyxis-adj-table" id="pyxisAdjTable"><thead><tr><th>Location</th><th>Daily Dispense</th><th>Min</th></tr></thead><tbody><tr><td colspan="3">Loading...</td></tr></tbody></table></div>
                 </div>
 
                 <div class="analytics-card" id="supplyIntegrityCard">
-                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#11998e;"><svg viewBox="0 0 24 24"><path d="M20,8H17V4H15V8H9V4H7V8H4V10H7V20H9V10H15V20H17V10H20V8Z"/></svg></div><div><div class="card-title">Pharmacy → Pyxis Supply Integrity</div><div class="card-subtitle">Transfer feasibility for Min ↑</div></div></div><div class="pyxis-adj-controls"><button class="pyxis-adj-sort" id="supplySortToggle" type="button" title="Sort by impact"><svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg></button></div></div>
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#11998e;"><svg viewBox="0 0 24 24"><path d="M20,8H17V4H15V8H9V4H7V8H4V10H7V20H9V10H15V20H17V10H20V8Z"/></svg></div><div><div class="card-title">Pharmacy → Pyxis Supply Integrity</div><div class="card-subtitle">Feasibility visualization + transfer actions</div></div></div><div class="pyxis-adj-controls"><button class="pyxis-adj-sort" id="supplySortToggle" type="button" title="Sort by impact"><svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg></button></div></div>
                     <div class="supply-kpis"><div><div class="metric-label">Items needing Min ↑</div><div class="metric-value" id="supplyNeedCount">0</div></div><div><div class="metric-label">Feasible transfers</div><div class="metric-value" id="supplyFeasibleCount">0</div></div><div><div class="metric-label">Not feasible</div><div class="metric-value" id="supplyNotFeasibleCount">0</div></div></div>
+                    <div class="supply-feasibility-bar"><span id="supplyFeasibleBar"></span></div>
                     <div class="command-table-wrap"><table class="command-table" id="supplyIntegrityTable"><thead><tr><th>Item</th><th>Pyxis Need</th><th>Pharmacy On Hand</th><th>Feasible</th><th>Action</th></tr></thead><tbody><tr><td colspan="5">Loading...</td></tr></tbody></table></div>
                 </div>
 
                 <div class="analytics-card" id="wasteActionCard">
-                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#667eea;"><svg viewBox="0 0 24 24"><path d="M3,3V21H21V19H5V3H3"/></svg></div><div><div class="card-title">Waste Risk Panel</div><div class="card-subtitle">Low usage + high waste action list</div></div></div></div>
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#667eea;"><svg viewBox="0 0 24 24"><path d="M3,3V21H21V19H5V3H3"/></svg></div><div><div class="card-title">Waste Risk Panel</div><div class="card-subtitle">Actionable list + relative risk bars</div></div></div></div>
+                    <div class="waste-mini-bars" id="wasteRiskBars"></div>
                     <div class="command-table-wrap"><table class="command-table" id="wasteRiskTable"><thead><tr><th>Item</th><th>MainLocation</th><th>Waste Risk</th><th>Action</th></tr></thead><tbody><tr><td colspan="4">Loading...</td></tr></tbody></table></div>
                 </div>
 
                 <div class="analytics-card" id="inventoryHealthSummaryCard">
-                    <div class="card-header"><div class="card-title-group"><div class="card-icon"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2Z"/></svg></div><div><div class="card-title">Inventory Health Summary</div><div class="card-subtitle">Clickable triage filters</div></div></div></div>
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2Z"/></svg></div><div><div class="card-title">Inventory Health Summary</div><div class="card-subtitle">Clickable triage filters + proportion bar</div></div></div></div>
+                    <div class="health-summary-bar" id="inventoryHealthSummaryBar"></div>
                     <div class="health-summary-list" id="inventoryHealthSummaryList"></div>
                 </div>
             </div>

@@ -8219,19 +8219,206 @@ function renderOverviewCommandCenter(mockData) {
 }
 
 function renderStockoutTriageTable(model) {
-    const table = document.getElementById('stockoutTriageTable'); const sortBtn = document.getElementById('overviewSortToggle'); if (!table || !sortBtn) return;
-    const tbody = table.querySelector('tbody'); if (!tbody) return;
+    const table = document.getElementById('stockoutTriageTable');
+    const sortBtn = document.getElementById('overviewSortToggle');
+    if (!table || !sortBtn) return;
+
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+
     const sort = window.__overviewSortMode === 'alpha' ? 'alpha' : 'impact';
-    const useEl = sortBtn.querySelector('use'); if (useEl) useEl.setAttribute('href', sort === 'impact' ? '#icon-sort-impact' : '#icon-sort-a');
-    const rows = model.triage.slice().sort((a,b)=> sort==='alpha' ? (a.itemName.localeCompare(b.itemName)||a.mainLocation.localeCompare(b.mainLocation)) : ((a.daysLeft-b.daysLeft)||('CRITICAL,HIGH,MED,LOW'.indexOf(a.severity)-'CRITICAL,HIGH,MED,LOW'.indexOf(b.severity))||(b.dailyDispense-a.dailyDispense)));
-    const filtered = rows.filter(r => window.__overviewHealthFilter==='all' || (window.__overviewHealthFilter==='critical'&&r.severity==='CRITICAL') || (window.__overviewHealthFilter==='high'&&r.severity==='HIGH') || (window.__overviewHealthFilter==='minLow'&&r.issue==='Min too low'));
-    tbody.innerHTML = filtered.slice(0,80).map(r=>`<tr data-main="${escapeHtml(r.mainLocation)}" data-sub="${escapeHtml(r.sublocation)}"><td><span class="triage-badge ${r.severity.toLowerCase()}">${r.severity}</span></td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.mainLocation)}</td><td>${escapeHtml(r.sublocation)}</td><td>${Number(r.daysLeft).toFixed(1)}</td><td>${escapeHtml(r.issue)}</td><td>${escapeHtml(r.action)}</td></tr>`).join('') || '<tr><td colspan="7">No triage issues.</td></tr>';
-    tbody.querySelectorAll('tr[data-main]').forEach(tr => tr.addEventListener('click', ()=>{ window.__pyxisAdjSelectedMain = tr.dataset.main; window.__selectedSublocation = tr.dataset.sub; try{localStorage.setItem('selectedMainLocation', window.__pyxisAdjSelectedMain);}catch(_){} renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || window.mockData || {}); }));
-    if (!sortBtn.dataset.bound){ sortBtn.dataset.bound='1'; sortBtn.addEventListener('click', ()=>{ window.__overviewSortMode = window.__overviewSortMode === 'impact' ? 'alpha' : 'impact'; try{localStorage.setItem('overviewSortMode', window.__overviewSortMode);}catch(_){} renderStockoutTriageTable(model); }); }
+    const useEl = sortBtn.querySelector('use');
+    if (useEl) useEl.setAttribute('href', sort === 'impact' ? '#icon-sort-impact' : '#icon-sort-a');
+
+    const rows = model.triage.slice().sort((a, b) => {
+        if (sort === 'alpha') return (a.itemName.localeCompare(b.itemName) || a.mainLocation.localeCompare(b.mainLocation));
+        const sevOrder = { CRITICAL: 0, HIGH: 1, MED: 2, LOW: 3 };
+        return (a.daysLeft - b.daysLeft) || ((sevOrder[a.severity] ?? 3) - (sevOrder[b.severity] ?? 3)) || (b.dailyDispense - a.dailyDispense);
+    });
+
+    const filtered = rows.filter(r => {
+        if (window.__overviewHealthFilter === 'all') return true;
+        if (window.__overviewHealthFilter === 'critical') return r.severity === 'CRITICAL';
+        if (window.__overviewHealthFilter === 'high') return r.severity === 'HIGH';
+        if (window.__overviewHealthFilter === 'minLow') return r.issue === 'Min too low';
+        if (window.__overviewHealthFilter === 'minHigh') return false;
+        if (window.__overviewHealthFilter === 'waste') return false;
+        return true;
+    });
+
+    tbody.innerHTML = filtered.slice(0, 80).map(r => (
+        `<tr data-main="${escapeHtml(r.mainLocation)}" data-sub="${escapeHtml(r.sublocation)}">` +
+            `<td><span class="triage-badge ${r.severity.toLowerCase()}">${r.severity}</span></td>` +
+            `<td>${escapeHtml(r.itemName)}</td>` +
+            `<td>${escapeHtml(r.mainLocation)}</td>` +
+            `<td>${escapeHtml(r.sublocation)}</td>` +
+            `<td>${Number(r.daysLeft).toFixed(1)}</td>` +
+            `<td>${escapeHtml(r.issue)}</td>` +
+            `<td>${escapeHtml(r.action)}</td>` +
+        `</tr>`
+    )).join('') || '<tr><td colspan="7">No triage issues.</td></tr>';
+
+    const criticalCount = rows.filter(r => r.severity === 'CRITICAL').length;
+    const highCount = rows.filter(r => r.severity === 'HIGH').length;
+    const minLowCount = rows.filter(r => r.issue === 'Min too low').length;
+    const mainCount = new Set(rows.map(r => r.mainLocation)).size;
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val); };
+    setText('triageCriticalCount', criticalCount);
+    setText('triageHighCount', highCount);
+    setText('triageMinLowCount', minLowCount);
+    setText('triageMainCount', mainCount);
+
+    const skyline = document.getElementById('triageSkyline');
+    if (skyline) {
+        const maxRisk = Math.max(1, ...rows.map(r => 1 / Math.max(0.5, r.daysLeft)));
+        skyline.innerHTML = rows.slice(0, 36).map(r => {
+            const risk = 1 / Math.max(0.5, r.daysLeft);
+            const h = Math.max(10, Math.round((risk / maxRisk) * 100));
+            const cls = r.severity === 'CRITICAL' ? 'critical' : (r.severity === 'HIGH' ? 'high' : 'med');
+            return `<button class="triage-skyline-bar ${cls}" style="height:${h}%" title="${escapeHtml(r.itemName)} · ${escapeHtml(r.sublocation)} · ${Number(r.daysLeft).toFixed(1)}d" data-main="${escapeHtml(r.mainLocation)}" data-sub="${escapeHtml(r.sublocation)}"></button>`;
+        }).join('') || '<div class="pyxis-adj-empty">No urgency data.</div>';
+        skyline.querySelectorAll('.triage-skyline-bar').forEach(btn => btn.addEventListener('click', () => {
+            window.__pyxisAdjSelectedMain = btn.dataset.main;
+            try { localStorage.setItem('selectedMainLocation', window.__pyxisAdjSelectedMain); } catch (_) {}
+            renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || window.mockData || {});
+        }));
+    }
+
+    tbody.querySelectorAll('tr[data-main]').forEach(tr => tr.addEventListener('click', () => {
+        window.__pyxisAdjSelectedMain = tr.dataset.main;
+        try { localStorage.setItem('selectedMainLocation', window.__pyxisAdjSelectedMain); } catch (_) {}
+        renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || window.mockData || {});
+    }));
+
+    if (!sortBtn.dataset.bound) {
+        sortBtn.dataset.bound = '1';
+        sortBtn.addEventListener('click', () => {
+            window.__overviewSortMode = window.__overviewSortMode === 'impact' ? 'alpha' : 'impact';
+            try { localStorage.setItem('overviewSortMode', window.__overviewSortMode); } catch (_) {}
+            renderStockoutTriageTable(model);
+        });
+    }
 }
 
-function renderSupplyIntegrityCard(model){ const table=document.getElementById('supplyIntegrityTable'); const sortBtn=document.getElementById('supplySortToggle'); if(!table||!sortBtn) return; const tbody=table.querySelector('tbody'); const sort = window.__supplySortMode==='alpha'?'alpha':'impact'; const useEl=sortBtn.querySelector('use'); if(useEl) useEl.setAttribute('href', sort==='impact'?'#icon-sort-impact':'#icon-sort-a'); const rows=model.supplyRows.slice().sort((a,b)=> sort==='alpha'?a.itemName.localeCompare(b.itemName):((b.totalDeltaMin-a.totalDeltaMin)||(b.severity-a.severity))); document.getElementById('supplyNeedCount').textContent=String(rows.length); document.getElementById('supplyFeasibleCount').textContent=String(rows.filter(r=>r.supplyFeasible).length); document.getElementById('supplyNotFeasibleCount').textContent=String(rows.filter(r=>!r.supplyFeasible).length); tbody.innerHTML=rows.slice(0,10).map(r=>`<tr><td>${escapeHtml(r.itemName)}</td><td>${r.totalDeltaMin.toFixed(1)}</td><td>${r.pharmacyOnHand.toFixed(1)}</td><td>${r.feasibleTransfer.toFixed(1)}</td><td>${r.supplyFeasible?('Transfer '+r.feasibleTransfer.toFixed(0)):'Review / Order'}</td></tr>`).join('')||'<tr><td colspan="5">No Min ↑ items.</td></tr>'; if(!sortBtn.dataset.bound){sortBtn.dataset.bound='1';sortBtn.addEventListener('click',()=>{window.__supplySortMode=window.__supplySortMode==='impact'?'alpha':'impact';try{localStorage.setItem('supplySortMode',window.__supplySortMode);}catch(_){} renderSupplyIntegrityCard(model);});}}
+function renderSupplyIntegrityCard(model) {
+    const table = document.getElementById('supplyIntegrityTable');
+    const sortBtn = document.getElementById('supplySortToggle');
+    if (!table || !sortBtn) return;
 
-function renderWasteRiskPanel(mockData){ const table=document.getElementById('wasteRiskTable'); if(!table) return; const tbody=table.querySelector('tbody'); const items=((mockData&&mockData.pyxisProjectedWaste&&Array.isArray(mockData.pyxisProjectedWaste.items))?mockData.pyxisProjectedWaste.items:[]).slice(); items.sort((a,b)=>(Number(b.pyxisWasteValue||b.projectedWasteValue||0)-Number(a.pyxisWasteValue||a.projectedWasteValue||0))); tbody.innerHTML=items.slice(0,10).map(w=>`<tr><td>${escapeHtml(w.drugName||w.itemCode||'')}</td><td>${escapeHtml(w.mainLocation||'Multiple')}</td><td>${formatCurrency(Number(w.pyxisWasteValue||w.projectedWasteValue||0))}</td><td>${(Number(w.excessPyxisInventory||0)>0)?'Decrease Min':'Review PAR'}</td></tr>`).join('')||'<tr><td colspan="4">No waste risks.</td></tr>'; }
+    const tbody = table.querySelector('tbody');
+    const sort = window.__supplySortMode === 'alpha' ? 'alpha' : 'impact';
+    const useEl = sortBtn.querySelector('use');
+    if (useEl) useEl.setAttribute('href', sort === 'impact' ? '#icon-sort-impact' : '#icon-sort-a');
 
-function renderInventoryHealthSummary(model){ const host=document.getElementById('inventoryHealthSummaryList'); if(!host) return; const triage=model.triage||[]; const unique=(arr)=>new Set(arr).size; const critical=unique(triage.filter(r=>r.severity==='CRITICAL').map(r=>r.sublocation)); const high=unique(triage.filter(r=>r.severity==='HIGH').map(r=>r.sublocation)); const minLow=unique(triage.filter(r=>r.issue==='Min too low').map(r=>r.sublocation)); const minHigh=unique(Array.from(model.byMain.values()).flatMap(m=>Array.from(m.bySubloc.values()).filter(s=>s.needsDec>0).map(s=>m.mainLocation+'|'+s.sublocation))); host.innerHTML=''; const items=[['critical','Critical stockout locations',critical],['high','High risk stockout locations',high],['minLow','Min Too Low locations',minLow],['minHigh','Min Too High locations',minHigh],['waste','Waste Risk items',10]]; for(const [key,label,count] of items){ const b=document.createElement('button'); b.className='health-summary-btn'+(window.__overviewHealthFilter===key?' active':''); b.innerHTML=`<span>${escapeHtml(label)}</span><strong>${count}</strong>`; b.addEventListener('click',()=>{window.__overviewHealthFilter=key; renderStockoutTriageTable(model); renderInventoryHealthSummary(model);}); host.appendChild(b);} }
+    const rows = model.supplyRows.slice().sort((a, b) => {
+        if (sort === 'alpha') return a.itemName.localeCompare(b.itemName);
+        return (b.totalDeltaMin - a.totalDeltaMin) || (b.severity - a.severity);
+    });
+
+    const feasibleCount = rows.filter(r => r.supplyFeasible).length;
+    const notFeasibleCount = rows.length - feasibleCount;
+    document.getElementById('supplyNeedCount').textContent = String(rows.length);
+    document.getElementById('supplyFeasibleCount').textContent = String(feasibleCount);
+    document.getElementById('supplyNotFeasibleCount').textContent = String(notFeasibleCount);
+
+    const feasibleBar = document.getElementById('supplyFeasibleBar');
+    if (feasibleBar) {
+        const pct = rows.length ? Math.round((feasibleCount / rows.length) * 100) : 0;
+        feasibleBar.style.width = pct + '%';
+        feasibleBar.textContent = pct + '% feasible';
+    }
+
+    tbody.innerHTML = rows.slice(0, 10).map(r => (
+        '<tr>' +
+            `<td>${escapeHtml(r.itemName)}</td>` +
+            `<td>${r.totalDeltaMin.toFixed(1)}</td>` +
+            `<td>${r.pharmacyOnHand.toFixed(1)}</td>` +
+            `<td>${r.feasibleTransfer.toFixed(1)}</td>` +
+            `<td>${r.supplyFeasible ? ('Transfer ' + r.feasibleTransfer.toFixed(0)) : 'Review / Order'}</td>` +
+        '</tr>'
+    )).join('') || '<tr><td colspan="5">No Min ↑ items.</td></tr>';
+
+    if (!sortBtn.dataset.bound) {
+        sortBtn.dataset.bound = '1';
+        sortBtn.addEventListener('click', () => {
+            window.__supplySortMode = window.__supplySortMode === 'impact' ? 'alpha' : 'impact';
+            try { localStorage.setItem('supplySortMode', window.__supplySortMode); } catch (_) {}
+            renderSupplyIntegrityCard(model);
+        });
+    }
+}
+
+function renderWasteRiskPanel(mockData) {
+    const table = document.getElementById('wasteRiskTable');
+    if (!table) return;
+
+    const tbody = table.querySelector('tbody');
+    const bars = document.getElementById('wasteRiskBars');
+    const items = ((mockData && mockData.pyxisProjectedWaste && Array.isArray(mockData.pyxisProjectedWaste.items))
+        ? mockData.pyxisProjectedWaste.items : []).slice();
+
+    items.sort((a, b) => (Number(b.pyxisWasteValue || b.projectedWasteValue || 0) - Number(a.pyxisWasteValue || a.projectedWasteValue || 0)));
+
+    if (bars) {
+        const top = items.slice(0, 8);
+        const maxVal = Math.max(1, ...top.map(w => Number(w.pyxisWasteValue || w.projectedWasteValue || 0)));
+        bars.innerHTML = top.map(w => {
+            const val = Number(w.pyxisWasteValue || w.projectedWasteValue || 0);
+            const width = Math.max(8, Math.round((val / maxVal) * 100));
+            return `<div class="waste-mini-row"><span>${escapeHtml(w.itemCode || '')}</span><em style="width:${width}%"></em></div>`;
+        }).join('') || '<div class="pyxis-adj-empty">No waste risk data.</div>';
+    }
+
+    tbody.innerHTML = items.slice(0, 10).map(w => (
+        '<tr>' +
+            `<td>${escapeHtml(w.drugName || w.itemCode || '')}</td>` +
+            `<td>${escapeHtml(w.mainLocation || 'Multiple')}</td>` +
+            `<td>${formatCurrency(Number(w.pyxisWasteValue || w.projectedWasteValue || 0))}</td>` +
+            `<td>${(Number(w.excessPyxisInventory || 0) > 0) ? 'Decrease Min' : 'Review PAR'}</td>` +
+        '</tr>'
+    )).join('') || '<tr><td colspan="4">No waste risks.</td></tr>';
+}
+
+function renderInventoryHealthSummary(model) {
+    const host = document.getElementById('inventoryHealthSummaryList');
+    const bar = document.getElementById('inventoryHealthSummaryBar');
+    if (!host) return;
+
+    const triage = model.triage || [];
+    const unique = (arr) => new Set(arr).size;
+    const critical = unique(triage.filter(r => r.severity === 'CRITICAL').map(r => r.sublocation));
+    const high = unique(triage.filter(r => r.severity === 'HIGH').map(r => r.sublocation));
+    const minLow = unique(triage.filter(r => r.issue === 'Min too low').map(r => r.sublocation));
+    const minHigh = unique(Array.from(model.byMain.values()).flatMap(m => Array.from(m.bySubloc.values()).filter(s => s.needsDec > 0).map(s => m.mainLocation + '|' + s.sublocation)));
+    const wasteCount = 10;
+
+    host.innerHTML = '';
+    const items = [
+        ['critical', 'Critical stockout locations', critical],
+        ['high', 'High risk stockout locations', high],
+        ['minLow', 'Min Too Low locations', minLow],
+        ['minHigh', 'Min Too High locations', minHigh],
+        ['waste', 'Waste Risk items', wasteCount]
+    ];
+
+    const total = Math.max(1, items.reduce((a, x) => a + x[2], 0));
+    if (bar) {
+        bar.innerHTML = items.map(([key, , count]) => {
+            const pct = Math.max(6, Math.round((count / total) * 100));
+            return `<span class="health-seg ${key}" style="width:${pct}%" title="${count}"></span>`;
+        }).join('');
+    }
+
+    for (const [key, label, count] of items) {
+        const b = document.createElement('button');
+        b.className = 'health-summary-btn' + (window.__overviewHealthFilter === key ? ' active' : '');
+        b.innerHTML = `<span>${escapeHtml(label)}</span><strong>${count}</strong>`;
+        b.addEventListener('click', () => {
+            window.__overviewHealthFilter = key;
+            renderStockoutTriageTable(model);
+            renderInventoryHealthSummary(model);
+        });
+        host.appendChild(b);
+    }
+}
+
