@@ -1257,6 +1257,37 @@
                             window.FactsEngine.debugSummary(window.__facts);
                             window.__factsDebugLogged = true;
                         }
+
+                        if (window.TrendFacts && typeof window.TrendFacts.build === 'function') {
+                            window.__factsTrends = window.TrendFacts.build(window.__facts, { windowDays: 180, seasonalityPeriod: 7 });
+
+                            if (window.SubstituteResolver && typeof window.SubstituteResolver.buildAll === 'function') {
+                                const itemDetailsGlobal =
+                                    window.ITEMS_DETAILS ||
+                                    window.ITEMS_DATA ||
+                                    window.items_details_mockdata ||
+                                    window.ITEM_DETAILS_MOCKDATA ||
+                                    null;
+
+                                const resolverIndexes = (itemDetailsGlobal && typeof window.SubstituteResolver.buildIndexes === 'function')
+                                    ? window.SubstituteResolver.buildIndexes(itemDetailsGlobal)
+                                    : { itemsByClass: new Map(), detailsByCode: new Map() };
+
+                                if (!itemDetailsGlobal) {
+                                    console.warn('⚠️ Item details mockdata missing; class fallback disabled for substitute resolution.');
+                                }
+
+                                window.__factsTrends.substitutesByItemCode = window.SubstituteResolver.buildAll(
+                                    window.__factsTrends,
+                                    resolverIndexes,
+                                    window.ITEM_SUBSTITUTE_REF || null
+                                );
+
+                                if (typeof window.SubstituteResolver.audit === 'function') {
+                                    window.SubstituteResolver.audit(window.__factsTrends);
+                                }
+                            }
+                        }
                     }
                 } catch (factsError) {
                     console.warn('⚠️ FactsEngine build failed:', factsError);
