@@ -23,6 +23,10 @@
             if (typeof SUBLOCATION_MAP !== 'undefined' && SUBLOCATION_MAP) return SUBLOCATION_MAP;
             return LOCAL_SUBLOCATION_MAP;
         }
+
+        try { window.__pyxisAdjViewMode = localStorage.getItem('pyxisAdjViewMode') === 'decrease' ? 'decrease' : 'increase'; } catch (_) { window.__pyxisAdjViewMode = 'increase'; }
+        try { window.__pyxisAdjSortMode = localStorage.getItem('pyxisAdjSortMode') === 'alpha' ? 'alpha' : 'impact'; } catch (_) { window.__pyxisAdjSortMode = 'impact'; }
+        window.__pyxisAdjSelectedMain = window.__pyxisAdjSelectedMain || null;
         // ============= PYXIS METRICS CALCULATION =============
 
         // Lightweight helpers (kept local to this page)
@@ -39,6 +43,220 @@
             const n = Number(value);
             if (!Number.isFinite(n)) return '$0.00';
             return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+        }
+
+
+        function iterateInventorySublocations(invEntry) {
+            if (!invEntry || typeof invEntry !== 'object') return [];
+            const out = [];
+            const list = Array.isArray(invEntry.sublocations) ? invEntry.sublocations : null;
+            if (list) {
+                for (const row of list) {
+                    if (!row || typeof row !== 'object') continue;
+                    const sublocation = String(row.sublocation || row.location || '').trim();
+                    if (!sublocation) continue;
+                    out.push({
+                        sublocation,
+                        minQty: Number(row.minQty ?? row.min ?? 0) || 0,
+                        curQty: Number(row.curQty ?? row.qty ?? 0) || 0,
+                        maxQty: Number(row.maxQty ?? row.max ?? 0) || 0
+                    });
+                }
+                return out;
+            }
+            for (const [key, row] of Object.entries(invEntry)) {
+                if (!row || typeof row !== 'object') continue;
+                if (key === 'sublocations') continue;
+                const sublocation = String(row.sublocation || row.location || key || '').trim();
+                if (!sublocation) continue;
+                out.push({
+                    sublocation,
+                    minQty: Number(row.minQty ?? row.min ?? 0) || 0,
+                    curQty: Number(row.curQty ?? row.qty ?? 0) || 0,
+                    maxQty: Number(row.maxQty ?? row.max ?? 0) || 0
+                });
+            }
+            return out;
+        }
+
+        function buildPyxisAdjustmentData(mockData, viewMode) {
+            const map = getSublocationMap() || {};
+            const items = Array.isArray(mockData?.items) ? mockData.items : [];
+            const inventory = (mockData?.inventory && typeof mockData.inventory === 'object') ? mockData.inventory : {};
+            const byMain = new Map();
+            const impactedSublocs = new Set();
+            const dailyUsageByCode = Object.create(null);
+            const leadDays = 14;
+            const safetyDays = 7;
+            const tolerance = 0.5;
+            const targetDays = leadDays + safetyDays;
+
+            for (const item of items) {
+                const code = String(item?.itemCode ?? '').trim();
+                if (!code) continue;
+                const cachedDaily = Number(item?._cachedDailyUsage);
+                const cachedWeekly = Number(item?._cachedWeeklyUsage);
+                const daily = Number.isFinite(cachedDaily) ? cachedDaily : (Number.isFinite(cachedWeekly) ? (cachedWeekly / 7) : 0);
+                dailyUsageByCode[code] = Math.max(0, Number(daily) || 0);
+            }
+
+            for (const item of items) {
+                const itemCode = String(item?.itemCode ?? '').trim();
+                if (!itemCode) continue;
+                const invEntry = inventory[itemCode];
+                const dailyUsage = Math.max(0, Number(dailyUsageByCode[itemCode]) || 0);
+                const requiredMin = dailyUsage * targetDays;
+
+                for (const slot of iterateInventorySublocations(invEntry)) {
+                    const info = map[slot.sublocation] || {};
+                    if (String(info.department || '').toLowerCase() !== 'pyxis') continue;
+                    const main = String(info.mainLocation || slot.sublocation).trim();
+                    if (!main) continue;
+                    const minQty = Math.max(0, Number(slot.minQty) || 0);
+                    const delta = requiredMin - minQty;
+                    const needsIncrease = delta > 0;
+                    const needsDecrease = delta < 0 && minQty > (requiredMin * (1 + tolerance));
+                    const impacted = viewMode === 'increase' ? needsIncrease : needsDecrease;
+                    if (!impacted) continue;
+
+                    impactedSublocs.add(slot.sublocation);
+                    if (!byMain.has(main)) byMain.set(main, { impactedPairsCount: 0, impactedSublocsSet: new Set(), bySubloc: new Map(), pairSet: new Set() });
+                    const mainRec = byMain.get(main);
+                    const pairKey = itemCode + '|' + slot.sublocation;
+                    if (!mainRec.pairSet.has(pairKey)) {
+                        mainRec.pairSet.add(pairKey);
+                        mainRec.impactedPairsCount += 1;
+                    }
+                    mainRec.impactedSublocsSet.add(slot.sublocation);
+                    if (!mainRec.bySubloc.has(slot.sublocation)) {
+                        mainRec.bySubloc.set(slot.sublocation, { sublocation: slot.sublocation, impactedItemCodes: new Set(), dailyDispense: 0 });
+                    }
+                    const subRec = mainRec.bySubloc.get(slot.sublocation);
+                    if (!subRec.impactedItemCodes.has(itemCode)) {
+                        subRec.impactedItemCodes.add(itemCode);
+                        subRec.dailyDispense += dailyUsage;
+                    }
+                }
+            }
+
+            const mainRows = Array.from(byMain.entries()).map(([main, rec]) => ({
+                mainLocation: main,
+                impactedPairsCount: rec.impactedPairsCount,
+                impactedSublocsCount: rec.impactedSublocsSet.size,
+                bySubloc: rec.bySubloc
+            }));
+            const maxBarCount = mainRows.reduce((m, r) => Math.max(m, Number(r.impactedPairsCount) || 0), 0);
+            return { mainRows, impactedLocationCount: impactedSublocs.size, maxBarCount };
+        }
+
+        function renderPyxisAdjustmentOverviewCard(mockData) {
+            const card = document.getElementById('pyxisMetricsCard');
+            if (!card) return;
+            const barsEl = document.getElementById('pyxisAdjBars');
+            const totalEl = document.getElementById('pyxisAdjTotalLocations');
+            const tableEl = document.getElementById('pyxisAdjTable');
+            const titleEl = document.getElementById('pyxisAdjTableTitle');
+            const incBtn = document.getElementById('pyxisAdjIncreaseBtn');
+            const decBtn = document.getElementById('pyxisAdjDecreaseBtn');
+            const sortBtn = document.getElementById('pyxisAdjSortToggle');
+            if (!barsEl || !totalEl || !tableEl || !titleEl || !incBtn || !decBtn || !sortBtn) return;
+
+            const validView = (window.__pyxisAdjViewMode === 'decrease') ? 'decrease' : 'increase';
+            const validSort = (window.__pyxisAdjSortMode === 'alpha') ? 'alpha' : 'impact';
+            window.__pyxisAdjViewMode = validView;
+            window.__pyxisAdjSortMode = validSort;
+
+            const useEl = sortBtn.querySelector('use');
+            if (useEl) useEl.setAttribute('href', validSort === 'impact' ? '#icon-sort-impact' : '#icon-sort-a');
+            sortBtn.title = validSort === 'impact' ? 'Sort by impact' : 'Sort A→Z';
+            incBtn.classList.toggle('active', validView === 'increase');
+            decBtn.classList.toggle('active', validView === 'decrease');
+
+            const data = buildPyxisAdjustmentData(mockData || {}, validView);
+            totalEl.textContent = String(data.impactedLocationCount || 0);
+
+            const sortedMains = data.mainRows.slice().sort((a, b) => {
+                if (validSort === 'alpha') return String(a.mainLocation).localeCompare(String(b.mainLocation));
+                return (b.impactedPairsCount - a.impactedPairsCount) || String(a.mainLocation).localeCompare(String(b.mainLocation));
+            });
+
+            const mainSet = new Set(sortedMains.map(r => r.mainLocation));
+            if (!window.__pyxisAdjSelectedMain || !mainSet.has(window.__pyxisAdjSelectedMain)) {
+                window.__pyxisAdjSelectedMain = sortedMains.length ? sortedMains[0].mainLocation : null;
+            }
+
+            barsEl.innerHTML = '';
+            if (!sortedMains.length) {
+                barsEl.innerHTML = '<div class="pyxis-adj-empty">No impacted locations for this view.</div>';
+            } else {
+                for (const row of sortedMains) {
+                    const barBtn = document.createElement('button');
+                    barBtn.type = 'button';
+                    barBtn.className = 'pyxis-adj-bar';
+                    if (row.mainLocation === window.__pyxisAdjSelectedMain) barBtn.classList.add('selected');
+                    const heightPct = data.maxBarCount > 0 ? Math.max(8, Math.round((row.impactedPairsCount / data.maxBarCount) * 100)) : 8;
+                    barBtn.innerHTML = '<span class="pyxis-adj-bar-col" style="height:' + heightPct + '%"></span>' +
+                        '<span class="pyxis-adj-bar-label">' + escapeHtml(row.mainLocation) + '</span>' +
+                        '<span class="pyxis-adj-bar-value">' + (Number(row.impactedPairsCount) || 0).toLocaleString() + '</span>';
+                    barBtn.addEventListener('click', () => {
+                        window.__pyxisAdjSelectedMain = row.mainLocation;
+                        renderPyxisAdjustmentOverviewCard(mockData);
+                    });
+                    barsEl.appendChild(barBtn);
+                }
+            }
+
+            const active = sortedMains.find(r => r.mainLocation === window.__pyxisAdjSelectedMain) || null;
+            titleEl.textContent = active ? ('Sublocations • ' + active.mainLocation) : 'Select a location';
+
+            const tbody = tableEl.querySelector('tbody');
+            if (!tbody) return;
+            if (!active) {
+                tbody.innerHTML = '<tr><td colspan="3">No impacted sublocations.</td></tr>';
+                return;
+            }
+
+            const rows = Array.from(active.bySubloc.values()).map(r => ({
+                sublocation: r.sublocation,
+                impactedCount: r.impactedItemCodes.size,
+                dailyDispense: Number(r.dailyDispense) || 0
+            }));
+            rows.sort((a, b) => {
+                if (validSort === 'alpha') return String(a.sublocation).localeCompare(String(b.sublocation));
+                return (b.impactedCount - a.impactedCount) || String(a.sublocation).localeCompare(String(b.sublocation));
+            });
+
+            const arrow = validView === 'increase' ? '↑' : '↓';
+            tbody.innerHTML = rows.length ? rows.map(r => ('<tr>' +
+                '<td>' + escapeHtml(r.sublocation) + '</td>' +
+                '<td>' + (Number.isFinite(r.dailyDispense) ? r.dailyDispense.toFixed(2) : '0.00') + '</td>' +
+                '<td class="pyxis-adj-min-arrow">' + arrow + '</td>' +
+                '</tr>')).join('') : '<tr><td colspan="3">No impacted sublocations.</td></tr>';
+
+            if (!sortBtn.dataset.bound) {
+                sortBtn.dataset.bound = '1';
+                sortBtn.addEventListener('click', () => {
+                    window.__pyxisAdjSortMode = window.__pyxisAdjSortMode === 'impact' ? 'alpha' : 'impact';
+                    try { localStorage.setItem('pyxisAdjSortMode', window.__pyxisAdjSortMode); } catch (_) {}
+                    renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || mockData || {});
+                });
+            }
+            if (!incBtn.dataset.bound) {
+                incBtn.dataset.bound = '1';
+                incBtn.addEventListener('click', () => {
+                    window.__pyxisAdjViewMode = 'increase';
+                    try { localStorage.setItem('pyxisAdjViewMode', 'increase'); } catch (_) {}
+                    renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || mockData || {});
+                });
+            }
+            if (!decBtn.dataset.bound) {
+                decBtn.dataset.bound = '1';
+                decBtn.addEventListener('click', () => {
+                    window.__pyxisAdjViewMode = 'decrease';
+                    try { localStorage.setItem('pyxisAdjViewMode', 'decrease'); } catch (_) {}
+                    renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || mockData || {});
+                });
+            }
         }
         
         function calculatePyxisMetrics(mockData) {
@@ -1077,19 +1295,15 @@
                     
                     if (window.pyxisMetricsData && window.pyxisMetricsData.totals) {
                         console.log('✓ Pyxis Metrics calculated:', window.pyxisMetricsData.totals);
-	                    document.getElementById('stockOuts').textContent = window.pyxisMetricsData.totals.stockOuts;
 
-                    // Waste card is now "Expiring (Pyxis)". Compute from inventory expires dates.
-                    const expRecs = buildExpiringPyxisRecordsFromMockData();
-                    const expItemCount = new Set(expRecs.map(r => String(r.itemCode))).size;
-	                    window.pyxisMetricsData.totals.waste = expItemCount;
-	                    window.pyxisMetricsData.raw = window.pyxisMetricsData.raw || {};
-	                    window.pyxisMetricsData.raw.waste = expRecs;
-	                    document.getElementById('wasteCount').textContent = expItemCount;
-                    // Sparkline: 1/2/3/4-month expiring counts (cumulative), rendered as 4 vertical bars
-                    updateWasteExpiringSparkline();
-                        const __uEl=document.getElementById('unusedCount'); if(__uEl) __uEl.textContent = window.pyxisMetricsData.totals.unused;
-                        const __oEl=document.getElementById('overloadCount'); if(__oEl) __oEl.textContent = window.pyxisMetricsData.totals.overLoad;
+                        // Waste card is now "Expiring (Pyxis)". Keep data in sync for modal use.
+                        const expRecs = buildExpiringPyxisRecordsFromMockData();
+                        const expItemCount = new Set(expRecs.map(r => String(r.itemCode))).size;
+                        window.pyxisMetricsData.totals.waste = expItemCount;
+                        window.pyxisMetricsData.raw = window.pyxisMetricsData.raw || {};
+                        window.pyxisMetricsData.raw.waste = expRecs;
+
+                        renderPyxisAdjustmentOverviewCard(cachedMockData);
                     }
                 }
                 
@@ -2657,10 +2871,7 @@
             // Only update if we don't have pyxisMetrics data yet
             if (!window.pyxisMetricsData) {
                 // Show placeholder values while waiting for data
-                document.getElementById('stockOuts').textContent = '--';
-                document.getElementById('wasteCount').textContent = '--';
-                const __uEl=document.getElementById('unusedCount'); if(__uEl) __uEl.textContent = '--';
-                const __oEl=document.getElementById('overloadCount'); if(__oEl) __oEl.textContent = '--';
+                const __pAdj=document.getElementById('pyxisAdjTotalLocations'); if(__pAdj) __pAdj.textContent = '--';
                 console.log('⏳ Pyxis metrics: Waiting for data from Dashboard...');
             } else {
                 // Data already received, don't overwrite
@@ -3082,19 +3293,15 @@
                 if (event.data.pyxisMetrics) {
                     window.pyxisMetricsData = event.data.pyxisMetrics;
                     console.log('✓ Received Pyxis Metrics from Dashboard:', event.data.pyxisMetrics.totals);
-                    
-                    // Immediately update Pyxis Metrics display
-                    document.getElementById('stockOuts').textContent = event.data.pyxisMetrics.totals.stockOuts;
 
-                    // Keep in sync with the "Expiring (Pyxis)" waste card.
+                    // Keep in sync with the "Expiring (Pyxis)" waste data used in modal.
                     const expRecs = buildExpiringPyxisRecordsFromMockData();
                     const expItemCount = new Set(expRecs.map(r => String(r.itemCode))).size;
                     window.pyxisMetricsData.totals.waste = expItemCount;
                     window.pyxisMetricsData.raw = window.pyxisMetricsData.raw || {};
                     window.pyxisMetricsData.raw.waste = expRecs;
-                    document.getElementById('wasteCount').textContent = expItemCount;
-                    const __uEl=document.getElementById('unusedCount'); if(__uEl) __uEl.textContent = event.data.pyxisMetrics.totals.unused;
-                    const __oEl=document.getElementById('overloadCount'); if(__oEl) __oEl.textContent = event.data.pyxisMetrics.totals.overLoad;
+
+                    renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || window.mockData || {});
                 }
                 
                 // Update threshold display in card

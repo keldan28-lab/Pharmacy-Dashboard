@@ -13,6 +13,16 @@
     <script src="js/app/analyticsPage.js" defer></script>
 </head>
 <body>
+    <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden;">
+        <defs>
+            <symbol id="icon-sort-a" viewBox="0 0 24 24">
+                <path d="M17,12V4H15V12H12L16,16L20,12H17M7,20H5V18H7V20M11,4H3V6H11V4M9,8H3V10H9V8M11,12H3V14H11V12M9,16H3V18H9V16Z"/>
+            </symbol>
+            <symbol id="icon-sort-impact" viewBox="0 0 24 24">
+                <path d="M3,17H7V21H3V17M9,13H13V21H9V13M15,9H19V21H15V9M21,3V7H17V3H21M15,3V7H11V3H15M9,3V7H5V3H9Z"/>
+            </symbol>
+        </defs>
+    </svg>
     <div class="analytics-container">
         <!-- Sticky Header -->
         <div class="analytics-header">
@@ -201,19 +211,38 @@
                             </div>
                             <div>
                                 <div class="card-title">Pyxis Metrics</div>
-                                <div class="card-subtitle">Inventory Projection</div>
+                                <div class="card-subtitle">Min Adjustment Overview</div>
                             </div>
                         </div>
                     </div>
-                    <div class="metric-row">
-                        <div class="metric-item clickable-metric" onclick="openPyxisModal('stockOut')">
-                            <div class="metric-label">Stock Outs</div>
-                            <div class="metric-value" id="stockOuts">--</div>
+                    <div class="pyxis-adj-top">
+                        <div class="pyxis-adj-total">
+                            <div class="metric-label">Impacted Locations</div>
+                            <div class="metric-value" id="pyxisAdjTotalLocations">--</div>
                         </div>
-                        <div class="metric-item clickable-metric" onclick="openPyxisModal('waste')">
-                            <div class="metric-label">Waste</div>
-                            <div class="metric-value" id="wasteCount">--</div>
+                        <div class="pyxis-adj-controls">
+                            <button class="pyxis-adj-toggle active" id="pyxisAdjIncreaseBtn" type="button">Min ↑ (High usage)</button>
+                            <button class="pyxis-adj-toggle" id="pyxisAdjDecreaseBtn" type="button">Min ↓ (Low usage)</button>
+                            <button class="pyxis-adj-sort" id="pyxisAdjSortToggle" type="button" title="Sort by impact">
+                                <svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg>
+                            </button>
                         </div>
+                    </div>
+                    <div class="pyxis-adj-bars" id="pyxisAdjBars"></div>
+                    <div class="pyxis-adj-table-wrap">
+                        <div class="pyxis-adj-table-title" id="pyxisAdjTableTitle">Select a location</div>
+                        <table class="pyxis-adj-table" id="pyxisAdjTable">
+                            <thead>
+                                <tr>
+                                    <th>Location</th>
+                                    <th>Daily Dispense</th>
+                                    <th>Min</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="3">Loading...</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
