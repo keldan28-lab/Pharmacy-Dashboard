@@ -177,182 +177,41 @@
                 </div>
             </div>
 
-            <!-- Trend Analysis -->
-            <div class="analytics-grid section-spacing insights-grid">
-                <div class="analytics-card clickable" id="topUsedItemsCard">
-                    <div class="card-header">
-                        <div class="card-title-group">
-                            <div class="card-icon">
-                                <svg viewBox="0 0 24 24">
-                                    <path d="M16,6L18.29,8.29L13.41,13.17L9.41,9.17L2,16.59L3.41,18L9.41,12L13.41,16L19.71,9.71L22,12V6H16Z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <div class="card-title">Top Used Items</div>
-                                <div class="card-subtitle">Trending by consecutive usage</div>
-                            </div>
-                        </div>
-                    </div>
-                    <ul class="trend-list" id="topCategoriesList">
-                        <li class="trend-item">
-                            <span class="trend-name">Loading...</span>
-                            <span class="trend-value">--</span>
-                        </li>
-                    </ul>
+            <!-- Command Center Layout -->
+            <div class="analytics-grid section-spacing command-center-grid" id="overviewCommandCenter">
+                <div class="analytics-card command-triage-card" id="stockoutTriageCard">
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#ff5454;"><svg viewBox="0 0 24 24"><path d="M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z"/></svg></div><div><div class="card-title">Stockout Triage</div><div class="card-subtitle">Pharmacy → MainLocation → Pyxis satellite</div></div></div><div class="pyxis-adj-controls"><button class="pyxis-adj-sort" id="overviewSortToggle" type="button" title="Sort by impact"><svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg></button></div></div>
+                    <div class="command-table-wrap"><table class="command-table" id="stockoutTriageTable"><thead><tr><th>Priority</th><th>Item</th><th>MainLocation</th><th>Satellite</th><th>Days Left</th><th>Issue</th><th>Action</th></tr></thead><tbody><tr><td colspan="7">Loading...</td></tr></tbody></table></div>
                 </div>
 
                 <div class="analytics-card pyxis-metrics-card" id="pyxisMetricsCard">
-                    <div class="card-header">
-                        <div class="card-title-group">
-                            <div class="card-icon" style="background: #ff8400;">
-                                <svg viewBox="0 0 24 24">
-                                    <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M16.59,7.58L10,14.17L7.41,11.59L6,13L10,17L18,9L16.59,7.58Z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <div class="card-title">Pyxis Metrics</div>
-                                <div class="card-subtitle">Min Adjustment Overview</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="pyxis-adj-top">
-                        <div class="pyxis-adj-total">
-                            <div class="metric-label">Impacted Locations</div>
-                            <div class="metric-value" id="pyxisAdjTotalLocations">--</div>
-                        </div>
-                        <div class="pyxis-adj-controls">
-                            <button class="pyxis-adj-toggle active" id="pyxisAdjIncreaseBtn" type="button">Min ↑ (High usage)</button>
-                            <button class="pyxis-adj-toggle" id="pyxisAdjDecreaseBtn" type="button">Min ↓ (Low usage)</button>
-                            <button class="pyxis-adj-sort" id="pyxisAdjSortToggle" type="button" title="Sort by impact">
-                                <svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg>
-                            </button>
-                        </div>
-                    </div>
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#ff8400;"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2"/></svg></div><div><div class="card-title">Pyxis Structural Risk Overview</div><div class="card-subtitle">MainLocation rollups + drilldown</div></div></div></div>
+                    <div class="pyxis-adj-top"><div class="pyxis-adj-total"><div class="metric-label">Impacted Locations</div><div class="metric-value" id="pyxisAdjTotalLocations">--</div></div><div class="pyxis-adj-controls"><button class="pyxis-adj-toggle active" id="pyxisAdjIncreaseBtn" type="button">Min ↑ (High usage)</button><button class="pyxis-adj-toggle" id="pyxisAdjDecreaseBtn" type="button">Min ↓ (Low usage)</button><button class="pyxis-adj-sort" id="pyxisAdjSortToggle" type="button" title="Sort by impact"><svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg></button></div></div>
                     <div class="pyxis-adj-bars" id="pyxisAdjBars"></div>
-                    <div class="pyxis-adj-table-wrap">
-                        <div class="pyxis-adj-table-title" id="pyxisAdjTableTitle">Select a location</div>
-                        <table class="pyxis-adj-table" id="pyxisAdjTable">
-                            <thead>
-                                <tr>
-                                    <th>Location</th>
-                                    <th>Daily Dispense</th>
-                                    <th>Min</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr><td colspan="3">Loading...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <div class="pyxis-adj-table-wrap"><div class="pyxis-adj-table-title" id="pyxisAdjTableTitle">Select a location</div><table class="pyxis-adj-table" id="pyxisAdjTable"><thead><tr><th>Location</th><th>Daily Dispense</th><th>Min</th></tr></thead><tbody><tr><td colspan="3">Loading...</td></tr></tbody></table></div>
                 </div>
 
-                <div class="analytics-card stockout-timeline-card" id="stockOutTimelineCard">
-                    <div class="card-header">
-                        <div class="card-title-group">
-                            <div class="card-icon" style="background: #ff5454;">
-                                <svg viewBox="0 0 24 24">
-                                    <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,7H11V13H17V11H13V7Z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <div class="card-title">Stock-out Risk Timeline</div>
-                                <div class="card-subtitle">Gantt Forecast</div>
-                            </div>
-                        </div>
-                    
-                        <div class="stockout-kpi-right">
-                            <div class="stockout-kpi-total" id="stockOutItemsCount">0</div>
-                            <div class="stockout-kpi-caption">Items</div>
-                        </div>
-</div>
-                    <div class="stockout-timeline-legend">
-                        <span class="legend-pill risk-standard">Standard</span>
-                        <span class="legend-pill risk-nonstandard">Non-standard</span>
-                        <span class="legend-note">Position = Stock-out score (Daily Usage / Min Qty)</span>
-                    </div>
-                    <div id="stockOutTimeline" class="stockout-timeline"></div>
+                <div class="analytics-card" id="supplyIntegrityCard">
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#11998e;"><svg viewBox="0 0 24 24"><path d="M20,8H17V4H15V8H9V4H7V8H4V10H7V20H9V10H15V20H17V10H20V8Z"/></svg></div><div><div class="card-title">Pharmacy → Pyxis Supply Integrity</div><div class="card-subtitle">Transfer feasibility for Min ↑</div></div></div><div class="pyxis-adj-controls"><button class="pyxis-adj-sort" id="supplySortToggle" type="button" title="Sort by impact"><svg class="ui-icon" viewBox="0 0 24 24"><use href="#icon-sort-impact"></use></svg></button></div></div>
+                    <div class="supply-kpis"><div><div class="metric-label">Items needing Min ↑</div><div class="metric-value" id="supplyNeedCount">0</div></div><div><div class="metric-label">Feasible transfers</div><div class="metric-value" id="supplyFeasibleCount">0</div></div><div><div class="metric-label">Not feasible</div><div class="metric-value" id="supplyNotFeasibleCount">0</div></div></div>
+                    <div class="command-table-wrap"><table class="command-table" id="supplyIntegrityTable"><thead><tr><th>Item</th><th>Pyxis Need</th><th>Pharmacy On Hand</th><th>Feasible</th><th>Action</th></tr></thead><tbody><tr><td colspan="5">Loading...</td></tr></tbody></table></div>
                 </div>
 
-                <div class="analytics-card inventory-cost-card" id="inventoryCostCard">
-                    <div class="inventory-cost-header">
-                        <div class="inventory-cost-left">
-                            <div class="card-icon" style="background: var(--teal-primary);">
-                                <svg viewBox="0 0 24 24">
-                                    <path d="M7,15H9C9,16.08 10.37,17 12,17C13.63,17 15,16.08 15,15C15,13.9 13.96,13.5 11.76,12.97C9.64,12.44 7,11.78 7,9C7,7.21 8.47,5.69 10.5,5.18V3H13.5V5.18C15.53,5.69 17,7.21 17,9H15C15,7.92 13.63,7 12,7C10.37,7 9,7.92 9,9C9,10.1 10.04,10.5 12.24,11.03C14.36,11.56 17,12.22 17,15C17,16.79 15.53,18.31 13.5,18.82V21H10.5V18.82C8.47,18.31 7,16.79 7,15Z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <div class="inventory-cost-title">Inventory Cost</div>
-                                <div class="inventory-cost-subtitle">
-                                    Restock Efficiency <span class="restock-efficiency-value" id="usageVsRestockOverall">0.00</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="inventory-cost-right">
-                            <div class="inventory-cost-total" id="totalInventoryCost">$0.00</div>
-                            <div class="inventory-cost-caption">Carrying Cost</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Line Graph for Usage vs Restock -->
-                    <div class="usage-restock-line-chart">
-                        <canvas id="usageRestockLineCanvas" width="600" height="200"></canvas>
-                    </div>
+                <div class="analytics-card" id="wasteActionCard">
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon" style="background:#667eea;"><svg viewBox="0 0 24 24"><path d="M3,3V21H21V19H5V3H3"/></svg></div><div><div class="card-title">Waste Risk Panel</div><div class="card-subtitle">Low usage + high waste action list</div></div></div></div>
+                    <div class="command-table-wrap"><table class="command-table" id="wasteRiskTable"><thead><tr><th>Item</th><th>MainLocation</th><th>Waste Risk</th><th>Action</th></tr></thead><tbody><tr><td colspan="4">Loading...</td></tr></tbody></table></div>
                 </div>
 
-                <div class="analytics-card waste-usage-card" id="wasteUsageCard">
-                    <div class="card-header">
-                        <div class="card-title-group">
-                            <div class="card-icon" style="background: #667eea;">
-                                <svg viewBox="0 0 24 24">
-                                    <path d="M3,3V21H21V19H5V3H3M19,7L15,11L12,8L7,13L8.4,14.4L12,10.8L15,13.8L20.4,8.4L19,7Z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <div class="card-title">Waste vs Usage</div>
-                                <div class="card-subtitle">Correlation View</div>
-                            </div>
-                        </div>
-
-                        <div class="waste-usage-header-right" id="wasteUsageHeaderRight" style="display:none;">
-                            <div class="waste-usage-selected-total" id="wasteUsageSelectedTotal">$0</div>
-                            <div class="waste-usage-selected-caption" id="wasteUsageSelectedCaption">MONTH</div>
-                        </div>
-                    </div>
-                    <div class="waste-usage-wrap">
-                        <div id="wasteUsageScatter" class="waste-usage-scatter" aria-label="Waste vs Usage scatter plot"></div>
-                    </div>
+                <div class="analytics-card" id="inventoryHealthSummaryCard">
+                    <div class="card-header"><div class="card-title-group"><div class="card-icon"><svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2Z"/></svg></div><div><div class="card-title">Inventory Health Summary</div><div class="card-subtitle">Clickable triage filters</div></div></div></div>
+                    <div class="health-summary-list" id="inventoryHealthSummaryList"></div>
                 </div>
-
-                <div class="analytics-card inventory-waste-card" id="wasteCard">
-                    <div class="inventory-waste-header">
-                        <div class="inventory-waste-left">
-                            <div class="card-icon" style="background: #ff6b6b;">
-                                <svg viewBox="0 0 24 24">
-                                    <path d="M9,3V4H4V6H5V19A2,2 0 0,0 7,21H17A2,2 0 0,0 19,19V6H20V4H15V3H9M7,6H17V19H7V6M9,8V17H11V8H9M13,8V17H15V8H13Z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <div class="inventory-waste-title">Inventory Waste</div>
-                                <div class="inventory-waste-subtitle">Projected Waste</div>
-                            </div>
-                        </div>
-                        <div class="inventory-waste-right">
-                            <div class="inventory-waste-total" id="currentWasteCost">$0.00</div>
-                            <div class="inventory-waste-caption">12-month Outlook</div>
-                        </div>
-                    </div>
-                    
-                    <div class="waste-chart-section">
-                        <div class="waste-mini-chart" id="wasteMiniChart">
-                            <!-- Bars will be dynamically generated -->
-                        </div>
-                    </div>
-                
-            
-
-</div>
             </div>
+
+            <div style="display:none;">
+                <div id="topUsedItemsCard"></div><ul id="topCategoriesList"></ul><div id="stockOutTimeline"></div><div id="wasteUsageScatter"></div><div id="wasteUsageHeaderRight"></div><div id="wasteUsageSelectedTotal"></div><div id="wasteUsageSelectedCaption"></div><div id="wasteCard"></div><div id="inventoryCostCard"></div><div id="stockOutItemsCount"></div>
+            </div>
+
 
             
         </div>

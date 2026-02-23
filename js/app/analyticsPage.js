@@ -1304,6 +1304,7 @@
                         window.pyxisMetricsData.raw.waste = expRecs;
 
                         renderPyxisAdjustmentOverviewCard(cachedMockData);
+                        renderOverviewCommandCenter(cachedMockData);
                     }
                 }
                 
@@ -2353,6 +2354,7 @@
             document.getElementById('totalItems').textContent = stats.total;
             document.getElementById('totalItemsChange').textContent = `${stats.total} items in system`;
             document.getElementById('totalItemsChange').className = 'card-change';
+            try { renderOverviewCommandCenter(cachedMockData || window.__latestComputedMockData || window.mockData || {}); } catch(e) { console.warn('⚠️ Command center render failed', e); }
             
             // Inventory Waste Card - 12-month expiry-based waste projection (matches Charts Outlook logic)
             try {
@@ -3302,6 +3304,7 @@
                     window.pyxisMetricsData.raw.waste = expRecs;
 
                     renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || window.mockData || {});
+                    renderOverviewCommandCenter(window.__latestComputedMockData || window.mockData || {});
                 }
                 
                 // Update threshold display in card
@@ -8125,3 +8128,110 @@ const pxToY = (py)=>{
 
     draw();
 }
+
+// ============= OVERVIEW COMMAND CENTER (Triage-first redesign) =============
+try { window.__overviewSortMode = localStorage.getItem('overviewSortMode') === 'alpha' ? 'alpha' : 'impact'; } catch (_) { window.__overviewSortMode = 'impact'; }
+try { window.__supplySortMode = localStorage.getItem('supplySortMode') === 'alpha' ? 'alpha' : 'impact'; } catch (_) { window.__supplySortMode = 'impact'; }
+window.__overviewHealthFilter = window.__overviewHealthFilter || 'all';
+
+function buildOverviewFacts(mockData) {
+    const md = mockData || window.__latestComputedMockData || window.mockData || {};
+    const map = getSublocationMap() || {};
+    const items = Array.isArray(md.items) ? md.items : [];
+    const inventory = (md.inventory && typeof md.inventory === 'object') ? md.inventory : {};
+    const byCode = Object.create(null);
+    const descByCode = Object.create(null);
+    const pyxisFacts = [];
+    const pharmacyFactsByItem = new Map();
+    for (const item of items) {
+        const code = String(item?.itemCode || '').trim();
+        if (!code) continue;
+        const daily = Number(item?._cachedDailyUsage ?? ((Number(item?._cachedWeeklyUsage) || 0) / 7)) || 0;
+        byCode[code] = Math.max(0, daily);
+        descByCode[code] = String(item?.drugName || item?.description || code);
+    }
+    for (const [itemCode, invEntry] of Object.entries(inventory)) {
+        const rows = iterateInventorySublocations(invEntry);
+        if (!rows.length) continue;
+        const baseDaily = Math.max(0.0001, Number(byCode[itemCode]) || 0);
+        const sumCur = rows.reduce((a, r) => a + Math.max(0, Number(r.curQty) || 0), 0);
+        for (const r of rows) {
+            const sub = String(r.sublocation || '').trim();
+            if (!sub) continue;
+            const loc = map[sub] || { department: 'Unknown', mainLocation: sub };
+            const ratio = sumCur > 0 ? (Math.max(0, Number(r.curQty) || 0) / sumCur) : (1 / Math.max(1, rows.length));
+            const dailyDispense = Math.max(0.0001, baseDaily * ratio);
+            const fact = { itemCode: String(itemCode), itemName: descByCode[itemCode] || String(itemCode), sublocation: sub, mainLocation: loc.mainLocation || sub, department: loc.department || 'Unknown', minQty: Number(r.minQty) || 0, maxQty: Number(r.maxQty) || 0, curQty: Number(r.curQty) || 0, dailyDispense, usageEstimated: true };
+            if (String(fact.department).toUpperCase() === 'PYXIS') pyxisFacts.push(fact);
+            if (String(fact.department).toUpperCase() === 'PHARMACY') pharmacyFactsByItem.set(fact.itemCode, (pharmacyFactsByItem.get(fact.itemCode) || 0) + fact.curQty);
+        }
+    }
+    return { pyxisFacts, pharmacyFactsByItem, descByCode };
+}
+
+function buildCommandCenterModel(mockData) {
+    const leadDays = 14, safetyDays = 7, tolerance = 0.50, targetDays = leadDays + safetyDays;
+    const facts = buildOverviewFacts(mockData);
+    const triage = [];
+    const byMain = new Map();
+    const incByItem = new Map();
+    const decByMain = new Map();
+    for (const f of facts.pyxisFacts) {
+        const requiredMin = f.dailyDispense * targetDays;
+        const needsInc = f.minQty < (requiredMin * 0.95);
+        const needsDec = f.minQty > (requiredMin * (1 + tolerance));
+        const daysLeft = f.curQty / Math.max(0.0001, f.dailyDispense);
+        const sev = daysLeft <= 3 ? 'CRITICAL' : (daysLeft <= 7 ? 'HIGH' : (needsInc ? 'MED' : 'LOW'));
+        if (sev !== 'LOW' || needsInc) {
+            triage.push({ ...f, requiredMin, daysLeft, severity: sev, issue: daysLeft <= 7 ? 'Stockout' : (needsInc ? 'Min too low' : 'Trend rising'), action: needsInc ? 'Increase Min' : (daysLeft <= 3 ? 'Transfer' : 'Order') });
+        }
+        if (needsInc || needsDec) {
+            if (!byMain.has(f.mainLocation)) byMain.set(f.mainLocation, { mainLocation: f.mainLocation, bySubloc: new Map(), impactedPairsCount: 0 });
+            const m = byMain.get(f.mainLocation);
+            m.impactedPairsCount += 1;
+            const s = m.bySubloc.get(f.sublocation) || { sublocation: f.sublocation, dailyDispense: 0, impactedItemCodes: new Set(), needsInc: 0, needsDec: 0 };
+            s.dailyDispense += f.dailyDispense; s.impactedItemCodes.add(f.itemCode); if (needsInc) s.needsInc += 1; if (needsDec) s.needsDec += 1; m.bySubloc.set(f.sublocation, s);
+        }
+        if (needsInc) {
+            const cur = incByItem.get(f.itemCode) || { itemCode: f.itemCode, itemName: f.itemName, totalDeltaMin: 0, totalRiskDaily: 0, severity: 0 };
+            const delta = Math.max(0, requiredMin - f.minQty);
+            cur.totalDeltaMin += delta; cur.totalRiskDaily += f.dailyDispense; cur.severity = Math.max(cur.severity, 1 / Math.max(0.25, daysLeft));
+            incByItem.set(f.itemCode, cur);
+        }
+        if (needsDec) decByMain.set(f.mainLocation, (decByMain.get(f.mainLocation) || 0) + 1);
+    }
+    const supplyRows = Array.from(incByItem.values()).map(r => {
+        const onHand = facts.pharmacyFactsByItem.get(r.itemCode) || 0;
+        const pharmacyRequired = r.totalRiskDaily * 7;
+        const feasible = Math.max(0, Math.min(r.totalDeltaMin, onHand - pharmacyRequired));
+        return { ...r, pharmacyOnHand: onHand, feasibleTransfer: feasible, supplyFeasible: feasible >= r.totalDeltaMin };
+    });
+    return { triage, byMain, supplyRows, thresholds: { leadDays, safetyDays, tolerance } };
+}
+
+function renderOverviewCommandCenter(mockData) {
+    const model = buildCommandCenterModel(mockData);
+    renderStockoutTriageTable(model);
+    renderPyxisAdjustmentOverviewCard(mockData, model);
+    renderSupplyIntegrityCard(model);
+    renderWasteRiskPanel(mockData, model);
+    renderInventoryHealthSummary(model);
+}
+
+function renderStockoutTriageTable(model) {
+    const table = document.getElementById('stockoutTriageTable'); const sortBtn = document.getElementById('overviewSortToggle'); if (!table || !sortBtn) return;
+    const tbody = table.querySelector('tbody'); if (!tbody) return;
+    const sort = window.__overviewSortMode === 'alpha' ? 'alpha' : 'impact';
+    const useEl = sortBtn.querySelector('use'); if (useEl) useEl.setAttribute('href', sort === 'impact' ? '#icon-sort-impact' : '#icon-sort-a');
+    const rows = model.triage.slice().sort((a,b)=> sort==='alpha' ? (a.itemName.localeCompare(b.itemName)||a.mainLocation.localeCompare(b.mainLocation)) : ((a.daysLeft-b.daysLeft)||('CRITICAL,HIGH,MED,LOW'.indexOf(a.severity)-'CRITICAL,HIGH,MED,LOW'.indexOf(b.severity))||(b.dailyDispense-a.dailyDispense)));
+    const filtered = rows.filter(r => window.__overviewHealthFilter==='all' || (window.__overviewHealthFilter==='critical'&&r.severity==='CRITICAL') || (window.__overviewHealthFilter==='high'&&r.severity==='HIGH') || (window.__overviewHealthFilter==='minLow'&&r.issue==='Min too low'));
+    tbody.innerHTML = filtered.slice(0,80).map(r=>`<tr data-main="${escapeHtml(r.mainLocation)}" data-sub="${escapeHtml(r.sublocation)}"><td><span class="triage-badge ${r.severity.toLowerCase()}">${r.severity}</span></td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.mainLocation)}</td><td>${escapeHtml(r.sublocation)}</td><td>${Number(r.daysLeft).toFixed(1)}</td><td>${escapeHtml(r.issue)}</td><td>${escapeHtml(r.action)}</td></tr>`).join('') || '<tr><td colspan="7">No triage issues.</td></tr>';
+    tbody.querySelectorAll('tr[data-main]').forEach(tr => tr.addEventListener('click', ()=>{ window.__pyxisAdjSelectedMain = tr.dataset.main; window.__selectedSublocation = tr.dataset.sub; try{localStorage.setItem('selectedMainLocation', window.__pyxisAdjSelectedMain);}catch(_){} renderPyxisAdjustmentOverviewCard(window.__latestComputedMockData || window.mockData || {}); }));
+    if (!sortBtn.dataset.bound){ sortBtn.dataset.bound='1'; sortBtn.addEventListener('click', ()=>{ window.__overviewSortMode = window.__overviewSortMode === 'impact' ? 'alpha' : 'impact'; try{localStorage.setItem('overviewSortMode', window.__overviewSortMode);}catch(_){} renderStockoutTriageTable(model); }); }
+}
+
+function renderSupplyIntegrityCard(model){ const table=document.getElementById('supplyIntegrityTable'); const sortBtn=document.getElementById('supplySortToggle'); if(!table||!sortBtn) return; const tbody=table.querySelector('tbody'); const sort = window.__supplySortMode==='alpha'?'alpha':'impact'; const useEl=sortBtn.querySelector('use'); if(useEl) useEl.setAttribute('href', sort==='impact'?'#icon-sort-impact':'#icon-sort-a'); const rows=model.supplyRows.slice().sort((a,b)=> sort==='alpha'?a.itemName.localeCompare(b.itemName):((b.totalDeltaMin-a.totalDeltaMin)||(b.severity-a.severity))); document.getElementById('supplyNeedCount').textContent=String(rows.length); document.getElementById('supplyFeasibleCount').textContent=String(rows.filter(r=>r.supplyFeasible).length); document.getElementById('supplyNotFeasibleCount').textContent=String(rows.filter(r=>!r.supplyFeasible).length); tbody.innerHTML=rows.slice(0,10).map(r=>`<tr><td>${escapeHtml(r.itemName)}</td><td>${r.totalDeltaMin.toFixed(1)}</td><td>${r.pharmacyOnHand.toFixed(1)}</td><td>${r.feasibleTransfer.toFixed(1)}</td><td>${r.supplyFeasible?('Transfer '+r.feasibleTransfer.toFixed(0)):'Review / Order'}</td></tr>`).join('')||'<tr><td colspan="5">No Min ↑ items.</td></tr>'; if(!sortBtn.dataset.bound){sortBtn.dataset.bound='1';sortBtn.addEventListener('click',()=>{window.__supplySortMode=window.__supplySortMode==='impact'?'alpha':'impact';try{localStorage.setItem('supplySortMode',window.__supplySortMode);}catch(_){} renderSupplyIntegrityCard(model);});}}
+
+function renderWasteRiskPanel(mockData){ const table=document.getElementById('wasteRiskTable'); if(!table) return; const tbody=table.querySelector('tbody'); const items=((mockData&&mockData.pyxisProjectedWaste&&Array.isArray(mockData.pyxisProjectedWaste.items))?mockData.pyxisProjectedWaste.items:[]).slice(); items.sort((a,b)=>(Number(b.pyxisWasteValue||b.projectedWasteValue||0)-Number(a.pyxisWasteValue||a.projectedWasteValue||0))); tbody.innerHTML=items.slice(0,10).map(w=>`<tr><td>${escapeHtml(w.drugName||w.itemCode||'')}</td><td>${escapeHtml(w.mainLocation||'Multiple')}</td><td>${formatCurrency(Number(w.pyxisWasteValue||w.projectedWasteValue||0))}</td><td>${(Number(w.excessPyxisInventory||0)>0)?'Decrease Min':'Review PAR'}</td></tr>`).join('')||'<tr><td colspan="4">No waste risks.</td></tr>'; }
+
+function renderInventoryHealthSummary(model){ const host=document.getElementById('inventoryHealthSummaryList'); if(!host) return; const triage=model.triage||[]; const unique=(arr)=>new Set(arr).size; const critical=unique(triage.filter(r=>r.severity==='CRITICAL').map(r=>r.sublocation)); const high=unique(triage.filter(r=>r.severity==='HIGH').map(r=>r.sublocation)); const minLow=unique(triage.filter(r=>r.issue==='Min too low').map(r=>r.sublocation)); const minHigh=unique(Array.from(model.byMain.values()).flatMap(m=>Array.from(m.bySubloc.values()).filter(s=>s.needsDec>0).map(s=>m.mainLocation+'|'+s.sublocation))); host.innerHTML=''; const items=[['critical','Critical stockout locations',critical],['high','High risk stockout locations',high],['minLow','Min Too Low locations',minLow],['minHigh','Min Too High locations',minHigh],['waste','Waste Risk items',10]]; for(const [key,label,count] of items){ const b=document.createElement('button'); b.className='health-summary-btn'+(window.__overviewHealthFilter===key?' active':''); b.innerHTML=`<span>${escapeHtml(label)}</span><strong>${count}</strong>`; b.addEventListener('click',()=>{window.__overviewHealthFilter=key; renderStockoutTriageTable(model); renderInventoryHealthSummary(model);}); host.appendChild(b);} }

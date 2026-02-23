@@ -3692,3 +3692,24 @@
     padding: 18px 8px;
     text-align: center;
 }
+
+/* Command center triage layout */
+.command-center-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;grid-template-areas:"triage triage" "pyxis supply" "waste health";}
+.command-triage-card{grid-area:triage;}
+#pyxisMetricsCard{grid-area:pyxis;}
+#supplyIntegrityCard{grid-area:supply;}
+#wasteActionCard{grid-area:waste;}
+#inventoryHealthSummaryCard{grid-area:health;}
+.command-table-wrap{max-height:360px;overflow:auto;border:1px solid var(--border-color,rgba(0,0,0,.1));border-radius:10px;}
+.command-table{width:100%;border-collapse:collapse;font-size:13px;}
+.command-table th,.command-table td{padding:8px 10px;border-bottom:1px solid var(--border-color,rgba(0,0,0,.08));text-align:left;}
+.command-table tbody tr{cursor:pointer;}
+.triage-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.03em;}
+.triage-badge.critical{background:rgba(255,84,84,.2);color:#ff5454;}
+.triage-badge.high{background:rgba(255,132,0,.2);color:#ff8400;}
+.triage-badge.med{background:rgba(242,201,76,.25);color:#a87900;}
+.supply-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px;}
+.health-summary-list{display:flex;flex-direction:column;gap:8px;}
+.health-summary-btn{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--border-color,rgba(0,0,0,.12));border-radius:10px;background:transparent;color:inherit;cursor:pointer;}
+.health-summary-btn.active{border-color:var(--teal-primary,#11998e);box-shadow:0 0 0 1px rgba(17,153,142,.3) inset;}
+@media (max-width:1100px){.command-center-grid{grid-template-columns:1fr;grid-template-areas:"triage" "pyxis" "supply" "waste" "health";}}
