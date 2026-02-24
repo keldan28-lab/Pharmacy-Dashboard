@@ -5,149 +5,69 @@
         return String(value == null ? '' : value).trim();
     }
 
-    function getSeriesFromMap(seriesMap, itemCode) {
-        if (!(seriesMap instanceof Map)) return null;
-        return seriesMap.get(toKey(itemCode)) || null;
-    }
-
-    function movingAverage(values, windowSize) {
-        const out = [];
-        const win = Math.max(1, Number(windowSize) || 1);
-        for (let i = 0; i < values.length; i += 1) {
-            let sum = 0;
-            let count = 0;
-            for (let j = Math.max(0, i - win + 1); j <= i; j += 1) {
-                const v = Number(values[j]);
-                if (!Number.isFinite(v)) continue;
-                sum += v;
-                count += 1;
-            }
-            out.push(count ? (sum / count) : 0);
-        }
-        return out;
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     function pearson(xs, ys) {
-        if (!Array.isArray(xs) || !Array.isArray(ys)) return 0;
+        if (!Array.isArray(xs) || !Array.isArray(ys)) return null;
         const n = Math.min(xs.length, ys.length);
-        if (n < 7) return 0;
+        if (n < 7) return null;
 
-        let sx = 0;
-        let sy = 0;
-        let sxx = 0;
-        let syy = 0;
-        let sxy = 0;
+        let sumX = 0;
+        let sumY = 0;
+        let sumXX = 0;
+        let sumYY = 0;
+        let sumXY = 0;
+        let count = 0;
 
         for (let i = 0; i < n; i += 1) {
             const x = Number(xs[i]);
             const y = Number(ys[i]);
             if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-            sx += x;
-            sy += y;
-            sxx += x * x;
-            syy += y * y;
-            sxy += x * y;
+            sumX += x;
+            sumY += y;
+            sumXX += x * x;
+            sumYY += y * y;
+            sumXY += x * y;
+            count += 1;
         }
 
-        const num = (n * sxy) - (sx * sy);
-        const den = Math.sqrt(Math.max(0, ((n * sxx) - (sx * sx)) * ((n * syy) - (sy * sy))));
-        if (!den) return 0;
-        return num / den;
+        if (count < 7) return null;
+        const numerator = (count * sumXY) - (sumX * sumY);
+        const denominator = Math.sqrt(Math.max(0, ((count * sumXX) - (sumX * sumX)) * ((count * sumYY) - (sumY * sumY))));
+        if (!denominator) return null;
+        return numerator / denominator;
     }
 
-    function parseDate(value) {
-        if (!value) return null;
-        const d = new Date(value);
-        return Number.isNaN(d.getTime()) ? null : d;
-    }
-
-    function calcLagDays(aDateISO, bDateISO) {
-        const a = parseDate(aDateISO);
-        const b = parseDate(bDateISO);
-        if (!a || !b) return null;
-        return Math.round((b.getTime() - a.getTime()) / 86400000);
-    }
-
-    function inferCandidates(itemCode, ctx) {
-        const code = toKey(itemCode);
-        const seriesMap = ctx && ctx.globalSeriesByItemCode;
-        const topItemCodes = Array.isArray(ctx && ctx.topItemCodes) ? ctx.topItemCodes : null;
-        const nDays = Number(ctx && ctx.inferenceWindowDays) || 90;
-        const sourceSeries = getSeriesFromMap(seriesMap, code);
-        if (!sourceSeries || !Array.isArray(sourceSeries.values) || sourceSeries.values.length < 14) {
-            return [];
-        }
-
-        const sourceSmooth = movingAverage(sourceSeries.values.slice(-nDays), 7);
-        const shortlist = topItemCodes && topItemCodes.length
-            ? topItemCodes.map(toKey)
-            : Array.from(seriesMap instanceof Map ? seriesMap.keys() : []).map(toKey);
-
-        const shortageMap = ctx && ctx.shortageStartByItemCode;
-        const pulseMap = ctx && ctx.pulseStartsByItemCode;
-        const shortageStart = shortageMap && shortageMap[code] ? shortageMap[code] : null;
-
-        const scored = [];
-        for (const candidateCode of shortlist) {
-            if (!candidateCode || candidateCode === code) continue;
-            const candidateSeries = getSeriesFromMap(seriesMap, candidateCode);
-            if (!candidateSeries || !Array.isArray(candidateSeries.values)) continue;
-            const candidateSmooth = movingAverage(candidateSeries.values.slice(-nDays), 7);
-            const corr = pearson(sourceSmooth, candidateSmooth);
-
-            const pulses = pulseMap && Array.isArray(pulseMap[candidateCode]) ? pulseMap[candidateCode] : [];
-            let bestLag = null;
-            let lagBonus = 0;
-            if (shortageStart && pulses.length > 0) {
-                for (const pulseStart of pulses) {
-                    const lag = calcLagDays(shortageStart, pulseStart);
-                    if (lag == null) continue;
-                    if (lag >= 0 && lag <= 21) {
-                        if (bestLag == null || lag < bestLag) bestLag = lag;
-                        lagBonus = Math.max(lagBonus, 0.2);
-                    }
-                }
-            }
-
-            const negCorr = Math.max(0, -corr);
-            const confidence = Math.max(0, Math.min(1, (0.8 * negCorr) + lagBonus));
-            if (confidence <= 0) continue;
-
-            scored.push({
-                itemCode: candidateCode,
-                confidence,
-                evidence: {
-                    corr: Number(corr.toFixed(4)),
-                    lagDays: bestLag
-                }
-            });
-        }
-
-        scored.sort((a, b) => b.confidence - a.confidence);
-        return scored.slice(0, 3);
-    }
-
-    function buildIndexes(itemDetails) {
+    function buildIndexes(itemDetailsByCodeObjectOrMap) {
         const detailsByCode = new Map();
         const itemsByClass = new Map();
 
-        const detailsItems = Array.isArray(itemDetails && itemDetails.items)
-            ? itemDetails.items
-            : (Array.isArray(itemDetails) ? itemDetails : []);
-
-        for (const raw of detailsItems) {
-            if (!raw || typeof raw !== 'object') continue;
-            const code = toKey(raw.itemCode || raw.code || raw.id);
-            if (!code) continue;
-            detailsByCode.set(code, raw);
-
-            const cls = toKey(raw.class || raw.itemClass);
-            if (!cls) continue;
-            if (!itemsByClass.has(cls)) itemsByClass.set(cls, []);
-            itemsByClass.get(cls).push(code);
+        let entries = [];
+        if (itemDetailsByCodeObjectOrMap instanceof Map) {
+            entries = Array.from(itemDetailsByCodeObjectOrMap.entries());
+        } else if (itemDetailsByCodeObjectOrMap && typeof itemDetailsByCodeObjectOrMap === 'object') {
+            if (Array.isArray(itemDetailsByCodeObjectOrMap.items)) {
+                entries = itemDetailsByCodeObjectOrMap.items.map((item) => [toKey(item && item.itemCode), item]);
+            } else {
+                entries = Object.entries(itemDetailsByCodeObjectOrMap);
+            }
         }
 
-        return { itemsByClass, detailsByCode };
+        for (const [rawCode, detailObj] of entries) {
+            if (!detailObj || typeof detailObj !== 'object') continue;
+            const itemCode = toKey(detailObj.itemCode || rawCode);
+            if (!itemCode) continue;
+            detailsByCode.set(itemCode, detailObj);
+
+            const className = toKey(detailObj.class || detailObj.itemClass);
+            if (!className) continue;
+            if (!itemsByClass.has(className)) itemsByClass.set(className, []);
+            itemsByClass.get(className).push(itemCode);
+        }
+
+        return { detailsByCode, itemsByClass };
     }
 
     function resolveCandidates(itemCode, ctx) {
@@ -155,7 +75,7 @@
         const manualRef = ctx && ctx.manualRef;
         const detailsByCode = ctx && ctx.detailsByCode;
         const itemsByClass = ctx && ctx.itemsByClass;
-        const topCandidatesLimit = Number(ctx && ctx.topCandidatesLimit) || 5;
+        const maxCandidates = Number(ctx && ctx.maxCandidates) || 5;
 
         const manual = manualRef && manualRef.items && manualRef.items[code]
             ? manualRef.items[code].substitutes
@@ -179,7 +99,7 @@
             const classCandidates = itemsByClass
                 .get(cls)
                 .filter((candidateCode) => toKey(candidateCode) !== code)
-                .slice(0, topCandidatesLimit)
+                .slice(0, maxCandidates)
                 .map((candidateCode) => ({ itemCode: toKey(candidateCode), relationship: 'same_class' }));
 
             if (classCandidates.length > 0) {
@@ -190,12 +110,51 @@
         return { source: 'inferred', candidates: inferCandidates(code, ctx) };
     }
 
-    function buildAll(factsTrends, indexes, manualRef) {
+    function inferCandidates(itemCode, ctx) {
+        const code = toKey(itemCode);
+        const seriesMap = ctx && ctx.globalSeriesByItemCode;
+        if (!(seriesMap instanceof Map)) return [];
+
+        const sourceSeries = seriesMap.get(code);
+        const sourceValues = sourceSeries && Array.isArray(sourceSeries.values) ? sourceSeries.values : null;
+        if (!sourceValues || sourceValues.length < 14) return [];
+
+        const n = 90;
+        const sourceTail = sourceValues.slice(-n);
+        const universe = Array.isArray(ctx && ctx.topItemCodes) && ctx.topItemCodes.length
+            ? ctx.topItemCodes.map(toKey)
+            : Array.from(seriesMap.keys()).map(toKey);
+
+        const scored = [];
+        for (const candidateCode of universe) {
+            if (!candidateCode || candidateCode === code) continue;
+            const candidateSeries = seriesMap.get(candidateCode);
+            const candidateValues = candidateSeries && Array.isArray(candidateSeries.values) ? candidateSeries.values : null;
+            if (!candidateValues || candidateValues.length < 14) continue;
+
+            const candidateTail = candidateValues.slice(-n);
+            const len = Math.min(sourceTail.length, candidateTail.length);
+            if (len < 14) continue;
+            const corr = pearson(sourceTail.slice(-len), candidateTail.slice(-len));
+            if (!Number.isFinite(corr)) continue;
+            const score = Math.max(0, -corr);
+            if (score <= 0) continue;
+
+            scored.push({
+                itemCode: candidateCode,
+                confidence: clamp(score, 0, 1),
+                evidence: { corr: Number(corr.toFixed(4)) }
+            });
+        }
+
+        scored.sort((a, b) => b.confidence - a.confidence);
+        return scored.slice(0, 3);
+    }
+
+    function buildAll(derived, indexes, manualRef) {
         const out = new Map();
-        const globalSeriesByItemCode = factsTrends && factsTrends.series ? factsTrends.series.globalSeriesByItemCode : null;
-        const topItemCodes = factsTrends && factsTrends.meta && Array.isArray(factsTrends.meta.topItemCodes)
-            ? factsTrends.meta.topItemCodes
-            : [];
+        const globalSeriesByItemCode = derived && derived.globalSeriesByItemCode;
+        const topItemCodes = derived && derived.meta && Array.isArray(derived.meta.topItemCodes) ? derived.meta.topItemCodes : [];
 
         const allCodes = globalSeriesByItemCode instanceof Map
             ? Array.from(globalSeriesByItemCode.keys())
@@ -207,18 +166,18 @@
                 detailsByCode: indexes && indexes.detailsByCode,
                 itemsByClass: indexes && indexes.itemsByClass,
                 globalSeriesByItemCode,
-                shortageStartByItemCode: factsTrends && factsTrends.eventMarkers ? factsTrends.eventMarkers.shortageStartByItemCode : null,
-                pulseStartsByItemCode: factsTrends && factsTrends.eventMarkers ? factsTrends.eventMarkers.pulseStartsByItemCode : null,
                 topItemCodes,
-                topCandidatesLimit: 5
+                maxCandidates: 5
             }));
         }
 
         return out;
     }
 
-    function audit(factsTrends) {
-        const substitutes = factsTrends && factsTrends.substitutesByItemCode;
+    function audit(substitutesByItemCode) {
+        const substitutes = substitutesByItemCode instanceof Map
+            ? substitutesByItemCode
+            : (substitutesByItemCode && substitutesByItemCode.substitutesByItemCode);
         if (!(substitutes instanceof Map)) {
             console.warn('[SubstituteResolver] audit skipped: substitutesByItemCode missing');
             return;
