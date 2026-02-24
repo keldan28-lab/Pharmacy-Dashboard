@@ -833,12 +833,13 @@ Subloc: ${counts.subloc}`);
                 MOCK_DATA && 
                 MOCK_DATA.items && 
                 MOCK_DATA.items.length > 0) {
-                calculateTrendingItems();
-                
-                // Also send to pages if that function exists
-                if (typeof sendTrendingItemsToPages === 'function') {
-                    sendTrendingItemsToPages();
-                }
+                const recomputed = calculateTrendingItems();
+                Promise.resolve()
+                    .then(() => appendTrendFactsRun({ trendResult: recomputed }))
+                    .catch(() => {})
+                    .then(() => loadLatestTrendFactsFromSheet())
+                    .then(() => { if (typeof sendTrendingItemsToPages === 'function') sendTrendingItemsToPages(); })
+                    .catch(() => {});
             } else {
                 console.log('⏳ Trending calculation will happen after data and functions load');
             }
@@ -1742,7 +1743,13 @@ Subloc: ${counts.subloc}`);
                 // After data is loaded, initialize trending items
                 if (typeof calculateTrendingItems === 'function' && MOCK_DATA && MOCK_DATA.items && MOCK_DATA.items.length > 0) {
                     console.log('🔄 Calculating trending items...');
-                    calculateTrendingItems();
+                    const localTrendResult = calculateTrendingItems();
+                    Promise.resolve()
+                        .then(() => appendTrendFactsRun({ trendResult: localTrendResult }))
+                        .catch((err) => console.warn('⚠️ appendTrendFactsRun failed', err))
+                        .then(() => loadLatestTrendFactsFromSheet())
+                        .then(() => sendTrendingItemsToPages())
+                        .catch((err) => console.warn('⚠️ loadLatestTrendFactsFromSheet fallback', err));
                 } else {
                     console.warn('⚠️ Trending items not calculated - waiting for data');
                 }
@@ -1779,7 +1786,14 @@ Subloc: ${counts.subloc}`);
                 return;
             }
             
-            const trendingItems = MOCK_DATA.trendingItems || calculateTrendingItems();
+            const trendState = getTrendFactsState();
+            const trendingItems = {
+                trendingUp: Array.isArray(trendState.up) ? trendState.up : [],
+                trendingDown: Array.isArray(trendState.down) ? trendState.down : [],
+                calculatedAt: trendState.calculatedAt || '',
+                source: trendState.source || 'unknown',
+                threshold: (MOCK_DATA.trendingItems && MOCK_DATA.trendingItems.threshold) || parseInt(localStorage.getItem('consecutiveWeekThreshold') || '2', 10)
+            };
             
             if (!trendingItems) {
                 console.error('❌ No trending items to send');
@@ -1829,6 +1843,9 @@ Subloc: ${counts.subloc}`);
         window.MOCK_DATA = MOCK_DATA;
         window.calculateTrendingItems = calculateTrendingItems;
         window.sendTrendingItemsToPages = sendTrendingItemsToPages;
+        window.loadLatestTrendFactsFromSheet = loadLatestTrendFactsFromSheet;
+        window.appendTrendFactsRun = appendTrendFactsRun;
+        window.updateTrendFactsStatusLine = updateTrendFactsStatusLine;
 
 
 	// ==================================================================================
@@ -5130,7 +5147,123 @@ Subloc: ${counts.subloc}`);
             
 
 
-        // ---- Spike Factor Admin (Apps Script Web App) ----
+        // ---- Trend Facts (Google Sheets append-only timeline) ----
+const TREND_FACTS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzeo7jxZzEyP-kYxmNLjyycuAwsJCIoLf2wigbhvDeFUMAOEKFi7uKUOwgXJl-GRCsH5g/exec";
+const TREND_FACTS_SHEET_ID = "1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ";
+const TREND_FACTS_UP_TAB = "trend_facts_up";
+const TREND_FACTS_DOWN_TAB = "trend_facts_down";
+
+function getTrendFactsState() {
+    if (!window.TrendFactsState || typeof window.TrendFactsState !== "object") {
+        window.TrendFactsState = { source: "unknown", calculatedAt: "", up: [], down: [], loadedAt: "" };
+    }
+    return window.TrendFactsState;
+}
+
+function _setTrendFactsState(next) {
+    const current = getTrendFactsState();
+    window.TrendFactsState = Object.assign({}, current, next || {});
+    try {
+        localStorage.setItem('__trendFactsState', JSON.stringify(window.TrendFactsState));
+    } catch (_) {}
+    updateTrendFactsStatusLine();
+}
+
+function updateTrendFactsStatusLine() {
+    const el = document.getElementById('trendFactsStatusText');
+    const state = getTrendFactsState();
+    if (!el) return;
+    const ts = state.calculatedAt || 'unknown';
+    if (state.source === 'sheet') {
+        el.textContent = `Loaded from Google Sheet • Trend timestamp: ${ts}`;
+    } else if (state.source === 'calculated') {
+        el.textContent = `Calculated locally • Trend timestamp: ${ts}`;
+    } else if (state.source === 'cache') {
+        el.textContent = `Loaded from cache • Trend timestamp: ${ts}`;
+    } else {
+        el.textContent = 'Trend facts not loaded';
+    }
+}
+
+function _trendFactsRowsFromTrending(trendingItems, calculatedAt, dir) {
+    const header = [
+        'calculatedAt','itemCode','description','drugName','avgWeeklyUsage','percentChange','consecutiveWeeks','confidence','confidenceLevel','trendDirection','isNew','suggestion'
+    ];
+    const src = dir === 'up' ? (trendingItems.trendingUp || []) : (trendingItems.trendingDown || []);
+    const rows = src.map((item) => [
+        calculatedAt,
+        String(item.itemCode || ''),
+        String(item.description || ''),
+        String(item.drugName || ''),
+        Number.isFinite(Number(item.avgWeeklyUsage)) ? Number(item.avgWeeklyUsage) : '',
+        Number.isFinite(Number(item.percentChange)) ? Number(item.percentChange) : '',
+        Number.isFinite(Number(item.consecutiveWeeks)) ? Number(item.consecutiveWeeks) : '',
+        Number.isFinite(Number(item.confidence)) ? Number(item.confidence) : '',
+        String(item.confidenceLevel || ''),
+        String(item.trendDirection || ''),
+        item.isNew ? 'true' : 'false',
+        String(item.suggestion || item.recommendation || '')
+    ]);
+    return [header].concat(rows);
+}
+
+async function _postTrendRowsAppend(webAppUrl, sheetId, tabName, rows2d) {
+    const url = `${webAppUrl}?action=append`;
+    const body = { action: 'append', sheetId, tabName, rows: rows2d };
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const txt = await res.text();
+    try { return JSON.parse(txt); } catch (_) { return { ok: /ok:/i.test(txt), raw: txt }; }
+}
+
+
+async function appendTrendFactsRun({ trendResult }) {
+    if (!trendResult) return;
+    const calculatedAt = new Date().toISOString();
+    trendResult.calculatedAt = calculatedAt;
+    const rowsUp = _trendFactsRowsFromTrending(trendResult, calculatedAt, 'up');
+    const rowsDown = _trendFactsRowsFromTrending(trendResult, calculatedAt, 'down');
+    await _postTrendRowsAppend(TREND_FACTS_WEBAPP_URL, TREND_FACTS_SHEET_ID, TREND_FACTS_UP_TAB, rowsUp);
+    await _postTrendRowsAppend(TREND_FACTS_WEBAPP_URL, TREND_FACTS_SHEET_ID, TREND_FACTS_DOWN_TAB, rowsDown);
+}
+
+async function _readLatestTrendTab(tabName) {
+    const url = `${TREND_FACTS_WEBAPP_URL}?action=readLatest&sheetId=${encodeURIComponent(TREND_FACTS_SHEET_ID)}&tabName=${encodeURIComponent(tabName)}`;
+    const res = await fetch(url, { method: 'GET' });
+    return res.json();
+}
+
+function _rowsToObjects(rows) {
+    if (!Array.isArray(rows) || rows.length < 2) return [];
+    const header = rows[0].map((h) => String(h || ''));
+    return rows.slice(1).map((r) => {
+        const o = {};
+        header.forEach((k, i) => { o[k] = r[i]; });
+        return o;
+    });
+}
+
+async function loadLatestTrendFactsFromSheet() {
+    try {
+        const [upRes, downRes] = await Promise.all([_readLatestTrendTab(TREND_FACTS_UP_TAB), _readLatestTrendTab(TREND_FACTS_DOWN_TAB)]);
+        const up = _rowsToObjects(upRes && upRes.rows);
+        const down = _rowsToObjects(downRes && downRes.rows);
+        const calculatedAt = (upRes && upRes.calculatedAt) || (downRes && downRes.calculatedAt) || '';
+        _setTrendFactsState({ source: 'sheet', calculatedAt, up, down, loadedAt: new Date().toISOString() });
+        return getTrendFactsState();
+    } catch (e) {
+        const fallback = (typeof calculateTrendingItems === 'function') ? calculateTrendingItems() : null;
+        _setTrendFactsState({
+            source: 'calculated',
+            calculatedAt: (fallback && fallback.calculatedAt) || new Date().toISOString(),
+            up: (fallback && fallback.trendingUp) || [],
+            down: (fallback && fallback.trendingDown) || [],
+            loadedAt: new Date().toISOString()
+        });
+        return getTrendFactsState();
+    }
+}
+
+// ---- Spike Factor Admin (Apps Script Web App) ----
         function _spikeGetConfigFromUI() {
             const webAppUrl = (document.getElementById('spikeWebAppUrl')?.value || '').trim();
             const sheetId = (document.getElementById('spikeSheetId')?.value || '').trim();
@@ -5151,6 +5284,23 @@ Subloc: ${counts.subloc}`);
                 if (window.SpikeFactors && typeof window.SpikeFactors.loadFromLocalStorage === 'function') {
                     window.SpikeFactors.loadFromLocalStorage();
                     _spikeSetLoadedSummary('Cached');
+                }
+                try {
+                    const raw = localStorage.getItem('__trendFactsState');
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        _setTrendFactsState({
+                            source: parsed.source || 'cache',
+                            calculatedAt: parsed.calculatedAt || '',
+                            up: Array.isArray(parsed.up) ? parsed.up : [],
+                            down: Array.isArray(parsed.down) ? parsed.down : [],
+                            loadedAt: parsed.loadedAt || ''
+                        });
+                    } else {
+                        updateTrendFactsStatusLine();
+                    }
+                } catch (_) {
+                    updateTrendFactsStatusLine();
                 }
             } catch (_) {}
         });
