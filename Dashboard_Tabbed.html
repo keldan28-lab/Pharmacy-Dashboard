@@ -5,6 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pharmacy Dashboard</title>
     
+    <script>
+    (function installEarlySheetsWriteGuard(){
+        if (window.__pbEarlySheetsWriteGuardInstalled) return;
+        window.__pbEarlySheetsWriteGuardInstalled = true;
+
+        function rewriteUrl(rawUrl) {
+            try {
+                if (!rawUrl || String(rawUrl).indexOf('script.google.com/macros') === -1 || String(rawUrl).indexOf('action=append') === -1) {
+                    return { changed: false, url: rawUrl };
+                }
+                var u = new URL(String(rawUrl), window.location.href);
+                u.searchParams.set('action', 'write');
+                return { changed: true, url: u.toString() };
+            } catch (_) {
+                return { changed: false, url: rawUrl };
+            }
+        }
+
+        var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+        if (nativeFetch) {
+            window.fetch = function(input, init) {
+                var rawUrl = (typeof input === 'string') ? input : (input && input.url ? String(input.url) : '');
+                var rw = rewriteUrl(rawUrl);
+                if (!rw.changed) return nativeFetch(input, init);
+
+                var isFileContext = window.location.protocol === 'file:' || window.location.origin === 'null';
+                var nextInit = Object.assign({}, init || {});
+                var body = nextInit.body;
+                var payloadRows = null;
+
+                if (typeof body === 'string') {
+                    try {
+                        var parsed = JSON.parse(body);
+                        if (parsed && Array.isArray(parsed.rows)) payloadRows = parsed.rows;
+                    } catch (_) {}
+                }
+                if (payloadRows) {
+                    nextInit.body = new URLSearchParams({ payload: JSON.stringify({ rows: payloadRows }) });
+                }
+                if (nextInit.headers) delete nextInit.headers;
+                if (isFileContext) nextInit.mode = 'no-cors';
+
+                console.warn('⚠️ Early guard rewrote action=append to action=write', {
+                    protocol: window.location.protocol,
+                    origin: window.location.origin,
+                    requestUrl: rw.url,
+                    writeMode: isFileContext ? 'no-cors' : 'normal'
+                });
+                return nativeFetch(rw.url, nextInit);
+            };
+        }
+
+        var nativeXhrOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype && window.XMLHttpRequest.prototype.open;
+        if (nativeXhrOpen) {
+            window.XMLHttpRequest.prototype.open = function(method, url) {
+                var rw = rewriteUrl(url);
+                return nativeXhrOpen.call(this, method, rw.url, arguments[2], arguments[3], arguments[4]);
+            };
+        }
+    })();
+    </script>
+    
     <!-- Load Mock Data Files -->
     <script src="items_details_mockdata.js"></script>
     <script src="js/mockdata/item_substitute_ref_mockdata.js"></script>

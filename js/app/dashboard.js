@@ -5329,7 +5329,7 @@ async function loadLatestTrendFactsFromSheet() {
                 if (Number.isFinite(s.pocket)) parts.push(`pocket=${s.pocket}`);
                 const countsStr = parts.length ? parts.join(', ') : 'no rows';
                 const allZero = !((s.itemLoc||0)+(s.item||0)+(s.location||0)+(s.subloc||0)+(s.pocket||0));
-                const warn = allZero ? ' ⚠️ 0 rows loaded (check Web App URL / permissions / tabName)' : '';
+                const warn = allZero ? ' ⚠️ 0 rows loaded (check Web App URL / permissions / tabName / transaction data)' : '';
                 _spikeSetStatus(`${prefix || 'Loaded'}: ${countsStr}${warn} (cached ${when}${extra})`);
             } catch (e) {
                 _spikeSetStatus(prefix || 'Loaded');
