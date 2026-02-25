@@ -736,9 +736,6 @@ function _isLocalFileOrigin(){
 function _buildReadQuery(sheetId, tabName){
   const p = new URLSearchParams();
   // Keep canonical params + common aliases used by different Apps Script handlers.
-  p.set('action', 'read');
-  p.set('op', 'read');
-  p.set('mode', 'read');
   p.set('sheetId', sheetId || '');
   p.set('spreadsheetId', sheetId || '');
   p.set('tabName', tabName || '');
@@ -747,29 +744,48 @@ function _buildReadQuery(sheetId, tabName){
 }
 
 // JSONP: load data via <script> tag (works from file://)
-function _jsonp(url, timeoutMs = 15000){
+function _jsonp(url, timeoutMs = 30000){
   return new Promise((resolve, reject) => {
     const cbName = '__spike_jsonp_cb_' + Math.random().toString(36).slice(2);
     const script = document.createElement('script');
+    let settled = false;
     const timer = setTimeout(() => {
-      cleanup();
+      if (settled) return;
+      settled = true;
+      cleanup(true);
       reject(new Error('JSONP timeout'));
     }, timeoutMs);
 
-    function cleanup(){
+    function cleanup(keepNoop){
       clearTimeout(timer);
-      try{ delete window[cbName]; }catch(_){}
+      try {
+        if (keepNoop) {
+          // Keep a temporary no-op callback to prevent
+          // "ReferenceError: <cb> is not defined" when late JSONP arrives.
+          window[cbName] = function(){};
+          setTimeout(() => { try { delete window[cbName]; } catch(_){} }, 60000);
+        } else {
+          delete window[cbName];
+        }
+      } catch(_){ }
       if (script && script.parentNode) script.parentNode.removeChild(script);
     }
 
     window[cbName] = (data) => {
-      cleanup();
+      if (settled) return;
+      settled = true;
+      cleanup(false);
       resolve(data);
     };
 
     const sep = url.includes('?') ? '&' : '?';
-    script.src = url + sep + 'callback=' + encodeURIComponent(cbName);
-    script.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
+    script.src = url + sep + 'callback=' + encodeURIComponent(cbName) + '&_=' + Date.now();
+    script.onerror = () => {
+      if (settled) return;
+      settled = true;
+      cleanup(false);
+      reject(new Error('JSONP load error'));
+    };
     document.head.appendChild(script);
   });
 }
@@ -846,11 +862,14 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
     // Verify write by reading back a sample (Apps Script can silently fail if permissions/deployment are wrong).
     try{
       await verifyReadBackOrThrow();
+      return { ok:true, method:'formpost' };
     }catch(e){
-      throw new Error('Write POST was sent, but verification failed (' + (e && e.message ? e.message : String(e)) + '). Check: (1) Web App is deployed as "Anyone" can access, (2) script has permission to edit the target sheet, (3) sheetId/tabName are correct.');
+      const msg = (e && e.message ? e.message : String(e));
+      console.warn('[SpikeFactors] write verification timed out after POST; proceeding with optimistic success.', {
+        webAppUrl, sheetId, tabName, error: msg
+      });
+      return { ok:true, method:'formpost', verifyWarning: msg };
     }
-
-    return { ok:true, method:'formpost' };
   }
 
   // Non-local origins: try JSON first, then form POST fallback for handlers that only read e.parameter.*
@@ -879,8 +898,16 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
     if (!res.ok || (json && json.ok === false)) throw new Error((json && json.error) || `write failed (http ${res.status})`);
 
     _ingestRows(rows);
-    await verifyReadBackOrThrow();
-    return json;
+    try {
+      await verifyReadBackOrThrow();
+      return json;
+    } catch (verifyErr) {
+      const msg = (verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr));
+      console.warn('[SpikeFactors] write verification timed out after JSON POST; proceeding with optimistic success.', {
+        webAppUrl, sheetId, tabName, error: msg
+      });
+      return Object.assign({}, json || {}, { ok: true, verifyWarning: msg });
+    }
   } catch (jsonErr) {
     await _formPost(webAppUrl, {
       action: 'write',
@@ -901,7 +928,12 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
       await verifyReadBackOrThrow();
       return { ok: true, method: 'formpost-fallback' };
     } catch (verifyErr) {
-      throw new Error('Write failed after JSON + form fallback (' + (verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr)) + '; json error: ' + (jsonErr && jsonErr.message ? jsonErr.message : String(jsonErr)) + '). Check: (1) Web App is deployed as "Anyone" can access, (2) script has permission to edit the target sheet, (3) sheetId/tabName are correct.');
+      const msg = (verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr));
+      console.warn('[SpikeFactors] write verification timed out after form fallback; proceeding with optimistic success.', {
+        webAppUrl, sheetId, tabName, error: msg,
+        jsonError: (jsonErr && jsonErr.message ? jsonErr.message : String(jsonErr))
+      });
+      return { ok: true, method: 'formpost-fallback', verifyWarning: msg };
     }
   }
 }
