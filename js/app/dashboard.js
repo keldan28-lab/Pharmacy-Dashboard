@@ -202,7 +202,7 @@ window.requestChartStateMirror = function() {
                 
                 return sunsetData;
             } catch (error) {
-                console.error('Error fetching sunset times via JSONP proxy. Configure spike_webAppUrl in Settings if missing.', error);
+                console.log('Sunset lookup unavailable; keeping time-based defaults.', (error && error.message) ? error.message : error);
                 return null;
             }
         }
