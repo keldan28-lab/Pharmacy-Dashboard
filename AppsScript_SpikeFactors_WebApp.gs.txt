@@ -44,6 +44,14 @@ function doGet(e) {
     return jsonOrJsonp_(result, callback);
   }
 
+  if (action === "readLatest") {
+    const sheetId = p.sheetId;
+    const tabName = p.tabName || CONFIG.DEFAULT_TAB;
+    const callback = p.callback;
+    const result = spikeReadLatest_(sheetId, tabName);
+    return jsonOrJsonp_(result, callback);
+  }
+
   if (action === "ping") {
     return jsonOrJsonp_({ ok: true, ts: new Date().toISOString() }, p.callback);
   }
@@ -94,6 +102,54 @@ function doPost(e) {
     return HtmlService.createHtmlOutput(`<html><body>ok:${result.written || 0}</body></html>`);
   }
 
+  if (action === "append") {
+    const sheetId = p.sheetId || body.sheetId;
+    const tabName = p.tabName || body.tabName || CONFIG.DEFAULT_TAB;
+
+    // Support both legacy form-post payload={rows:[...]} and direct JSON rows:[...]
+    let payload = {};
+    try {
+      payload = p.payload ? JSON.parse(p.payload) : {};
+    } catch (_) {
+      payload = {};
+    }
+    const rows2d = Array.isArray(payload.rows)
+      ? payload.rows
+      : (Array.isArray(body.rows) ? body.rows : []);
+
+    const result = spikeAppend_(sheetId, tabName, rows2d);
+    const callback = p.callback || body.callback;
+    if (callback) {
+      return jsonOrJsonp_(result, callback);
+    }
+
+    const contentType = (e && e.postData && e.postData.type) || "";
+    if (String(contentType).toLowerCase().indexOf("application/json") !== -1) {
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    return HtmlService.createHtmlOutput(`<html><body>ok:${result.written || 0}</body></html>`);
+  }
+
+  if (action === "readLatest") {
+    const sheetId = p.sheetId || body.sheetId;
+    const tabName = p.tabName || body.tabName || CONFIG.DEFAULT_TAB;
+    const result = spikeReadLatest_(sheetId, tabName);
+    const callback = p.callback || body.callback;
+    if (callback) {
+      return jsonOrJsonp_(result, callback);
+    }
+
+    const contentType = (e && e.postData && e.postData.type) || "";
+    if (String(contentType).toLowerCase().indexOf("application/json") !== -1) {
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    return HtmlService.createHtmlOutput(`<html><body>ok:${result.rows ? result.rows.length : 0}</body></html>`);
+  }
+
   return HtmlService.createHtmlOutput("<html><body>unknown op</body></html>");
 }
 
@@ -117,6 +173,57 @@ function spikeWrite_(sheetId, tabName, rows2d) {
 
   sh.getRange(1, 1, rows2d.length, rows2d[0].length).setValues(rows2d);
   return { ok: true, written: rows2d.length, tabName };
+}
+
+function spikeAppend_(sheetId, tabName, rows2d) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  let sh = ss.getSheetByName(tabName);
+  if (!sh) sh = ss.insertSheet(tabName);
+
+  if (!rows2d || !rows2d.length) return { ok: true, written: 0, tabName };
+
+  const hasData = sh.getLastRow() > 0 && sh.getLastColumn() > 0;
+  const rowsToWrite = hasData ? rows2d.slice(1) : rows2d;
+  if (!rowsToWrite.length) return { ok: true, written: 0, tabName };
+
+  const startRow = sh.getLastRow() + 1;
+  sh.getRange(startRow, 1, rowsToWrite.length, rowsToWrite[0].length).setValues(rowsToWrite);
+  return { ok: true, written: rowsToWrite.length, tabName, mode: "append" };
+}
+
+function spikeReadLatest_(sheetId, tabName) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sh = ss.getSheetByName(tabName);
+  if (!sh) return { ok: true, rows: [], tabName, calculatedAt: "" };
+
+  const values = sh.getDataRange().getValues();
+  if (!values || values.length === 0) return { ok: true, rows: [], tabName, calculatedAt: "" };
+  if (values.length === 1) return { ok: true, rows: [values[0]], tabName, calculatedAt: "" };
+
+  const header = values[0];
+  let i = values.length - 1;
+  let latestTs = values[i] && values[i][0] ? String(values[i][0]) : "";
+
+  while (i > 0 && !latestTs) {
+    i--;
+    latestTs = values[i] && values[i][0] ? String(values[i][0]) : "";
+  }
+  if (!latestTs) return { ok: true, rows: [header], tabName, calculatedAt: "" };
+
+  const block = [];
+  for (let j = i; j > 0; j--) {
+    const ts = values[j] && values[j][0] ? String(values[j][0]) : "";
+    if (ts !== latestTs) break;
+    block.push(values[j]);
+  }
+  block.reverse();
+
+  return {
+    ok: true,
+    rows: [header].concat(block),
+    tabName,
+    calculatedAt: latestTs
+  };
 }
 
 function jsonOrJsonp_(obj, callback) {
