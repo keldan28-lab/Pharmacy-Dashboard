@@ -5487,10 +5487,14 @@ async function loadLatestTrendFactsFromSheet() {
 
                 await window.SpikeFactors.saveToWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName, computed.rows);
 
-                // Load back into cache to use immediately
-                await window.SpikeFactors.loadFromWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName);
-
-                _spikeSetLoadedSummary('Saved & loaded');
+                // Load back into cache to use immediately (best-effort; write may still succeed if read JSONP is delayed)
+                try {
+                    await window.SpikeFactors.loadFromWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName);
+                    _spikeSetLoadedSummary('Saved & loaded');
+                } catch (loadErr) {
+                    console.warn('⚠️ SpikeFactors write succeeded but read-back load timed out.', loadErr);
+                    _spikeSetStatus('Saved to Sheets (read-back timeout; retry Load From Sheet)');
+                }
             } catch (e) {
                 console.error(e);
                 _spikeSetStatus('Error: ' + (e && e.message ? e.message : String(e)));

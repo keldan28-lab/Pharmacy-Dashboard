@@ -744,29 +744,48 @@ function _buildReadQuery(sheetId, tabName){
 }
 
 // JSONP: load data via <script> tag (works from file://)
-function _jsonp(url, timeoutMs = 15000){
+function _jsonp(url, timeoutMs = 30000){
   return new Promise((resolve, reject) => {
     const cbName = '__spike_jsonp_cb_' + Math.random().toString(36).slice(2);
     const script = document.createElement('script');
+    let settled = false;
     const timer = setTimeout(() => {
-      cleanup();
+      if (settled) return;
+      settled = true;
+      cleanup(true);
       reject(new Error('JSONP timeout'));
     }, timeoutMs);
 
-    function cleanup(){
+    function cleanup(keepNoop){
       clearTimeout(timer);
-      try{ delete window[cbName]; }catch(_){}
+      try {
+        if (keepNoop) {
+          // Keep a temporary no-op callback to prevent
+          // "ReferenceError: <cb> is not defined" when late JSONP arrives.
+          window[cbName] = function(){};
+          setTimeout(() => { try { delete window[cbName]; } catch(_){} }, 60000);
+        } else {
+          delete window[cbName];
+        }
+      } catch(_){ }
       if (script && script.parentNode) script.parentNode.removeChild(script);
     }
 
     window[cbName] = (data) => {
-      cleanup();
+      if (settled) return;
+      settled = true;
+      cleanup(false);
       resolve(data);
     };
 
     const sep = url.includes('?') ? '&' : '?';
-    script.src = url + sep + 'callback=' + encodeURIComponent(cbName);
-    script.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
+    script.src = url + sep + 'callback=' + encodeURIComponent(cbName) + '&_=' + Date.now();
+    script.onerror = () => {
+      if (settled) return;
+      settled = true;
+      cleanup(false);
+      reject(new Error('JSONP load error'));
+    };
     document.head.appendChild(script);
   });
 }
