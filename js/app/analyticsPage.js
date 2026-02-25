@@ -2700,6 +2700,24 @@
                 `Out:${stats.outOfStock}, Low:${stats.lowStock}, Exp:${stats.expiringSoonBar}, Normal:${stats.normalStock}, Over:${stats.overStock}`);
         }
         
+        function getTrendFactsState() {
+            if (!window.TrendFactsState || typeof window.TrendFactsState !== 'object') {
+                window.TrendFactsState = { source: 'unknown', calculatedAt: '', up: [], down: [], loadedAt: '' };
+            }
+            return window.TrendFactsState;
+        }
+
+        function getTrendingItemsFromState() {
+            const state = getTrendFactsState();
+            return {
+                trendingUp: Array.isArray(state.up) ? state.up : [],
+                trendingDown: Array.isArray(state.down) ? state.down : [],
+                calculatedAt: state.calculatedAt || '',
+                source: state.source || 'unknown',
+                threshold: parseInt(localStorage.getItem('consecutiveWeekThreshold') || '2', 10)
+            };
+        }
+
         /**
          * Update top categories with top 4 used items by week
          * Now prioritizes trending items from Dashboard
@@ -2710,8 +2728,9 @@
             console.log('📊 Checking for trending items... window.trendingItems exists:', !!window.trendingItems);
             
             // PRIORITY: Prefer cached trending items (and never revert to raw usage once received)
-            const ti = (window.trendingItems && Array.isArray(window.trendingItems.trendingUp))
-                ? window.trendingItems
+            const stateTi = getTrendingItemsFromState();
+            const ti = (stateTi && Array.isArray(stateTi.trendingUp))
+                ? stateTi
                 : window.__lastGoodTrendingItems;
 
             if (window.__hasEverReceivedTrendingItems || (ti && Array.isArray(ti.trendingUp) && ti.trendingUp.length >= 0)) {
@@ -2807,9 +2826,10 @@
             console.log('📈 window.trendingItems exists:', !!window.trendingItems);
             
             // Prefer last known-good payload if current is missing fields
-            const ti = (window.trendingItems && Array.isArray(window.trendingItems.trendingUp))
-                ? window.trendingItems
-                : (window.__lastGoodTrendingItems || window.trendingItems);
+            const stateTi = getTrendingItemsFromState();
+            const ti = (stateTi && Array.isArray(stateTi.trendingUp))
+                ? stateTi
+                : (window.__lastGoodTrendingItems || stateTi);
 
             if (!ti || !Array.isArray(ti.trendingUp)) {
                 console.warn('⚠️ No trending items data available');
@@ -3360,8 +3380,15 @@
                         trendingDown: ti.trendingDown.length,
                         threshold: ti.threshold
                     });
-                    window.trendingItems = ti;
-                    window.__lastGoodTrendingItems = ti;
+                    window.TrendFactsState = {
+                        source: ti.source || 'unknown',
+                        calculatedAt: ti.calculatedAt || '',
+                        up: Array.isArray(ti.trendingUp) ? ti.trendingUp : [],
+                        down: Array.isArray(ti.trendingDown) ? ti.trendingDown : [],
+                        loadedAt: new Date().toISOString()
+                    };
+                    window.trendingItems = getTrendingItemsFromState();
+                    window.__lastGoodTrendingItems = window.trendingItems;
                     window.__hasEverReceivedTrendingItems = true;
                     updateTopUsedItemsCard();
                 }
