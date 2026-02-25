@@ -835,6 +835,7 @@ Subloc: ${counts.subloc}`);
                 MOCK_DATA.items.length > 0) {
                 const recomputed = calculateTrendingItems();
                 Promise.resolve()
+                    .then(() => saveTrendFactsRun({ trendResult: recomputed }))
                     .then(() => appendTrendFactsRun({ trendResult: recomputed }))
                     .catch(() => {})
                     .then(() => loadLatestTrendFactsFromSheet())
