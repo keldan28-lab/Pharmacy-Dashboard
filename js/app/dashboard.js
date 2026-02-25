@@ -5448,17 +5448,29 @@ async function loadLatestTrendFactsFromSheet() {
 
                 let txArr = _getTxArrayForSpikeJob();
 
-                // If Dashboard frame doesn't have tx data (common when charts live in an iframe under file://),
+                // If Dashboard frame doesn't have tx data, force-load transaction scripts and rebuild once.
+                if (!Array.isArray(txArr) || txArr.length === 0) {
+                    try {
+                        const loader = window.InventoryApp && window.InventoryApp.DataLoader;
+                        if (loader && typeof loader.ensureTransactionsLoaded === 'function') {
+                            await loader.ensureTransactionsLoaded();
+                        }
+                        try { initializeMockData && initializeMockData(); } catch (_) {}
+                        txArr = _getTxArrayForSpikeJob();
+                    } catch (_) {}
+                }
+
+                // If Dashboard frame still doesn't have tx data (common when charts live in an iframe under file://),
                 // request it from child frames.
                 if (!Array.isArray(txArr) || txArr.length === 0) {
-                    const resp = await _requestTxFromChildFrames(2000);
+                    const resp = await _requestTxFromChildFrames(2500);
                     if (resp && Array.isArray(resp.transactions)) {
                         txArr = resp.transactions;
                     }
                 }
 
                 if (!Array.isArray(txArr) || txArr.length === 0) {
-                    _spikeSetStatus('No transactions found (open Charts once, or ensure raw data loaded)');
+                    _spikeSetStatus('No transactions found (data not loaded yet)');
                     return;
                 }
 
