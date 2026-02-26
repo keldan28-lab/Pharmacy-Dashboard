@@ -2744,7 +2744,7 @@
                 ? stateTi
                 : window.__lastGoodTrendingItems;
 
-            if ((ti && Array.isArray(ti.trendingUp) && ti.trendingUp.length > 0) || (window.__lastGoodTrendingItems && Array.isArray(window.__lastGoodTrendingItems.trendingUp) && window.__lastGoodTrendingItems.trendingUp.length > 0)) {
+            if (window.__hasEverReceivedTrendingItems || (ti && Array.isArray(ti.trendingUp) && ti.trendingUp.length > 0)) {
                 if (ti && Array.isArray(ti.trendingUp)) {
                     console.log('✅ Trending items available - using trending data instead of raw usage');
                     console.log('   Trending items count:', ti.trendingUp.length);
