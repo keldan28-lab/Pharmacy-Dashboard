@@ -12,6 +12,14 @@
 
 (function () {
   const EPS = 1e-9;
+let __spikeVerifyWarned = false;
+function _warnSpikeVerifyOnce(msg, meta){
+  if (__spikeVerifyWarned) return;
+  __spikeVerifyWarned = true;
+  try { console.warn(msg, meta || {}); } catch(_) {}
+}
+
+
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
   function _txDateISO(rec) {
