@@ -55,7 +55,6 @@ function doGet(e) {
       const tabName = requireString_(p.tabName || CONFIG.DEFAULT_TAB, "tabName");
       const payload = parseJson_(p.payload || "{}", "payload");
       const rows2d = extractRows2d_(payload);
-      Logger.log("WRITE action=%s tab=%s rows=%s", action, tabName, rows2d.length);
 
       const result = action === "write"
         ? spikeWrite_(sheetId, tabName, rows2d)
@@ -94,7 +93,6 @@ function doPost(e) {
         rows2d = payload.rows;
       }
       validateRows2d_(rows2d);
-      Logger.log("WRITE action=%s tab=%s rows=%s", action, tabName, rows2d.length);
 
       const result = action === "write"
         ? spikeWrite_(sheetId, tabName, rows2d)
