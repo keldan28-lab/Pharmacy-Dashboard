@@ -1,8 +1,37 @@
+(function(){
+  if (window.__chartsLogsPatched) return;
+  window.__chartsLogsPatched = true;
+  const _log = console.log.bind(console);
+  const _warn = console.warn.bind(console);
+  const _err = console.error.bind(console);
+  function enabled(){ try { return localStorage.getItem('log_charts') !== '0'; } catch (_) { return true; } }
+  console.log = function(...args){ if (enabled()) _log(...args); };
+  console.warn = function(...args){ if (enabled()) _warn(...args); };
+  console.error = function(...args){ if (enabled()) _err(...args); };
+})();
         // ==================================================================================
         // BACK BUTTON FUNCTIONALITY
         // ==================================================================================
         let previousPage = null;
         let backButtonVisible = false;
+
+function getTrendFactsState() {
+    if (!window.TrendFactsState || typeof window.TrendFactsState !== 'object') {
+        window.TrendFactsState = { source: 'unknown', calculatedAt: '', up: [], down: [], loadedAt: '' };
+    }
+    return window.TrendFactsState;
+}
+
+function getTrendFactorForItemCode(itemCode) {
+    const code = String(itemCode || '');
+    if (!code) return 1;
+    const state = getTrendFactsState();
+    const up = Array.isArray(state.up) ? state.up : [];
+    const down = Array.isArray(state.down) ? state.down : [];
+    if (up.some((x) => String(x.itemCode || '') === code)) return 1.08;
+    if (down.some((x) => String(x.itemCode || '') === code)) return 0.92;
+    return 1;
+}
         
         // Listen for navigation messages that include referrer information
         window.addEventListener('message', (event) => {
@@ -2264,6 +2293,17 @@ function applyFlowOverrideFromVerticalBarSelection() {
                 console.log('✓ Charts: Mock data cached:', cachedMockData.items.length, 'items');
             }
             
+            if (event.data.type === 'trendingItemsUpdate' && event.data.trendingItems) {
+                const ti = event.data.trendingItems || {};
+                window.TrendFactsState = {
+                    source: ti.source || 'unknown',
+                    calculatedAt: ti.calculatedAt || '',
+                    up: Array.isArray(ti.trendingUp) ? ti.trendingUp : [],
+                    down: Array.isArray(ti.trendingDown) ? ti.trendingDown : [],
+                    loadedAt: new Date().toISOString()
+                };
+            }
+
             if (event.data.type === 'updateSettings') {
                 console.log('⚙️ Charts: Received settings update', event.data.settings);
                 
@@ -10139,6 +10179,9 @@ if (view === 'usage' || view === 'all') {
             costChartState._projUsageTrendRel = trendRel;
             costChartState._projUsageTrendFactor = trendF;
         }
+
+        // Apply final trend facts factor loaded from Sheet/calculated state
+        proj = proj * getTrendFactorForItemCode(itemCode);
 
         // Prediction interval (preferred) or confidence interval fallback
         if (sf && itemCode) {
