@@ -24,3 +24,7 @@ Trending item rows now also include:
   - `npm run check:parse`
 - Flu-season + reorder validation with synthetic weekly data:
   - `node scripts/test_flu_reorder.js`
+
+## Admin trend-facts smoke test
+
+In the Dashboard settings modal, use **Write Trend Test Row** to send a deterministic test row to the configured `trend_facts_up` tab through the same Apps Script write path used by production saves.
