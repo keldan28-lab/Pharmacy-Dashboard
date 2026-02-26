@@ -5,6 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pharmacy Dashboard</title>
     
+    <script>
+    (function installEarlySheetsWriteGuard(){
+        if (window.__pbEarlySheetsWriteGuardInstalled) return;
+        window.__pbEarlySheetsWriteGuardInstalled = true;
+
+        function rewriteUrl(rawUrl) {
+            try {
+                if (!rawUrl || String(rawUrl).indexOf('script.google.com/macros') === -1 || String(rawUrl).indexOf('action=append') === -1) {
+                    return { changed: false, url: rawUrl };
+                }
+                var u = new URL(String(rawUrl), window.location.href);
+                u.searchParams.set('action', 'write');
+                return { changed: true, url: u.toString() };
+            } catch (_) {
+                return { changed: false, url: rawUrl };
+            }
+        }
+
+        var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+        if (nativeFetch) {
+            window.fetch = function(input, init) {
+                var rawUrl = (typeof input === 'string') ? input : (input && input.url ? String(input.url) : '');
+                var rw = rewriteUrl(rawUrl);
+                if (!rw.changed) return nativeFetch(input, init);
+
+                var isFileContext = window.location.protocol === 'file:' || window.location.origin === 'null';
+                var nextInit = Object.assign({}, init || {});
+                var body = nextInit.body;
+                var payloadRows = null;
+
+                if (typeof body === 'string') {
+                    try {
+                        var parsed = JSON.parse(body);
+                        if (parsed && Array.isArray(parsed.rows)) payloadRows = parsed.rows;
+                    } catch (_) {}
+                }
+                if (payloadRows) {
+                    nextInit.body = new URLSearchParams({ payload: JSON.stringify({ rows: payloadRows }) });
+                }
+                if (nextInit.headers) delete nextInit.headers;
+                if (isFileContext) nextInit.mode = 'no-cors';
+
+                console.warn('⚠️ Early guard rewrote action=append to action=write', {
+                    protocol: window.location.protocol,
+                    origin: window.location.origin,
+                    requestUrl: rw.url,
+                    writeMode: isFileContext ? 'no-cors' : 'normal'
+                });
+                return nativeFetch(rw.url, nextInit);
+            };
+        }
+
+        var nativeXhrOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype && window.XMLHttpRequest.prototype.open;
+        if (nativeXhrOpen) {
+            window.XMLHttpRequest.prototype.open = function(method, url) {
+                var rw = rewriteUrl(url);
+                return nativeXhrOpen.call(this, method, rw.url, arguments[2], arguments[3], arguments[4]);
+            };
+        }
+    })();
+    </script>
+    
     <!-- Load Mock Data Files -->
     <script src="items_details_mockdata.js"></script>
     <script src="js/mockdata/item_substitute_ref_mockdata.js"></script>
@@ -49,6 +111,16 @@
             animation: appSpin 0.9s linear infinite;
         }
         @keyframes appSpin { to { transform: rotate(360deg); } }
+
+        .usage-params-card.is-collapsed > :not(.usage-params-title) { display: none !important; }
+        .usage-params-title { cursor: pointer; }
+        .usage-params-title::after {
+            content: '▾';
+            margin-left: auto;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        .usage-params-card.is-collapsed .usage-params-title::after { content: '▸'; }
     </style>
 
 </head>
@@ -522,6 +594,53 @@
                                 Clear Local Cache
                             </button>
                             <div id="spikeAdminStatusText" style="font-size: 0.85em; opacity: 0.85;">Not loaded</div>
+                            <div id="trendFactsStatusText" style="font-size: 0.82em; opacity: 0.8; width: 100%;">Trend facts not loaded</div>
+                        </div>
+                    </div>
+
+                    <div class="usage-params-card" style="margin-top: 14px;">
+                        <div class="usage-params-title">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M3,3H21V7H3V3M3,10H21V14H3V10M3,17H21V21H3V17Z"/>
+                            </svg>
+                            Console Logging
+                        </div>
+
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Dashboard Logs</div>
+                            </div>
+                            <label class="toggle-switch-settings">
+                                <input type="checkbox" id="logToggleDashboard" checked>
+                                <span class="toggle-slider-settings"></span>
+                            </label>
+                        </div>
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Analytics Logs</div>
+                            </div>
+                            <label class="toggle-switch-settings">
+                                <input type="checkbox" id="logToggleAnalytics" checked>
+                                <span class="toggle-slider-settings"></span>
+                            </label>
+                        </div>
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Charts Logs</div>
+                            </div>
+                            <label class="toggle-switch-settings">
+                                <input type="checkbox" id="logToggleCharts" checked>
+                                <span class="toggle-slider-settings"></span>
+                            </label>
+                        </div>
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Spike/Sheets Logs</div>
+                            </div>
+                            <label class="toggle-switch-settings">
+                                <input type="checkbox" id="logToggleSpike" checked>
+                                <span class="toggle-slider-settings"></span>
+                            </label>
                         </div>
                     </div>
 
@@ -682,4 +801,3 @@
 
 </body>
 </html>
-
