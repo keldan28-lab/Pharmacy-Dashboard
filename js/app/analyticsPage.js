@@ -1,3 +1,14 @@
+(function(){
+  if (window.__analyticsLogsPatched) return;
+  window.__analyticsLogsPatched = true;
+  const _log = console.log.bind(console);
+  const _warn = console.warn.bind(console);
+  const _err = console.error.bind(console);
+  function enabled(){ try { return localStorage.getItem('log_analytics') !== '0'; } catch (_) { return true; } }
+  console.log = function(...args){ if (enabled()) _log(...args); };
+  console.warn = function(...args){ if (enabled()) _warn(...args); };
+  console.error = function(...args){ if (enabled()) _err(...args); };
+})();
         // ============= LOCATION REFERENCE DATA =============
         // NOTE: Do NOT declare a top-level `const SUBLOCATION_MAP` here.
         // Some pages load `location_ref_mockdata.js` which previously declared
@@ -2700,6 +2711,24 @@
                 `Out:${stats.outOfStock}, Low:${stats.lowStock}, Exp:${stats.expiringSoonBar}, Normal:${stats.normalStock}, Over:${stats.overStock}`);
         }
         
+        function getTrendFactsState() {
+            if (!window.TrendFactsState || typeof window.TrendFactsState !== 'object') {
+                window.TrendFactsState = { source: 'unknown', calculatedAt: '', up: [], down: [], loadedAt: '' };
+            }
+            return window.TrendFactsState;
+        }
+
+        function getTrendingItemsFromState() {
+            const state = getTrendFactsState();
+            return {
+                trendingUp: Array.isArray(state.up) ? state.up : [],
+                trendingDown: Array.isArray(state.down) ? state.down : [],
+                calculatedAt: state.calculatedAt || '',
+                source: state.source || 'unknown',
+                threshold: parseInt(localStorage.getItem('consecutiveWeekThreshold') || '2', 10)
+            };
+        }
+
         /**
          * Update top categories with top 4 used items by week
          * Now prioritizes trending items from Dashboard
@@ -2710,18 +2739,19 @@
             console.log('📊 Checking for trending items... window.trendingItems exists:', !!window.trendingItems);
             
             // PRIORITY: Prefer cached trending items (and never revert to raw usage once received)
-            const ti = (window.trendingItems && Array.isArray(window.trendingItems.trendingUp))
-                ? window.trendingItems
+            const stateTi = getTrendingItemsFromState();
+            const ti = (stateTi && Array.isArray(stateTi.trendingUp))
+                ? stateTi
                 : window.__lastGoodTrendingItems;
 
-            if (window.__hasEverReceivedTrendingItems || (ti && Array.isArray(ti.trendingUp) && ti.trendingUp.length >= 0)) {
+            if ((ti && Array.isArray(ti.trendingUp) && ti.trendingUp.length > 0) || (window.__lastGoodTrendingItems && Array.isArray(window.__lastGoodTrendingItems.trendingUp) && window.__lastGoodTrendingItems.trendingUp.length > 0)) {
                 if (ti && Array.isArray(ti.trendingUp)) {
                     console.log('✅ Trending items available - using trending data instead of raw usage');
                     console.log('   Trending items count:', ti.trendingUp.length);
                     // Ensure current pointer points at best payload
                     window.trendingItems = ti;
                 } else {
-                    console.log('✅ Trending mode locked (trending items received before) - showing last known state');
+                    console.log('✅ Trending mode locked - showing last known non-empty state');
                 }
                 updateTopUsedItemsCard();
                 return; // Exit early - trending items take priority
@@ -2807,9 +2837,10 @@
             console.log('📈 window.trendingItems exists:', !!window.trendingItems);
             
             // Prefer last known-good payload if current is missing fields
-            const ti = (window.trendingItems && Array.isArray(window.trendingItems.trendingUp))
-                ? window.trendingItems
-                : (window.__lastGoodTrendingItems || window.trendingItems);
+            const stateTi = getTrendingItemsFromState();
+            const ti = (stateTi && Array.isArray(stateTi.trendingUp))
+                ? stateTi
+                : (window.__lastGoodTrendingItems || stateTi);
 
             if (!ti || !Array.isArray(ti.trendingUp)) {
                 console.warn('⚠️ No trending items data available');
@@ -2819,8 +2850,10 @@
             
             const trendingUp = ti.trendingUp;
             // Mark that we have valid trending items so we never fall back to raw usage rendering
-            window.__hasEverReceivedTrendingItems = true;
-            window.__lastGoodTrendingItems = ti;
+            if (Array.isArray(trendingUp) && trendingUp.length > 0) {
+                window.__hasEverReceivedTrendingItems = true;
+                window.__lastGoodTrendingItems = ti;
+            }
 
             const threshold = ti.threshold || 2;
             
@@ -3360,8 +3393,15 @@
                         trendingDown: ti.trendingDown.length,
                         threshold: ti.threshold
                     });
-                    window.trendingItems = ti;
-                    window.__lastGoodTrendingItems = ti;
+                    window.TrendFactsState = {
+                        source: ti.source || 'unknown',
+                        calculatedAt: ti.calculatedAt || '',
+                        up: Array.isArray(ti.trendingUp) ? ti.trendingUp : [],
+                        down: Array.isArray(ti.trendingDown) ? ti.trendingDown : [],
+                        loadedAt: new Date().toISOString()
+                    };
+                    window.trendingItems = getTrendingItemsFromState();
+                    window.__lastGoodTrendingItems = window.trendingItems;
                     window.__hasEverReceivedTrendingItems = true;
                     updateTopUsedItemsCard();
                 }
