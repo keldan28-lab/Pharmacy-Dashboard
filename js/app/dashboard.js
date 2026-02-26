@@ -5569,6 +5569,24 @@ async function loadLatestTrendFactsFromSheet() {
         try { window.adminLoadSpikeFactorsFromSheet = adminLoadSpikeFactors; } catch (_) {}
         try { window.adminTestSpikeWebApp = adminTestSpikeWebApp; } catch (_) {}
         try { window.adminClearLocalSpikeCache = adminClearLocalSpikeCache; } catch (_) {}
+        try { window.adminWriteTrendFactsTestRow = adminWriteTrendFactsTestRow; } catch (_) {}
+
+
+        window.__spikeDebug = async function __spikeDebug() {
+            const cfg = _spikeGetConfigFromUI();
+            let txArr = [];
+            try { txArr = _getTxArrayForSpikeJob(); } catch (_) { txArr = []; }
+            return {
+                webAppUrl: cfg.webAppUrl,
+                sheetId: cfg.sheetId,
+                tabName: cfg.tabName,
+                txCount: Array.isArray(txArr) ? txArr.length : 0,
+                txSample: Array.isArray(txArr) ? txArr.slice(0, 3) : [],
+                spikeSummary: (window.SpikeFactors && window.SpikeFactors.getCacheSummary) ? window.SpikeFactors.getCacheSummary() : null,
+                trendState: (window.TrendFactsState || null),
+                sheetsDebug: (window.__sheetsDebug ? window.__sheetsDebug() : null)
+            };
+        };
 
 
         window.__spikeDebug = async function __spikeDebug() {
@@ -5589,6 +5607,38 @@ async function loadLatestTrendFactsFromSheet() {
 
         
         
+
+        async function adminWriteTrendFactsTestRow() {
+            try {
+                const ts = new Date().toISOString();
+                const mkRows = (tab) => [[
+                    'calculatedAt','itemCode','description','drugName','avgWeeklyUsage','percentChange','consecutiveWeeks','confidence','confidenceLevel','trendDirection','isNew','suggestion'
+                ], [
+                    ts, `TEST_${tab.toUpperCase()}`, 'Trend test row', 'Trend test row', 0, 0, 0, 0, 'LOW', 'STABLE', 'false', 'test write'
+                ]];
+
+                _setTrendFactsWriteStatus('Writing test rows…');
+                await googleSheetsWrite({
+                    webAppUrl: TREND_FACTS_WEBAPP_URL,
+                    sheetId: TREND_FACTS_SHEET_ID,
+                    tabName: TREND_FACTS_UP_TAB,
+                    rows2d: mkRows('up'),
+                    verify: false
+                });
+                await googleSheetsWrite({
+                    webAppUrl: TREND_FACTS_WEBAPP_URL,
+                    sheetId: TREND_FACTS_SHEET_ID,
+                    tabName: TREND_FACTS_DOWN_TAB,
+                    rows2d: mkRows('down'),
+                    verify: false
+                });
+                _setTrendFactsWriteStatus(`Saved to Sheets (test row ${ts})`);
+            } catch (e) {
+                _setTrendFactsWriteStatus('Sheets write failed');
+                console.error('adminWriteTrendFactsTestRow failed', e);
+            }
+        }
+
         async function adminTestSpikeWebApp() {
             try {
                 await _ensureSpikeFactorsLoaded();

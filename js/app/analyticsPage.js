@@ -2751,7 +2751,7 @@
                     // Ensure current pointer points at best payload
                     window.trendingItems = ti;
                 } else {
-                    console.log('✅ Trending mode locked (trending items received before) - showing last known state');
+                    console.log('✅ Trending mode locked - showing last known non-empty state');
                 }
                 updateTopUsedItemsCard();
                 return; // Exit early - trending items take priority

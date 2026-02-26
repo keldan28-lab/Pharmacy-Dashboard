@@ -561,6 +561,11 @@
                             </div>
                             <input id="spikeWebAppUrl" type="text" placeholder="https://script.google.com/macros/s/.../exec"
                                    style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15);" />
+                            <div style="margin-top: 10px;">
+                                <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminTestSpikeWebApp()">
+                                    Test Connection
+                                </button>
+                            </div>
                         </div>
 
                         <div class="slider-control" style="margin-top: 10px;">
@@ -569,6 +574,11 @@
                             </div>
                             <input id="spikeSheetId" type="text" placeholder="1abcDEF…"
                                    style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15);" />
+                            <div style="margin-top: 10px;">
+                                <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminLoadSpikeFactorsFromSheet()">
+                                    Load From Sheet
+                                </button>
+                            </div>
                         </div>
 
                         <div class="settings-option" style="margin-top: 10px;">
@@ -584,14 +594,11 @@
                             <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px;" onclick="adminComputeAndSaveSpikeFactors()">
                                 Compute &amp; Save (Dispense Weekly)
                             </button>
-                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminLoadSpikeFactorsFromSheet()">
-                                Load From Sheet
-                            </button>
-                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminTestSpikeWebApp()">
-                                Test Connection
-                            </button>
                             <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.75;" onclick="adminClearLocalSpikeCache()">
                                 Clear Local Cache
+                            </button>
+                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.75;" onclick="adminWriteTrendFactsTestRow()">
+                                Write Trend Test Row
                             </button>
                             <div id="spikeAdminStatusText" style="font-size: 0.85em; opacity: 0.85;">Not loaded</div>
                             <div id="trendFactsStatusText" style="font-size: 0.82em; opacity: 0.8; width: 100%;">Trend facts not loaded</div>
