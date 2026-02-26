@@ -119,10 +119,9 @@ function doPost(e) {
     const contentType = (e && e.postData && e.postData.type) || "";
     if (String(contentType).toLowerCase().indexOf("application/json") !== -1) {
       return ContentService
-        .createTextOutput(JSON.stringify(result))
+        .createTextOutput(JSON.stringify(out))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    return HtmlService.createHtmlOutput(`<html><body>ok:${result.written || 0}</body></html>`);
   }
 
   if (action === "readLatest") {
