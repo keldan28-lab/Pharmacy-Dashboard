@@ -558,7 +558,7 @@ function _initSettingsCardCollapse() {
         const title = card.querySelector('.usage-params-title');
         if (!title || title.dataset.collapseBound) return;
         title.dataset.collapseBound = '1';
-        if (idx > 0 && card.dataset.defaultOpen !== '1') card.classList.add('is-collapsed');
+        if (idx > 0) card.classList.add('is-collapsed');
         title.addEventListener('click', () => {
             card.classList.toggle('is-collapsed');
         });
@@ -881,10 +881,11 @@ Subloc: ${counts.subloc}`);
                 const recomputed = calculateTrendingItems();
                 Promise.resolve()
                     .then(() => saveTrendFactsRun({ trendResult: recomputed }))
-                    .catch((err) => { console.warn('⚠️ saveTrendFactsRun failed', err); _setTrendFactsWriteStatusSafe('Sheets write failed'); })
+                    .then(() => appendTrendFactsRun({ trendResult: recomputed }))
+                    .catch(() => {})
                     .then(() => loadLatestTrendFactsFromSheet())
                     .then(() => { if (typeof sendTrendingItemsToPages === 'function') sendTrendingItemsToPages(); })
-                    .catch((err) => console.warn('⚠️ loadLatestTrendFactsFromSheet failed', err));
+                    .catch(() => {});
             } else {
                 console.log('⏳ Trending calculation will happen after data and functions load');
             }
@@ -1806,8 +1807,8 @@ Subloc: ${counts.subloc}`);
                     console.log('🔄 Calculating trending items...');
                     const localTrendResult = calculateTrendingItems();
                     Promise.resolve()
-                        .then(() => saveTrendFactsRun({ trendResult: localTrendResult }))
-                        .catch((err) => console.warn('⚠️ saveTrendFactsRun failed', err))
+                        .then(() => appendTrendFactsRun({ trendResult: localTrendResult }))
+                        .catch((err) => console.warn('⚠️ appendTrendFactsRun failed', err))
                         .then(() => loadLatestTrendFactsFromSheet())
                         .then(() => sendTrendingItemsToPages())
                         .catch((err) => console.warn('⚠️ loadLatestTrendFactsFromSheet fallback', err));
@@ -1905,7 +1906,6 @@ Subloc: ${counts.subloc}`);
         window.calculateTrendingItems = calculateTrendingItems;
         window.sendTrendingItemsToPages = sendTrendingItemsToPages;
         window.loadLatestTrendFactsFromSheet = loadLatestTrendFactsFromSheet;
-        window.saveTrendFactsRun = saveTrendFactsRun;
         window.appendTrendFactsRun = appendTrendFactsRun;
         window.updateTrendFactsStatusLine = updateTrendFactsStatusLine;
 
@@ -5209,63 +5209,11 @@ Subloc: ${counts.subloc}`);
             
 
 
-        // ---- Trend Facts (Google Sheets write + read verification) ----
-const TREND_FACTS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec";
+        // ---- Trend Facts (Google Sheets append-only timeline) ----
+const TREND_FACTS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzeo7jxZzEyP-kYxmNLjyycuAwsJCIoLf2wigbhvDeFUMAOEKFi7uKUOwgXJl-GRCsH5g/exec";
 const TREND_FACTS_SHEET_ID = "1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ";
 const TREND_FACTS_UP_TAB = "trend_facts_up";
 const TREND_FACTS_DOWN_TAB = "trend_facts_down";
-
-(function installSheetsAppendFetchGuard(){
-    if (window.__pbSheetsAppendGuardInstalled) return;
-    window.__pbSheetsAppendGuardInstalled = true;
-    const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
-    if (!nativeFetch) return;
-
-    window.fetch = function patchedFetch(input, init) {
-        try {
-            const rawUrl = (typeof input === 'string') ? input : (input && input.url ? String(input.url) : '');
-            if (!rawUrl || rawUrl.indexOf('script.google.com/macros') === -1 || rawUrl.indexOf('action=append') === -1) {
-                return nativeFetch(input, init);
-            }
-
-            const u = new URL(rawUrl, window.location.href);
-            u.searchParams.set('action', 'write');
-            const isFileContext = window.location.protocol === 'file:' || window.location.origin === 'null';
-            const nextInit = Object.assign({}, init || {});
-
-            // Convert JSON body with rows into payload form expected by Apps Script e.parameter.payload
-            const existingBody = nextInit.body;
-            let payloadRows = null;
-            if (typeof existingBody === 'string') {
-                try {
-                    const parsed = JSON.parse(existingBody);
-                    if (parsed && Array.isArray(parsed.rows)) payloadRows = parsed.rows;
-                } catch (_) {}
-            }
-            if (payloadRows) {
-                nextInit.body = new URLSearchParams({ payload: JSON.stringify({ rows: payloadRows }) });
-            }
-
-            if (isFileContext) {
-                nextInit.mode = 'no-cors';
-            }
-
-            if (nextInit.headers) {
-                delete nextInit.headers;
-            }
-
-            console.warn('⚠️ Rewriting legacy action=append fetch to action=write', {
-                protocol: window.location.protocol,
-                origin: window.location.origin,
-                requestUrl: u.toString(),
-                writeMode: isFileContext ? 'no-cors' : 'normal'
-            });
-            return nativeFetch(u.toString(), nextInit);
-        } catch (_) {
-            return nativeFetch(input, init);
-        }
-    };
-})();
 
 function getTrendFactsState() {
     if (!window.TrendFactsState || typeof window.TrendFactsState !== "object") {
@@ -5283,23 +5231,20 @@ function _setTrendFactsState(next) {
     updateTrendFactsStatusLine();
 }
 
-const __trendFactsUiStatus = { writeDetail: '' };
-
 function updateTrendFactsStatusLine() {
     const el = document.getElementById('trendFactsStatusText');
     const state = getTrendFactsState();
     if (!el) return;
     const ts = state.calculatedAt || 'unknown';
-    let prefix = 'Trend facts not loaded';
-    if (state.source === 'sheet' && state.calculatedAt) {
-        prefix = `Loaded from Sheet • Trend timestamp: ${ts}`;
+    if (state.source === 'sheet') {
+        el.textContent = `Loaded from Google Sheet • Trend timestamp: ${ts}`;
     } else if (state.source === 'calculated') {
-        prefix = `Calculated locally • Trend timestamp: ${ts}`;
+        el.textContent = `Calculated locally • Trend timestamp: ${ts}`;
     } else if (state.source === 'cache') {
-        prefix = `Loaded from cache • Trend timestamp: ${ts}`;
+        el.textContent = `Loaded from cache • Trend timestamp: ${ts}`;
+    } else {
+        el.textContent = 'Trend facts not loaded';
     }
-    const writeDetail = String(__trendFactsUiStatus.writeDetail || '').trim();
-    el.textContent = writeDetail ? `${prefix} • ${writeDetail}` : prefix;
 }
 
 function _trendFactsRowsFromTrending(trendingItems, calculatedAt, dir) {
@@ -5321,379 +5266,32 @@ function _trendFactsRowsFromTrending(trendingItems, calculatedAt, dir) {
         item.isNew ? 'true' : 'false',
         String(item.suggestion || item.recommendation || '')
     ]);
-
-    // Keep a timestamped marker row even when there are no trend items,
-    // so latest-run readback still yields a concrete calculatedAt.
-    if (!rows.length) {
-        rows.push([calculatedAt, '__NO_DATA__', '', '', '', '', '', '', '', '', 'false', '']);
-    }
-
     return [header].concat(rows);
 }
 
-async function _sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+async function _postTrendRowsAppend(webAppUrl, sheetId, tabName, rows2d) {
+    const url = `${webAppUrl}?action=append`;
+    const body = { action: 'append', sheetId, tabName, rows: rows2d };
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const txt = await res.text();
+    try { return JSON.parse(txt); } catch (_) { return { ok: /ok:/i.test(txt), raw: txt }; }
 }
 
-const __trendSheetsDebug = {
-    lastWriteAttempt: null,
-    lastVerifyResult: null
-};
-
-function _setTrendFactsWriteStatus(msg) {
-    __trendFactsUiStatus.writeDetail = String(msg || '').trim();
-    updateTrendFactsStatusLine();
-}
-
-function _setTrendFactsWriteStatusSafe(msg) {
-    try {
-        if (typeof _setTrendFactsWriteStatus === 'function') {
-            _setTrendFactsWriteStatus(msg);
-            return;
-        }
-    } catch (_) {}
-    const el = document.getElementById('trendFactsStatusText');
-    if (el) el.textContent = msg;
-}
-
-function _recordSheetsDebugWriteAttempt(data) {
-    __trendSheetsDebug.lastWriteAttempt = Object.assign({ at: new Date().toISOString() }, data || {});
-}
-
-function _recordSheetsDebugVerifyResult(data) {
-    __trendSheetsDebug.lastVerifyResult = Object.assign({ at: new Date().toISOString() }, data || {});
-}
-
-window.__sheetsDebug = function __sheetsDebug() {
-    return {
-        lastWriteAttempt: __trendSheetsDebug.lastWriteAttempt,
-        lastVerifyResult: __trendSheetsDebug.lastVerifyResult
-    };
-};
-
-function googleSheetsReadJsonp({ webAppUrl, sheetId, tabName, timeoutMs = 30000 }) {
-    return new Promise((resolve, reject) => {
-        const cbName = `__pbSheetsReadCb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        const script = document.createElement('script');
-        let settled = false;
-        const finish = (err, payload) => {
-            if (settled) return;
-            settled = true;
-            try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
-            try { script.remove(); } catch (_) {}
-            if (err) reject(err);
-            else resolve(payload);
-        };
-
-        const timer = setTimeout(() => {
-            try {
-                // Keep a temporary no-op for late callback execution.
-                window[cbName] = function(){};
-                setTimeout(() => { try { delete window[cbName]; } catch(_){} }, 60000);
-            } catch (_) {}
-            finish(new Error('JSONP read timeout'));
-        }, Math.max(1000, timeoutMs || 30000));
-
-        window[cbName] = function (payload) {
-            clearTimeout(timer);
-            finish(null, payload || {});
-        };
-
-        script.onerror = function () {
-            clearTimeout(timer);
-            finish(new Error('JSONP read failed to load script'));
-        };
-
-        const qs = new URLSearchParams({
-            action: 'read',
-            sheetId: String(sheetId || ''),
-            tabName: String(tabName || ''),
-            callback: cbName,
-            _: String(Date.now())
-        });
-        script.src = `${webAppUrl}?${qs.toString()}`;
-        document.head.appendChild(script);
-    });
-}
-
-function _extractLatestRunRows(rows) {
-    if (!Array.isArray(rows) || rows.length === 0) {
-        return { rows: [], calculatedAt: '', totalRows: 0 };
-    }
-    const header = rows[0];
-    if (rows.length === 1) {
-        return { rows: [header], calculatedAt: '', totalRows: 1 };
-    }
-
-    let i = rows.length - 1;
-    let latestTs = rows[i] && rows[i][0] ? String(rows[i][0]) : '';
-    while (i > 0 && !latestTs) {
-        i--;
-        latestTs = rows[i] && rows[i][0] ? String(rows[i][0]) : '';
-    }
-    if (!latestTs) return { rows: [header], calculatedAt: '', totalRows: rows.length };
-
-    const block = [];
-    for (let j = i; j > 0; j--) {
-        const ts = rows[j] && rows[j][0] ? String(rows[j][0]) : '';
-        if (ts !== latestTs) break;
-        block.push(rows[j]);
-    }
-    block.reverse();
-    return { rows: [header].concat(block), calculatedAt: latestTs, totalRows: rows.length };
-}
-
-async function _verifySheetsWrite({ webAppUrl, sheetId, tabName, expectedLastTs, beforeRowCount }) {
-    try {
-        const readRes = await googleSheetsReadJsonp({ webAppUrl, sheetId, tabName });
-        const rows = (readRes && Array.isArray(readRes.rows)) ? readRes.rows : [];
-        const latest = _extractLatestRunRows(rows);
-        const rowCountIncreased = Number.isFinite(beforeRowCount) ? (latest.totalRows > beforeRowCount) : false;
-        const tsMatch = !!(expectedLastTs && latest.calculatedAt && String(latest.calculatedAt) === String(expectedLastTs));
-        const ok = tsMatch || rowCountIncreased;
-        const result = { ok, tsMatch, rowCountIncreased, totalRows: latest.totalRows, calculatedAt: latest.calculatedAt || '' };
-        _recordSheetsDebugVerifyResult(Object.assign({ tabName }, result));
-        return result;
-    } catch (err) {
-        const result = { ok: false, error: String((err && err.message) || err || 'verify failed') };
-        _recordSheetsDebugVerifyResult(Object.assign({ tabName }, result));
-        return result;
-    }
-}
-
-function _isFileModeForSheetsWrite() {
-    return window.location.protocol === 'file:' || window.location.origin === 'null';
-}
-
-function _buildWriteResultBase(rows2d, action) {
-    const ts = (Array.isArray(rows2d) && rows2d.length > 1 && rows2d[1]) ? String(rows2d[1][0] || '') : '';
-    return { ok: true, action: action || 'write', calculatedAt: ts };
-}
-
-function _jsonpWriteTrendFacts({ scriptUrl, action, sheetId, tabName, rows2d, timeoutMs = 30000 }) {
-    return new Promise((resolve, reject) => {
-        const cbName = `__pbSheetsWriteCb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        const payload = JSON.stringify({ rows: rows2d });
-        const qs = [
-            `action=${encodeURIComponent(action)}`,
-            `sheetId=${encodeURIComponent(sheetId)}`,
-            `tabName=${encodeURIComponent(tabName)}`,
-            `payload=${encodeURIComponent(payload)}`,
-            `callback=${encodeURIComponent(cbName)}`
-        ].join('&');
-        const src = `${scriptUrl}${String(scriptUrl).indexOf('?') === -1 ? '?' : '&'}${qs}`;
-
-        const script = document.createElement('script');
-        let settled = false;
-        const done = (err, data) => {
-            if (settled) return;
-            settled = true;
-            try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
-            try { script.remove(); } catch (_) {}
-            if (err) reject(err); else resolve(data || {});
-        };
-
-        const timer = setTimeout(() => done(new Error('JSONP write timeout')), Math.max(1000, timeoutMs || 30000));
-        window[cbName] = function(payloadRes) { clearTimeout(timer); done(null, payloadRes || {}); };
-        script.onerror = function() { clearTimeout(timer); done(new Error('JSONP write script error')); };
-        script.src = src;
-        document.head.appendChild(script);
-    });
-}
-
-async function writeTrendFacts({ tabName, rows2d, action = 'append', scriptUrl = TREND_FACTS_WEBAPP_URL, sheetId = TREND_FACTS_SHEET_ID } = {}) {
-    if (!scriptUrl || !sheetId || !tabName) {
-        return { ok: false, error: 'Missing scriptUrl, sheetId, or tabName' };
-    }
-    if (!Array.isArray(rows2d) || !rows2d.length || !Array.isArray(rows2d[0]) || !rows2d[0].length) {
-        return { ok: false, error: 'rows2d must be a non-empty 2D array' };
-    }
-
-    const mode = _isFileModeForSheetsWrite() ? 'jsonp' : 'post-json';
-    const base = _buildWriteResultBase(rows2d, action);
-
-    console.log('[writeTrendFacts] tabName:', tabName, 'rows:', rows2d.length, 'isFile:', mode === 'jsonp');
-
-    try {
-        if (mode === 'jsonp') {
-            const res = await _jsonpWriteTrendFacts({ scriptUrl, action, sheetId, tabName, rows2d });
-            if (!res || res.ok !== true) {
-                const out = Object.assign({}, base, { ok: false, error: (res && res.error) ? String(res.error) : 'JSONP write failed', mode });
-            console.log('[writeTrendFacts] response:', out);
-            return out;
-            }
-            const out = Object.assign({}, base, res, { mode, appended: res.written || res.appended || 0 });
-            console.log('[writeTrendFacts] response:', out);
-            return out;
-        }
-
-        const resp = await fetch(scriptUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, sheetId, tabName, rows: rows2d })
-        });
-        const text = await resp.text();
-        let parsed = null;
-        try { parsed = JSON.parse(text); } catch (_) { parsed = null; }
-        if (!resp.ok || !parsed || parsed.ok !== true) {
-            // optional fallback to JSONP even on non-file origins
-            const fb = await _jsonpWriteTrendFacts({ scriptUrl, action, sheetId, tabName, rows2d, timeoutMs: 15000 });
-            if (fb && fb.ok === true) { const out = Object.assign({}, base, fb, { mode: 'post-json+jsonp-fallback', appended: fb.written || fb.appended || 0 }); console.log('[writeTrendFacts] response:', out); return out; }
-            const out = Object.assign({}, base, { ok: false, error: (parsed && parsed.error) ? String(parsed.error) : `POST failed (${resp.status})`, mode });
-            console.log('[writeTrendFacts] response:', out);
-            return out;
-        }
-        const out = Object.assign({}, base, parsed, { mode, appended: parsed.written || parsed.appended || 0 });
-        console.log('[writeTrendFacts] response:', out);
-        return out;
-    } catch (err) {
-        try {
-            const fb = await _jsonpWriteTrendFacts({ scriptUrl, action, sheetId, tabName, rows2d, timeoutMs: 15000 });
-            if (fb && fb.ok === true) { const out = Object.assign({}, base, fb, { mode: 'post-json+jsonp-fallback', appended: fb.written || fb.appended || 0 }); console.log('[writeTrendFacts] response:', out); return out; }
-        } catch (_) {}
-        const out = Object.assign({}, base, { ok: false, error: String((err && err.message) || err || 'write failed'), mode });
-        console.log('[writeTrendFacts] response:', out);
-        return out;
-    }
-}
-
-async function googleSheetsWrite({ webAppUrl, sheetId, tabName, rows2d, verify = true }) {
-    if (!webAppUrl || !sheetId || !tabName) {
-        throw new Error('Missing webAppUrl, sheetId, or tabName');
-    }
-
-    let beforeRowCount = NaN;
-    if (verify) {
-        try {
-            const before = await googleSheetsReadJsonp({ webAppUrl, sheetId, tabName, timeoutMs: 8000 });
-            beforeRowCount = (before && Array.isArray(before.rows)) ? before.rows.length : NaN;
-        } catch (_) {
-            beforeRowCount = NaN;
-        }
-    }
-
-    _recordSheetsDebugWriteAttempt({
-        protocol: window.location.protocol,
-        origin: window.location.origin,
-        requestUrl: webAppUrl,
-        writeMode: _isFileModeForSheetsWrite() ? 'jsonp' : 'post-json',
-        tabName
-    });
-
-    _setTrendFactsWriteStatus('Writing to Sheets…');
-    const wr = await writeTrendFacts({ tabName, rows2d, action: 'write', scriptUrl: webAppUrl, sheetId });
-    if (!wr.ok) {
-        _setTrendFactsWriteStatusSafe(`Write failed: ${wr.error || 'unknown error'}`);
-        throw new Error(wr.error || 'Sheets write failed');
-    }
-
-    if (!verify) {
-        _setTrendFactsWriteStatus(`Write success (${wr.mode || 'write'})`);
-        return wr;
-    }
-
-    _setTrendFactsWriteStatus('Write sent; verifying latest block…');
-    const expectedTs = (rows2d && rows2d.length > 1 && rows2d[1]) ? String(rows2d[1][0] || '') : '';
-    const vr = await _verifySheetsWrite({ webAppUrl, sheetId, tabName, expectedLastTs: expectedTs, beforeRowCount });
-    if (vr.ok) {
-        _setTrendFactsWriteStatus(`Write success (${wr.mode || 'write'})`);
-        return Object.assign({}, wr, { verify: vr });
-    }
-
-    if (_isLogEnabled('spike')) console.warn('⚠️ Trend facts write sent but verify timed out; proceeding optimistically.', { tabName, verify: vr });
-    _setTrendFactsWriteStatus(`Write sent (${wr.mode || 'write'}); verify pending`);
-    return Object.assign({}, wr, { verify: vr, verifyWarning: vr.error || 'verify timeout' });
-}
-
-
-function _deriveTrendCalculatedAtISO() {
-    let txArr = [];
-    try {
-        txArr = _getTxArrayForSpikeJob();
-    } catch (_) {
-        txArr = [];
-    }
-
-    if (Array.isArray(txArr) && txArr.length > 0) {
-        const maxISO = _getTxMaxDateISO(txArr);
-        if (maxISO) return String(maxISO);
-    }
-
-    const fallback = (window.MOCK_DATA && window.MOCK_DATA.lastUpdated)
-        ? `${String(window.MOCK_DATA.lastUpdated)}T00:00:00.000Z`
-        : new Date().toISOString();
-    return fallback;
-}
-
-
-async function saveTrendFactsRun({ trendResult }) {
-    let result = trendResult;
-    if (!result && typeof calculateTrendingItems === 'function') {
-        try { result = calculateTrendingItems(); } catch (_) { result = null; }
-    }
-    if (!result) {
-        _setTrendFactsWriteStatusSafe('Sheets write failed');
-        throw new Error('No trend result available for Sheets write');
-    }
-
-    const calculatedAt = _deriveTrendCalculatedAtISO();
-    result.calculatedAt = calculatedAt;
-    const rowsUp = _trendFactsRowsFromTrending(result, calculatedAt, 'up');
-    const rowsDown = _trendFactsRowsFromTrending(result, calculatedAt, 'down');
-
-    _sectionLog('spike', '📤 Saving trend facts to Sheets', {
-        upRows: rowsUp.length,
-        downRows: rowsDown.length,
-        calculatedAt,
-        webAppUrl: TREND_FACTS_WEBAPP_URL,
-        sheetId: TREND_FACTS_SHEET_ID
-    });
-
-    await googleSheetsWrite({
-        webAppUrl: TREND_FACTS_WEBAPP_URL,
-        sheetId: TREND_FACTS_SHEET_ID,
-        tabName: TREND_FACTS_UP_TAB,
-        rows2d: rowsUp,
-        verify: true
-    });
-
-    await googleSheetsWrite({
-        webAppUrl: TREND_FACTS_WEBAPP_URL,
-        sheetId: TREND_FACTS_SHEET_ID,
-        tabName: TREND_FACTS_DOWN_TAB,
-        rows2d: rowsDown,
-        verify: true
-    });
-
-    // Reflect local computed state immediately even if read-back is delayed.
-    _setTrendFactsState({
-        source: 'calculated',
-        calculatedAt,
-        up: Array.isArray(result.trendingUp) ? result.trendingUp : [],
-        down: Array.isArray(result.trendingDown) ? result.trendingDown : [],
-        loadedAt: new Date().toISOString()
-    });
-}
 
 async function appendTrendFactsRun({ trendResult }) {
-    // Back-compat alias: keep old name but route to write-based path.
-    return saveTrendFactsRun({ trendResult });
+    if (!trendResult) return;
+    const calculatedAt = new Date().toISOString();
+    trendResult.calculatedAt = calculatedAt;
+    const rowsUp = _trendFactsRowsFromTrending(trendResult, calculatedAt, 'up');
+    const rowsDown = _trendFactsRowsFromTrending(trendResult, calculatedAt, 'down');
+    await _postTrendRowsAppend(TREND_FACTS_WEBAPP_URL, TREND_FACTS_SHEET_ID, TREND_FACTS_UP_TAB, rowsUp);
+    await _postTrendRowsAppend(TREND_FACTS_WEBAPP_URL, TREND_FACTS_SHEET_ID, TREND_FACTS_DOWN_TAB, rowsDown);
 }
 
 async function _readLatestTrendTab(tabName) {
-    const readRes = await googleSheetsReadJsonp({
-        webAppUrl: TREND_FACTS_WEBAPP_URL,
-        sheetId: TREND_FACTS_SHEET_ID,
-        tabName
-    });
-    const rows = (readRes && Array.isArray(readRes.rows)) ? readRes.rows : [];
-    const latest = _extractLatestRunRows(rows);
-    return {
-        ok: true,
-        rows: latest.rows,
-        calculatedAt: latest.calculatedAt,
-        tabName
-    };
+    const url = `${TREND_FACTS_WEBAPP_URL}?action=readLatest&sheetId=${encodeURIComponent(TREND_FACTS_SHEET_ID)}&tabName=${encodeURIComponent(tabName)}`;
+    const res = await fetch(url, { method: 'GET' });
+    return res.json();
 }
 
 function _rowsToObjects(rows) {
@@ -5712,29 +5310,17 @@ async function loadLatestTrendFactsFromSheet() {
         const up = _rowsToObjects(upRes && upRes.rows);
         const down = _rowsToObjects(downRes && downRes.rows);
         const calculatedAt = (upRes && upRes.calculatedAt) || (downRes && downRes.calculatedAt) || '';
-        if (!calculatedAt) {
-            const fallback = (typeof calculateTrendingItems === 'function') ? calculateTrendingItems() : null;
-            _setTrendFactsState({
-                source: 'calculated',
-                calculatedAt: (fallback && fallback.calculatedAt) || _deriveTrendCalculatedAtISO(),
-                up: (fallback && fallback.trendingUp) || [],
-                down: (fallback && fallback.trendingDown) || [],
-                loadedAt: new Date().toISOString()
-            });
-            return getTrendFactsState();
-        }
         _setTrendFactsState({ source: 'sheet', calculatedAt, up, down, loadedAt: new Date().toISOString() });
         return getTrendFactsState();
     } catch (e) {
         const fallback = (typeof calculateTrendingItems === 'function') ? calculateTrendingItems() : null;
         _setTrendFactsState({
             source: 'calculated',
-            calculatedAt: (fallback && fallback.calculatedAt) || _deriveTrendCalculatedAtISO(),
+            calculatedAt: (fallback && fallback.calculatedAt) || new Date().toISOString(),
             up: (fallback && fallback.trendingUp) || [],
             down: (fallback && fallback.trendingDown) || [],
             loadedAt: new Date().toISOString()
         });
-        _setTrendFactsWriteStatusSafe('Sheets write failed');
         return getTrendFactsState();
     }
 }
@@ -5765,11 +5351,9 @@ async function loadLatestTrendFactsFromSheet() {
                     const raw = localStorage.getItem('__trendFactsState');
                     if (raw) {
                         const parsed = JSON.parse(raw);
-                        const hasTs = !!(parsed && parsed.calculatedAt);
-                        const source = hasTs ? (parsed.source || 'cache') : 'unknown';
                         _setTrendFactsState({
-                            source: source,
-                            calculatedAt: hasTs ? parsed.calculatedAt : '',
+                            source: parsed.source || 'cache',
+                            calculatedAt: parsed.calculatedAt || '',
                             up: Array.isArray(parsed.up) ? parsed.up : [],
                             down: Array.isArray(parsed.down) ? parsed.down : [],
                             loadedAt: parsed.loadedAt || ''
@@ -5962,10 +5546,7 @@ async function loadLatestTrendFactsFromSheet() {
                 const c = (computed && computed.counts) ? computed.counts : {};
                 _spikeSetStatus(`Saving… (itemLoc=${c.itemLoc || 0}, item=${c.item || 0}, loc=${c.location || 0})`);
 
-                const saveRes = await window.SpikeFactors.saveToWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName, computed.rows);
-                if (saveRes && saveRes.verifyWarning) {
-                    _spikeSetStatus('Write sent to Sheets (verify delayed)');
-                }
+                await window.SpikeFactors.saveToWebApp(cfg.webAppUrl, cfg.sheetId, cfg.tabName, computed.rows);
 
                 // Load back into cache to use immediately (best-effort; write may still succeed if read JSONP is delayed)
                 try {
@@ -5973,7 +5554,7 @@ async function loadLatestTrendFactsFromSheet() {
                     _spikeSetLoadedSummary('Saved & loaded');
                 } catch (loadErr) {
                     console.warn('⚠️ SpikeFactors write succeeded but read-back load timed out.', loadErr);
-                    _spikeSetStatus('Write sent to Sheets (read-back timeout; retry Load From Sheet)');
+                    _spikeSetStatus('Saved to Sheets (read-back timeout; retry Load From Sheet)');
                 }
             } catch (e) {
                 console.error(e);
@@ -6007,6 +5588,23 @@ async function loadLatestTrendFactsFromSheet() {
             };
         };
 
+
+        window.__spikeDebug = async function __spikeDebug() {
+            const cfg = _spikeGetConfigFromUI();
+            let txArr = [];
+            try { txArr = _getTxArrayForSpikeJob(); } catch (_) { txArr = []; }
+            return {
+                webAppUrl: cfg.webAppUrl,
+                sheetId: cfg.sheetId,
+                tabName: cfg.tabName,
+                txCount: Array.isArray(txArr) ? txArr.length : 0,
+                txSample: Array.isArray(txArr) ? txArr.slice(0, 3) : [],
+                spikeSummary: (window.SpikeFactors && window.SpikeFactors.getCacheSummary) ? window.SpikeFactors.getCacheSummary() : null,
+                trendState: (window.TrendFactsState || null),
+                sheetsDebug: (window.__sheetsDebug ? window.__sheetsDebug() : null)
+            };
+        };
+
         
         
 
@@ -6019,7 +5617,7 @@ async function loadLatestTrendFactsFromSheet() {
                     ts, `TEST_${tab.toUpperCase()}`, 'Trend test row', 'Trend test row', 0, 0, 0, 0, 'LOW', 'STABLE', 'false', 'test write'
                 ]];
 
-                _setTrendFactsWriteStatusSafe('Writing test rows…');
+                _setTrendFactsWriteStatus('Writing test rows…');
                 await googleSheetsWrite({
                     webAppUrl: TREND_FACTS_WEBAPP_URL,
                     sheetId: TREND_FACTS_SHEET_ID,
@@ -6034,9 +5632,9 @@ async function loadLatestTrendFactsFromSheet() {
                     rows2d: mkRows('down'),
                     verify: false
                 });
-                _setTrendFactsWriteStatusSafe(`Saved to Sheets (test row ${ts})`);
+                _setTrendFactsWriteStatus(`Saved to Sheets (test row ${ts})`);
             } catch (e) {
-                _setTrendFactsWriteStatusSafe('Sheets write failed');
+                _setTrendFactsWriteStatus('Sheets write failed');
                 console.error('adminWriteTrendFactsTestRow failed', e);
             }
         }
