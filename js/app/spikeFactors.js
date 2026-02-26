@@ -834,7 +834,7 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
   async function verifyReadBackOrThrow(){
     await new Promise(r=>setTimeout(r, 500));
     const qs = _buildReadQuery(sheetId, tabName);
-    const raw = await _jsonp(`${webAppUrl}?${qs}`, 15000);
+    const raw = await _jsonp(`${webAppUrl}?${qs}`, 30000);
     const norm = _normalizeReadResponse(raw);
     if(!norm.ok) throw new Error(norm.error || 'read-back failed');
     if(expectedRows > 0 && (!norm.rows || !norm.rows.length)) throw new Error('read-back returned 0 rows');
@@ -981,10 +981,18 @@ async function loadFromWebApp(webAppUrl,sheetId,tabName){
 
   // Local file origin: use JSONP (no CORS)
   if(_isLocalFileOrigin()){
-    const raw = await _jsonp(url, 15000);
-    const norm = _normalizeReadResponse(raw);
-    if(!norm.ok) throw new Error(norm.error || (raw && raw.error) || 'read failed');
-    return _ingestRows(norm.rows || []);
+    try {
+      const raw = await _jsonp(url, 30000);
+      const norm = _normalizeReadResponse(raw);
+      if(!norm.ok) throw new Error(norm.error || (raw && raw.error) || 'read failed');
+      return _ingestRows(norm.rows || []);
+    } catch (e) {
+      if (CACHE && CACHE.loadedAt) {
+        console.warn('[SpikeFactors] loadFromWebApp JSONP timed out; using existing local cache.', e);
+        return CACHE;
+      }
+      throw e;
+    }
   }
 
   const res = await fetch(url, { method: 'GET' });
