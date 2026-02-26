@@ -5509,6 +5509,23 @@ async function loadLatestTrendFactsFromSheet() {
         try { window.adminTestSpikeWebApp = adminTestSpikeWebApp; } catch (_) {}
         try { window.adminClearLocalSpikeCache = adminClearLocalSpikeCache; } catch (_) {}
 
+
+        window.__spikeDebug = async function __spikeDebug() {
+            const cfg = _spikeGetConfigFromUI();
+            let txArr = [];
+            try { txArr = _getTxArrayForSpikeJob(); } catch (_) { txArr = []; }
+            return {
+                webAppUrl: cfg.webAppUrl,
+                sheetId: cfg.sheetId,
+                tabName: cfg.tabName,
+                txCount: Array.isArray(txArr) ? txArr.length : 0,
+                txSample: Array.isArray(txArr) ? txArr.slice(0, 3) : [],
+                spikeSummary: (window.SpikeFactors && window.SpikeFactors.getCacheSummary) ? window.SpikeFactors.getCacheSummary() : null,
+                trendState: (window.TrendFactsState || null),
+                sheetsDebug: (window.__sheetsDebug ? window.__sheetsDebug() : null)
+            };
+        };
+
         
         
         async function adminTestSpikeWebApp() {

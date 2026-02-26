@@ -799,7 +799,7 @@ function _jsonp(url, timeoutMs = 30000){
 }
 
 // Form POST to hidden iframe (works from file:// for cross-origin POST)
-function _formPost(url, fields, timeoutMs = 2000){
+function _formPost(url, fields, timeoutMs = 15000){
   return new Promise((resolve) => {
     const iframeName = '__spike_post_iframe_' + Math.random().toString(36).slice(2);
     const iframe = document.createElement('iframe');
@@ -823,16 +823,25 @@ function _formPost(url, fields, timeoutMs = 2000){
 
     document.body.appendChild(form);
 
+    let submitted = false;
+
     const cleanup = () => {
       try{ form.remove(); }catch(_){}
       try{ iframe.remove(); }catch(_){}
     };
 
-    iframe.onload = () => { cleanup(); resolve({ ok:true }); };
+    iframe.onload = () => {
+      // Ignore initial about:blank lifecycle events; only resolve after submit.
+      if (!submitted) return;
+      cleanup();
+      resolve({ ok:true });
+    };
+
+    submitted = true;
     form.submit();
 
     // Best-effort resolve even if onload doesn't fire
-    setTimeout(() => { cleanup(); resolve({ ok:true }); }, timeoutMs);
+    setTimeout(() => { cleanup(); resolve({ ok:true, timeout: true }); }, timeoutMs);
   });
 }
 
