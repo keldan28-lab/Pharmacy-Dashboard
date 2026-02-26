@@ -136,13 +136,25 @@ function doPost(e) {
     const contentType = (e && e.postData && e.postData.type) || "";
     if (String(contentType).toLowerCase().indexOf("application/json") !== -1) {
       return ContentService
-        .createTextOutput(JSON.stringify(result))
+        .createTextOutput(JSON.stringify(out))
         .setMimeType(ContentService.MimeType.JSON);
     }
     return HtmlService.createHtmlOutput(`<html><body>ok:${result.rows ? result.rows.length : 0}</body></html>`);
   }
 
-  return HtmlService.createHtmlOutput("<html><body>unknown op</body></html>");
+  if (action === "readLatest") {
+    const sheetId = p.sheetId || body.sheetId;
+    const tabName = p.tabName || body.tabName || CONFIG.DEFAULT_TAB;
+    const result = spikeReadLatest_(sheetId, tabName);
+    if (callback) return jsonOrJsonp_(result, callback);
+    return ContentService
+      .createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: false, error: "unknown op" }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 // ===== helpers =====
