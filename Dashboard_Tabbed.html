@@ -5,6 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pharmacy Dashboard</title>
     
+    <script>
+    (function installEarlySheetsWriteGuard(){
+        if (window.__pbEarlySheetsWriteGuardInstalled) return;
+        window.__pbEarlySheetsWriteGuardInstalled = true;
+
+        function rewriteUrl(rawUrl) {
+            try {
+                if (!rawUrl || String(rawUrl).indexOf('script.google.com/macros') === -1 || String(rawUrl).indexOf('action=append') === -1) {
+                    return { changed: false, url: rawUrl };
+                }
+                var u = new URL(String(rawUrl), window.location.href);
+                u.searchParams.set('action', 'write');
+                return { changed: true, url: u.toString() };
+            } catch (_) {
+                return { changed: false, url: rawUrl };
+            }
+        }
+
+        var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+        if (nativeFetch) {
+            window.fetch = function(input, init) {
+                var rawUrl = (typeof input === 'string') ? input : (input && input.url ? String(input.url) : '');
+                var rw = rewriteUrl(rawUrl);
+                if (!rw.changed) return nativeFetch(input, init);
+
+                var isFileContext = window.location.protocol === 'file:' || window.location.origin === 'null';
+                var nextInit = Object.assign({}, init || {});
+                var body = nextInit.body;
+                var payloadRows = null;
+
+                if (typeof body === 'string') {
+                    try {
+                        var parsed = JSON.parse(body);
+                        if (parsed && Array.isArray(parsed.rows)) payloadRows = parsed.rows;
+                    } catch (_) {}
+                }
+                if (payloadRows) {
+                    nextInit.body = new URLSearchParams({ payload: JSON.stringify({ rows: payloadRows }) });
+                }
+                if (nextInit.headers) delete nextInit.headers;
+                if (isFileContext) nextInit.mode = 'no-cors';
+
+                console.warn('⚠️ Early guard rewrote action=append to action=write', {
+                    protocol: window.location.protocol,
+                    origin: window.location.origin,
+                    requestUrl: rw.url,
+                    writeMode: isFileContext ? 'no-cors' : 'normal'
+                });
+                return nativeFetch(rw.url, nextInit);
+            };
+        }
+
+        var nativeXhrOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype && window.XMLHttpRequest.prototype.open;
+        if (nativeXhrOpen) {
+            window.XMLHttpRequest.prototype.open = function(method, url) {
+                var rw = rewriteUrl(url);
+                return nativeXhrOpen.call(this, method, rw.url, arguments[2], arguments[3], arguments[4]);
+            };
+        }
+    })();
+    </script>
+    
     <!-- Load Mock Data Files -->
     <script src="items_details_mockdata.js"></script>
     <script src="js/mockdata/item_substitute_ref_mockdata.js"></script>
@@ -49,6 +111,16 @@
             animation: appSpin 0.9s linear infinite;
         }
         @keyframes appSpin { to { transform: rotate(360deg); } }
+
+        .usage-params-card.is-collapsed > :not(.usage-params-title) { display: none !important; }
+        .usage-params-title { cursor: pointer; }
+        .usage-params-title::after {
+            content: '▾';
+            margin-left: auto;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        .usage-params-card.is-collapsed .usage-params-title::after { content: '▸'; }
     </style>
 
 </head>
@@ -469,15 +541,19 @@
                         </div>
                     </div>
 
-                    <!-- Admin: Spike Factors (cached trend multipliers for Min Suggestions) -->
-                    <div class="usage-params-card" style="margin-top: 14px;">
+                    <div class="usage-params-card" style="margin-top: 14px;" data-default-open="1">
                         <div class="usage-params-title">
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm1 15h-2v-2h2Zm0-4h-2V7h2Z"/>
                             </svg>
-                            Min Suggestion Trend Cache (Admin)
+                            Admin
                         </div>
 
+                        <div style="font-size: 0.85em; opacity: 0.85; margin-bottom: 10px;">
+                            Admin-only controls for trend cache and diagnostic logging.
+                        </div>
+
+                        <div style="font-size: 0.9em; font-weight: 600; margin-top: 8px;">Min Suggestion Trend Cache (Admin)</div>
                         <div style="font-size: 0.85em; opacity: 0.85; margin-bottom: 10px;">
                             Computes Dispense-only weekly trend multipliers (spike factors) and caches them in Google Sheets so Min Suggestions can load instantly.
                         </div>
@@ -489,6 +565,11 @@
                             </div>
                             <input id="spikeWebAppUrl" type="text" placeholder="https://script.google.com/macros/s/.../exec"
                                    style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15);" />
+                            <div style="margin-top: 10px;">
+                                <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminTestSpikeWebApp()">
+                                    Test Connection
+                                </button>
+                            </div>
                         </div>
 
                         <div class="slider-control" style="margin-top: 10px;">
@@ -497,6 +578,11 @@
                             </div>
                             <input id="spikeSheetId" type="text" placeholder="1abcDEF…"
                                    style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15);" />
+                            <div style="margin-top: 10px;">
+                                <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminLoadSpikeFactorsFromSheet()">
+                                    Load From Sheet
+                                </button>
+                            </div>
                         </div>
 
                         <div class="settings-option" style="margin-top: 10px;">
@@ -512,16 +598,52 @@
                             <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px;" onclick="adminComputeAndSaveSpikeFactors()">
                                 Compute &amp; Save (Dispense Weekly)
                             </button>
-                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminLoadSpikeFactorsFromSheet()">
-                                Load From Sheet
-                            </button>
-                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.85;" onclick="adminTestSpikeWebApp()">
-                                Test Connection
-                            </button>
                             <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.75;" onclick="adminClearLocalSpikeCache()">
                                 Clear Local Cache
                             </button>
+                            <button type="button" class="recalculate-btn" style="margin-top: 0; padding: 10px 12px; opacity: 0.75;" onclick="adminWriteTrendFactsTestRow()">
+                                Write Trend Test Row
+                            </button>
                             <div id="spikeAdminStatusText" style="font-size: 0.85em; opacity: 0.85;">Not loaded</div>
+                            <div id="trendFactsStatusText" style="font-size: 0.82em; opacity: 0.8; width: 100%;">Trend facts not loaded</div>
+                        </div>
+
+                        <div style="font-size: 0.9em; font-weight: 600; margin-top: 16px;">Console Logging (Admin)</div>
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Dashboard Logs</div>
+                            </div>
+                            <label class="toggle-switch-settings">
+                                <input type="checkbox" id="logToggleDashboard" checked>
+                                <span class="toggle-slider-settings"></span>
+                            </label>
+                        </div>
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Analytics Logs</div>
+                            </div>
+                            <label class="toggle-switch-settings">
+                                <input type="checkbox" id="logToggleAnalytics" checked>
+                                <span class="toggle-slider-settings"></span>
+                            </label>
+                        </div>
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Charts Logs</div>
+                            </div>
+                            <label class="toggle-switch-settings">
+                                <input type="checkbox" id="logToggleCharts" checked>
+                                <span class="toggle-slider-settings"></span>
+                            </label>
+                        </div>
+                        <div class="settings-option" style="margin-top: 10px;">
+                            <div class="settings-option-info">
+                                <div class="settings-option-title">Spike/Sheets Logs</div>
+                            </div>
+                            <label class="toggle-switch-settings">
+                                <input type="checkbox" id="logToggleSpike" checked>
+                                <span class="toggle-slider-settings"></span>
+                            </label>
                         </div>
                     </div>
 
@@ -682,4 +804,3 @@
 
 </body>
 </html>
-
