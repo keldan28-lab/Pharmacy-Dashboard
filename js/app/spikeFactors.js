@@ -873,7 +873,7 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
       return { ok:true, method:'formpost' };
     }catch(e){
       const msg = (e && e.message ? e.message : String(e));
-      _warnSpikeVerifyOnce('[SpikeFactors] write verification timed out after POST; proceeding with optimistic success.', {
+      console.warn('[SpikeFactors] write verification timed out after POST; proceeding with optimistic success.', {
         webAppUrl, sheetId, tabName, error: msg
       });
       return { ok:true, method:'formpost', verifyWarning: msg };
@@ -911,7 +911,7 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
       return json;
     } catch (verifyErr) {
       const msg = (verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr));
-      _warnSpikeVerifyOnce('[SpikeFactors] write verification timed out after JSON POST; proceeding with optimistic success.', {
+      console.warn('[SpikeFactors] write verification timed out after JSON POST; proceeding with optimistic success.', {
         webAppUrl, sheetId, tabName, error: msg
       });
       return Object.assign({}, json || {}, { ok: true, verifyWarning: msg });
@@ -937,7 +937,7 @@ async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
       return { ok: true, method: 'formpost-fallback' };
     } catch (verifyErr) {
       const msg = (verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr));
-      _warnSpikeVerifyOnce('[SpikeFactors] write verification timed out after form fallback; proceeding with optimistic success.', {
+      console.warn('[SpikeFactors] write verification timed out after form fallback; proceeding with optimistic success.', {
         webAppUrl, sheetId, tabName, error: msg,
         jsonError: (jsonErr && jsonErr.message ? jsonErr.message : String(jsonErr))
       });
@@ -996,7 +996,7 @@ async function loadFromWebApp(webAppUrl,sheetId,tabName){
       return _ingestRows(norm.rows || []);
     } catch (e) {
       if (CACHE && CACHE.loadedAt) {
-        _warnSpikeVerifyOnce('[SpikeFactors] loadFromWebApp JSONP timed out; using existing local cache.', e);
+        console.warn('[SpikeFactors] loadFromWebApp JSONP timed out; using existing local cache.', e);
         return CACHE;
       }
       throw e;
