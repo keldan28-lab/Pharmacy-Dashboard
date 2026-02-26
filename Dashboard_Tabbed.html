@@ -541,15 +541,19 @@
                         </div>
                     </div>
 
-                    <!-- Admin: Spike Factors (cached trend multipliers for Min Suggestions) -->
-                    <div class="usage-params-card" style="margin-top: 14px;">
+                    <div class="usage-params-card" style="margin-top: 14px;" data-default-open="1">
                         <div class="usage-params-title">
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm1 15h-2v-2h2Zm0-4h-2V7h2Z"/>
                             </svg>
-                            Min Suggestion Trend Cache (Admin)
+                            Admin
                         </div>
 
+                        <div style="font-size: 0.85em; opacity: 0.85; margin-bottom: 10px;">
+                            Admin-only controls for trend cache and diagnostic logging.
+                        </div>
+
+                        <div style="font-size: 0.9em; font-weight: 600; margin-top: 8px;">Min Suggestion Trend Cache (Admin)</div>
                         <div style="font-size: 0.85em; opacity: 0.85; margin-bottom: 10px;">
                             Computes Dispense-only weekly trend multipliers (spike factors) and caches them in Google Sheets so Min Suggestions can load instantly.
                         </div>
