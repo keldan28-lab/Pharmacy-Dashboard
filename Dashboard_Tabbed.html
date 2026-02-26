@@ -111,6 +111,16 @@
             animation: appSpin 0.9s linear infinite;
         }
         @keyframes appSpin { to { transform: rotate(360deg); } }
+
+        .usage-params-card.is-collapsed > :not(.usage-params-title) { display: none !important; }
+        .usage-params-title { cursor: pointer; }
+        .usage-params-title::after {
+            content: '▾';
+            margin-left: auto;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        .usage-params-card.is-collapsed .usage-params-title::after { content: '▸'; }
     </style>
 
 </head>

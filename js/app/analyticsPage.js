@@ -1,3 +1,14 @@
+(function(){
+  if (window.__analyticsLogsPatched) return;
+  window.__analyticsLogsPatched = true;
+  const _log = console.log.bind(console);
+  const _warn = console.warn.bind(console);
+  const _err = console.error.bind(console);
+  function enabled(){ try { return localStorage.getItem('log_analytics') !== '0'; } catch (_) { return true; } }
+  console.log = function(...args){ if (enabled()) _log(...args); };
+  console.warn = function(...args){ if (enabled()) _warn(...args); };
+  console.error = function(...args){ if (enabled()) _err(...args); };
+})();
         // ============= LOCATION REFERENCE DATA =============
         // NOTE: Do NOT declare a top-level `const SUBLOCATION_MAP` here.
         // Some pages load `location_ref_mockdata.js` which previously declared
@@ -2733,7 +2744,7 @@
                 ? stateTi
                 : window.__lastGoodTrendingItems;
 
-            if (window.__hasEverReceivedTrendingItems || (ti && Array.isArray(ti.trendingUp) && ti.trendingUp.length >= 0)) {
+            if (window.__hasEverReceivedTrendingItems || (ti && Array.isArray(ti.trendingUp) && ti.trendingUp.length > 0)) {
                 if (ti && Array.isArray(ti.trendingUp)) {
                     console.log('✅ Trending items available - using trending data instead of raw usage');
                     console.log('   Trending items count:', ti.trendingUp.length);
@@ -2839,8 +2850,10 @@
             
             const trendingUp = ti.trendingUp;
             // Mark that we have valid trending items so we never fall back to raw usage rendering
-            window.__hasEverReceivedTrendingItems = true;
-            window.__lastGoodTrendingItems = ti;
+            if (Array.isArray(trendingUp) && trendingUp.length > 0) {
+                window.__hasEverReceivedTrendingItems = true;
+                window.__lastGoodTrendingItems = ti;
+            }
 
             const threshold = ti.threshold || 2;
             

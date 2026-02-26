@@ -522,9 +522,54 @@ window.requestChartStateMirror = function() {
         
         // ============= END SUNSET-BASED DARK MODE SYSTEM =============
 
-        // Settings Modal Functions
+        
+function _isLogEnabled(section) {
+    try {
+        return localStorage.getItem(`log_${section}`) !== '0';
+    } catch (_) {
+        return true;
+    }
+}
+
+function _sectionLog(section, ...args) {
+    if (_isLogEnabled(section)) console.log(...args);
+}
+
+function _initLogToggles() {
+    const map = {
+        dashboard: 'logToggleDashboard',
+        analytics: 'logToggleAnalytics',
+        charts: 'logToggleCharts',
+        spike: 'logToggleSpike'
+    };
+    Object.keys(map).forEach((k) => {
+        const el = document.getElementById(map[k]);
+        if (!el) return;
+        el.checked = _isLogEnabled(k);
+        el.addEventListener('change', () => {
+            try { localStorage.setItem(`log_${k}`, el.checked ? '1' : '0'); } catch (_) {}
+        });
+    });
+}
+
+function _initSettingsCardCollapse() {
+    const cards = document.querySelectorAll('#settingsModal .usage-params-card');
+    cards.forEach((card, idx) => {
+        const title = card.querySelector('.usage-params-title');
+        if (!title || title.dataset.collapseBound) return;
+        title.dataset.collapseBound = '1';
+        if (idx > 0) card.classList.add('is-collapsed');
+        title.addEventListener('click', () => {
+            card.classList.toggle('is-collapsed');
+        });
+    });
+}
+
+// Settings Modal Functions
         function openSettings() {
             document.getElementById('settingsModal').classList.add('active');
+            _initLogToggles();
+            _initSettingsCardCollapse();
 
             // Load Google Sheets admin config (for spike-factor cache) into inputs
             try {
@@ -998,9 +1043,25 @@ Subloc: ${counts.subloc}`);
             } catch(_) {}
         }
 
+        function _getLogSettingsFromUI() {
+            const val = (id, key) => {
+                const el = document.getElementById(id);
+                const enabled = !!(el && el.checked);
+                try { localStorage.setItem(`log_${key}`, enabled ? '1' : '0'); } catch (_) {}
+                return enabled;
+            };
+            return {
+                logDashboard: val('logToggleDashboard', 'dashboard'),
+                logAnalytics: val('logToggleAnalytics', 'analytics'),
+                logCharts: val('logToggleCharts', 'charts'),
+                logSpike: val('logToggleSpike', 'spike')
+            };
+        }
+
         // New unified apply function for all settings
         function applyAllSettings() {
             console.log('⚙️ Applying all settings...');
+            const logSettings = _getLogSettingsFromUI();
             
             // Get threshold value
             const thresholdValue = parseFloat(document.getElementById('thresholdLineSlider').value);
@@ -1801,7 +1862,7 @@ Subloc: ${counts.subloc}`);
                 return;
             }
             
-            console.log('📤 Sending trending items to pages:', {
+            _sectionLog('dashboard', '📤 Sending trending items to pages:', {
                 trendingUp: trendingItems.trendingUp.length,
                 trendingDown: trendingItems.trendingDown.length,
                 threshold: trendingItems.threshold

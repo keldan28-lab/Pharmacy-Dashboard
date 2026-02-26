@@ -1,3 +1,14 @@
+(function(){
+  if (window.__chartsLogsPatched) return;
+  window.__chartsLogsPatched = true;
+  const _log = console.log.bind(console);
+  const _warn = console.warn.bind(console);
+  const _err = console.error.bind(console);
+  function enabled(){ try { return localStorage.getItem('log_charts') !== '0'; } catch (_) { return true; } }
+  console.log = function(...args){ if (enabled()) _log(...args); };
+  console.warn = function(...args){ if (enabled()) _warn(...args); };
+  console.error = function(...args){ if (enabled()) _err(...args); };
+})();
         // ==================================================================================
         // BACK BUTTON FUNCTIONALITY
         // ==================================================================================
