@@ -2715,6 +2715,29 @@
             if (!window.TrendFactsState || typeof window.TrendFactsState !== 'object') {
                 window.TrendFactsState = { source: 'unknown', calculatedAt: '', up: [], down: [], loadedAt: '' };
             }
+
+            // Prefer cached TrendFacts payload written by Dashboard from Google Sheets
+            // to avoid expensive fallback calculations on initial page load.
+            if (!window.__trendFactsHydratedFromCache) {
+                window.__trendFactsHydratedFromCache = true;
+                try {
+                    const raw = localStorage.getItem('__trendFactsState');
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        const hasUp = Array.isArray(parsed && parsed.up) && parsed.up.length > 0;
+                        if (hasUp) {
+                            window.TrendFactsState = {
+                                source: parsed.source || 'cache',
+                                calculatedAt: parsed.calculatedAt || '',
+                                up: Array.isArray(parsed.up) ? parsed.up : [],
+                                down: Array.isArray(parsed.down) ? parsed.down : [],
+                                loadedAt: parsed.loadedAt || new Date().toISOString()
+                            };
+                        }
+                    }
+                } catch (_) {}
+            }
+
             return window.TrendFactsState;
         }
 
@@ -2768,64 +2791,11 @@
                 return;
             }
 
-            console.log('⚠️ No trending items available - using fallback raw usage calculation');
-// FALLBACK: Find top 4 by raw usage without sorting entire array
-            const top4 = [];
-            let itemsWithUsage = 0;
-            
-            for (let i = 0; i < items.length; i++) {
-                const item = items[i];
-                if (item._cachedWeeklyUsage && item._cachedWeeklyUsage > 0) {
-                    itemsWithUsage++;
-                }
-                if (!item._cachedWeeklyUsage || item._cachedWeeklyUsage <= 0) continue;
-                
-                const weeklyUsage = Math.round(item._cachedWeeklyUsage * 10) / 10;
-                const entry = {
-                    name: item.description || item.drugName || 'Unknown',
-                    weeklyUsage: weeklyUsage
-                };
-                
-                // Keep only top 4 by maintaining sorted mini-array
-                if (top4.length < 4) {
-                    top4.push(entry);
-                    // Sort only when we reach 4 items
-                    if (top4.length === 4) {
-                        top4.sort((a, b) => b.weeklyUsage - a.weeklyUsage);
-                    }
-                } else if (weeklyUsage > top4[3].weeklyUsage) {
-                    // Replace smallest and re-sort (only 4 items!)
-                    top4[3] = entry;
-                    top4.sort((a, b) => b.weeklyUsage - a.weeklyUsage);
-                }
-            }
-            
-            // Final sort if less than 4 items
-            if (top4.length < 4 && top4.length > 0) {
-                top4.sort((a, b) => b.weeklyUsage - a.weeklyUsage);
-            }
-            
-            // Update list
+            console.log('⚠️ No trending items available yet - waiting for TrendFacts payload (sheet/cache)');
             const listElement = document.getElementById('topCategoriesList');
-            listElement.innerHTML = '';
-            
-            console.log(`📊 Found ${itemsWithUsage} items with usage data, top 4:`, top4);
-            
-            if (top4.length === 0) {
-                listElement.innerHTML = '<li class="trend-item"><span class="trend-name">No usage data available</span><span class="trend-value">--</span></li>';
-            } else {
-                top4.forEach(item => {
-                    const li = document.createElement('li');
-                    li.className = 'trend-item';
-                    li.innerHTML = `
-                        <span class="trend-name">${item.name}</span>
-                        <span class="trend-value">${item.weeklyUsage}/wk</span>
-                    `;
-                    listElement.appendChild(li);
-                });
+            if (listElement) {
+                listElement.innerHTML = '<li class="trend-item"><span class="trend-name">Loading trend list…</span><span class="trend-value">--</span></li>';
             }
-            
-            console.log('✓ Analytics: Top categories updated with', top4.length, 'items (fallback mode)');
         }
         
         /**
@@ -2863,10 +2833,10 @@
                 calculatedAt: ti.calculatedAt
             });
             
-            // Get top 4 trending items
-            const top4 = trendingUp.slice(0, 4);
+            // Get top 15 trending items
+            const topItems = trendingUp.slice(0, 15);
             
-            console.log('📈 Top 4 trending items:', top4.map(item => ({
+            console.log('📈 Top 15 trending items:', topItems.map(item => ({
                 code: item.itemCode,
                 name: item.drugName,
                 avgUsage: item.avgWeeklyUsage,
@@ -2883,11 +2853,11 @@
             
             listElement.innerHTML = '';
             
-            if (top4.length === 0) {
+            if (topItems.length === 0) {
                 listElement.innerHTML = `<li class="trend-item"><span class="trend-name">No trending items (${threshold} week threshold)</span><span class="trend-value">--</span></li>`;
                 console.log('⚠️ No trending items to display');
             } else {
-                top4.forEach(item => {
+                topItems.forEach(item => {
                     const isNew = !!item.isNew;
                     const pct = (!isNew && typeof item.percentChange === 'number' && isFinite(item.percentChange))
                         ? item.percentChange
@@ -2897,7 +2867,7 @@
                         : (pct === null ? '' : `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`);
 
                     const suggestion = String(item.suggestion ?? item.recommendation ?? '').trim();
-                    const displayName = item.description || item.drugName || item.itemCode || 'Unknown';
+                    const displayName = item.description || item.drugName || item.name || item.itemCode || 'Unknown';
                     const avgWeeklyUsage = _num(item.avgWeeklyUsage ?? item.weeklyUsage ?? item.avgUsage, 0);
 
                     const li = document.createElement('li');
@@ -2918,7 +2888,7 @@
                 
                 window.__hasEverReceivedTrendingItems = true;
                 window.__lastGoodTrendingItems = ti;
-                console.log(`✅ Top used items card updated with ${top4.length} trending items (${threshold} week threshold)`);
+                console.log(`✅ Top used items card updated with ${topItems.length} trending items (${threshold} week threshold)`);
             }
         }
         
@@ -6597,13 +6567,6 @@
         if (expiredEtaCard) {
             expiredEtaCard.addEventListener('click', () => navigateToInventory(currentEtaFilterType));
             console.log('✓ Analytics: Expired ETA card click handler attached');
-        }
-        
-        // Add click handler to top used items card (show top 25 by usage)
-        const topUsedItemsCard = document.getElementById('topUsedItemsCard');
-        if (topUsedItemsCard) {
-            topUsedItemsCard.addEventListener('click', () => navigateToInventory('topUsed'));
-            console.log('✓ Analytics: Top used items card click handler attached');
         }
         
         // Add click handlers to inventory health segments
