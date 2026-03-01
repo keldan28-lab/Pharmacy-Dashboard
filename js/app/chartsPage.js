@@ -7324,8 +7324,8 @@ function dateToISO(d) {
                     ctx.fillStyle = labelNormal;
                     ctx.font = '12px system-ui, -apple-system, sans-serif';
                 }
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'alphabetic';
                 
                 // Draw each line, centered vertically within the bar
                 const lineHeight = 13;
@@ -11094,7 +11094,7 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                     ctx.moveTo(padding.left, y);
                     ctx.lineTo(padding.left + chartWidth, y);
                     ctx.stroke();
-                    ctx.fillText(String(scaleVal), scaleLabelX, y);
+                    ctx.fillText(String(scaleVal), scaleLabelX, y - 2);
                 }
                 ctx.restore();
             })();
