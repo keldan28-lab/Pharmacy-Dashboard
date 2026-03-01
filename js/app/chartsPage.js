@@ -66,8 +66,14 @@ function getSpikeFactorForItem(itemCode) {
     if (window.SpikeFactors && typeof window.SpikeFactors.getSpikeMultiplierForItem === 'function') {
         return Number(window.SpikeFactors.getSpikeMultiplierForItem(code)) || 1;
     }
-    if (window.parent && window.parent.SpikeFactors && typeof window.parent.SpikeFactors.getSpikeMultiplierForItem === 'function') {
-        return Number(window.parent.SpikeFactors.getSpikeMultiplierForItem(code)) || 1;
+    // Accessing window.parent can throw SecurityError under file:// iframe isolation.
+    try {
+        const parentSpike = window.parent && window.parent !== window ? window.parent.SpikeFactors : null;
+        if (parentSpike && typeof parentSpike.getSpikeMultiplierForItem === 'function') {
+            return Number(parentSpike.getSpikeMultiplierForItem(code)) || 1;
+        }
+    } catch (_) {
+        // Safe fallback: keep baseline behavior (multiplier 1)
     }
     return 1;
 }
