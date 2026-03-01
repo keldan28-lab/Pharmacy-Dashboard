@@ -1484,11 +1484,19 @@ Subloc: ${counts.subloc}`);
                             }, 100);
                         }
                     } else if (tabName === 'optimization') {
-                    const stockoutFrame = document.getElementById('optimizationFrame');
-                    if (stockoutFrame && stockoutFrame.contentWindow) {
-                        stockoutFrame.contentWindow.focus();
-                    }
-                } else if (tabName === 'analytics') {
+                        const optimizationFrame = document.getElementById('optimizationFrame');
+                        if (optimizationFrame && optimizationFrame.contentWindow) {
+                            console.log('📌 Preserving optimization iframe state on tab switch');
+                            setTimeout(() => {
+                                optimizationFrame.contentWindow.postMessage({
+                                    type: 'setReferrer',
+                                    referrer: previousTab,
+                                    isBackNavigation: (window.__lastIsBackNavigation === true)
+                                }, '*');
+                                console.log('📍 Notified optimization of referrer:', previousTab);
+                            }, 100);
+                        }
+                    } else if (tabName === 'analytics') {
                         const analyticsFrame = document.getElementById('analyticsFrame');
                         if (analyticsFrame && analyticsFrame.contentWindow) {
                             // Preserve iframe state when switching tabs (do not clear filters automatically).

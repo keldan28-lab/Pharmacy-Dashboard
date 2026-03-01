@@ -11078,14 +11078,18 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'middle';
 
-                const scaleRoundStep = (maxValue <= 50) ? 5 : (maxValue <= 500) ? 10 : (maxValue <= 5000) ? 100 : 1000;
-                const scaleLabelX = padding.left + 5; // extra left padding to avoid clipping
+                const rawMaxValue = maxValue;
+                const scaleRoundStep = (rawMaxValue <= 50) ? 5 : (rawMaxValue <= 500) ? 10 : (rawMaxValue <= 5000) ? 100 : 1000;
+                const alignedMaxValue = Math.max(scaleRoundStep, Math.ceil(rawMaxValue / scaleRoundStep) * scaleRoundStep);
+                const scaleLabelX = padding.left + 10; // extra left padding to avoid clipping
+
+                // Align bar scaling with grid/scale labels
+                maxValue = alignedMaxValue;
 
                 for (let g = 0; g <= gridSteps; g++) {
                     const ratio = g / gridSteps;
                     const y = baseY - (ratio * chartHeight);
-                    const rawVal = maxValue * ratio;
-                    const scaleVal = Math.round(rawVal / scaleRoundStep) * scaleRoundStep;
+                    const scaleVal = Math.round((alignedMaxValue * ratio) / scaleRoundStep) * scaleRoundStep;
                     ctx.beginPath();
                     ctx.moveTo(padding.left, y);
                     ctx.lineTo(padding.left + chartWidth, y);
