@@ -770,8 +770,11 @@ function _jsonp(url, timeoutMs = 30000){
         if (keepNoop) {
           // Keep a temporary no-op callback to prevent
           // "ReferenceError: <cb> is not defined" when late JSONP arrives.
-          window[cbName] = function(){};
-          setTimeout(() => { try { delete window[cbName]; } catch(_){} }, 60000);
+          globalThis[cbName] = function(){};
+          window[cbName] = globalThis[cbName];
+          try { (0, eval)(`var ${cbName} = globalThis["${cbName}"];`); } catch (_) {}
+          setTimeout(() => { try { delete globalThis[cbName]; } catch(_){}; try { try { delete globalThis[cbName]; } catch(_){};
+          try { delete window[cbName]; } catch(_){} } catch(_){} }, 60000);
         } else {
           delete window[cbName];
         }
@@ -779,12 +782,14 @@ function _jsonp(url, timeoutMs = 30000){
       if (script && script.parentNode) script.parentNode.removeChild(script);
     }
 
-    window[cbName] = (data) => {
+    globalThis[cbName] = (data) => {
       if (settled) return;
       settled = true;
       cleanup(false);
       resolve(data);
     };
+    window[cbName] = globalThis[cbName];
+    try { (0, eval)(`var ${cbName} = globalThis["${cbName}"];`); } catch (_) {}
 
     const sep = url.includes('?') ? '&' : '?';
     script.src = url + sep + 'callback=' + encodeURIComponent(cbName) + '&_=' + Date.now();
@@ -845,115 +850,58 @@ function _formPost(url, fields, timeoutMs = 15000){
   });
 }
 
-async function saveToWebApp(webAppUrl,sheetId,tabName,rows){
-  const expectedRows = Array.isArray(rows) ? rows.length : 0;
-
-  async function verifyReadBackOrThrow(){
-    await new Promise(r=>setTimeout(r, 500));
-    const qs = _buildReadQuery(sheetId, tabName);
-    const raw = await _jsonp(`${webAppUrl}?${qs}`, 30000);
-    const norm = _normalizeReadResponse(raw);
-    if(!norm.ok) throw new Error(norm.error || 'read-back failed');
-    if(expectedRows > 0 && (!norm.rows || !norm.rows.length)) throw new Error('read-back returned 0 rows');
+async function saveToWebApp(webAppUrl, sheetId, tabName, rows){
+  // Writes can be large (spike factors tables), so JSONP GET writes can exceed URL limits (ERR_INVALID_URL).
+  // Use a cross-origin POST that works from file:// (hidden iframe form post), then verify via JSONP read.
+  if (!webAppUrl || !sheetId || !tabName) {
+    throw new Error('Missing webAppUrl, sheetId, or tabName');
+  }
+  if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(rows[0])) {
+    throw new Error('rows must be a non-empty 2D array');
   }
 
-  // Local file origin: use form POST (no CORS) + ingest locally
-  if(_isLocalFileOrigin()){
-    // Use form POST to avoid CORS on file://. Many Apps Script handlers read e.parameter.*
-    await _formPost(webAppUrl, {
-      action: 'write',
-      op: 'write',
-      mode: 'write',
-      sheetId: sheetId,
-      spreadsheetId: sheetId,
-      tabName: tabName,
-      sheetName: tabName,
-      payload: JSON.stringify({ rows: rows }),
-      rows: JSON.stringify(rows),
-      data: JSON.stringify(rows),
-      json: JSON.stringify({ rows: rows })
-    });
-    // Optimistically ingest locally.
-    _ingestRows(rows);
+  const payloadObj = { rows };
+  const payloadStr = JSON.stringify(payloadObj);
 
-    // Verify write by reading back a sample (Apps Script can silently fail if permissions/deployment are wrong).
-    try{
-      await verifyReadBackOrThrow();
-      return { ok:true, method:'formpost' };
-    }catch(e){
-      const msg = (e && e.message ? e.message : String(e));
-      console.warn('[SpikeFactors] write verification timed out after POST; proceeding with optimistic success.', {
-        webAppUrl, sheetId, tabName, error: msg
-      });
-      return { ok:true, method:'formpost', verifyWarning: msg };
-    }
-  }
+  console.log('[SpikeFactors] saveToWebApp', { tabName, rows: rows.length, payloadBytes: payloadStr.length });
 
-  // Non-local origins: try JSON first, then form POST fallback for handlers that only read e.parameter.*
-  const writePayload = {
+  // POST via hidden iframe form to avoid CORS and avoid URL length limits.
+  // Apps Script doPost must accept action/sheetId/tabName/payload parameters.
+  const postUrl = `${webAppUrl}?action=write`;
+  await _formPost(postUrl, {
     action: 'write',
-    op: 'write',
-    mode: 'write',
-    sheetId,
-    spreadsheetId: sheetId,
-    tabName,
-    sheetName: tabName,
-    rows,
-    payload: { rows },
-    data: rows
-  };
+    sheetId: sheetId,
+    tabName: tabName,
+    payload: payloadStr
+  }, 20000);
 
+  // Verify by reading back (small URL; JSONP response can be large).
+  // NOTE: verifyReadBackOrThrow expects action=read.
+  const verifyUrl =
+    `${webAppUrl}?action=read` +
+    `&sheetId=${encodeURIComponent(sheetId)}` +
+    `&tabName=${encodeURIComponent(tabName)}`;
+
+  let verify;
   try {
-    const res = await fetch(webAppUrl, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(writePayload)
-    });
-    const txt = await res.text();
-    let json = null;
-    try { json = JSON.parse(txt); } catch (_) { json = { ok: res.ok, text: txt }; }
-    if (!res.ok || (json && json.ok === false)) throw new Error((json && json.error) || `write failed (http ${res.status})`);
-
-    _ingestRows(rows);
-    try {
-      await verifyReadBackOrThrow();
-      return json;
-    } catch (verifyErr) {
-      const msg = (verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr));
-      console.warn('[SpikeFactors] write verification timed out after JSON POST; proceeding with optimistic success.', {
-        webAppUrl, sheetId, tabName, error: msg
-      });
-      return Object.assign({}, json || {}, { ok: true, verifyWarning: msg });
-    }
-  } catch (jsonErr) {
-    await _formPost(webAppUrl, {
-      action: 'write',
-      op: 'write',
-      mode: 'write',
-      sheetId: sheetId,
-      spreadsheetId: sheetId,
-      tabName: tabName,
-      sheetName: tabName,
-      payload: JSON.stringify({ rows: rows }),
-      rows: JSON.stringify(rows),
-      data: JSON.stringify(rows),
-      json: JSON.stringify({ rows: rows })
-    });
-
-    _ingestRows(rows);
-    try {
-      await verifyReadBackOrThrow();
-      return { ok: true, method: 'formpost-fallback' };
-    } catch (verifyErr) {
-      const msg = (verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr));
-      console.warn('[SpikeFactors] write verification timed out after form fallback; proceeding with optimistic success.', {
-        webAppUrl, sheetId, tabName, error: msg,
-        jsonError: (jsonErr && jsonErr.message ? jsonErr.message : String(jsonErr))
-      });
-      return { ok: true, method: 'formpost-fallback', verifyWarning: msg };
-    }
+    verify = await _jsonp(verifyUrl, 45000);
+  } catch (e) {
+    console.warn('[SpikeFactors] write verify JSONP failed (may still have written):', e);
+    // Best-effort: still ingest locally to keep UI responsive
+    try { _ingestRows(rows); } catch (_) {}
+    return { ok: true, method: 'formpost-no-cors', verified: false, tabName };
   }
+
+  const loadedRows = (verify && verify.ok && Array.isArray(verify.rows)) ? verify.rows.length : 0;
+  if (loadedRows <= 0) {
+    throw new Error(`[SpikeFactors] write verification returned 0 rows for tab=${tabName}`);
+  }
+
+  // Ingest locally so UI reflects saved results immediately
+  try { _ingestRows(rows); } catch (_) {}
+  return { ok: true, method: 'formpost-no-cors', verified: true, verifiedRows: loadedRows, tabName };
 }
+
 
 
   

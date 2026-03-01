@@ -1,3 +1,4 @@
+console.log('[Dashboard] build: patched20-1772260795384');
         // ==================================================================================
         // DASHBOARD VERSION: PERCENTILE-BASED USAGE RATE ALGORITHM v4.0
         // Migrated to statistical percentile filtering on 2024-12-29
@@ -745,7 +746,9 @@ function __readAndPersistSpikeWebAppConfigFromInputs() {
 
         
         async function adminComputeAndSaveSpikeFactors() {
-            const statusEl = document.getElementById('spikeAdminStatusText') || document.getElementById('spikeFactorsStatus');
+            
+            console.log('[TrendFacts] hook: adminComputeAndSaveSpikeFactors invoked');
+const statusEl = document.getElementById('spikeAdminStatusText') || document.getElementById('spikeFactorsStatus');
             try {
                 if (!window.SpikeFactors) {
                     alert('SpikeFactors module not loaded.');
@@ -794,7 +797,72 @@ function __readAndPersistSpikeWebAppConfigFromInputs() {
                     await window.SpikeFactors.loadFromWebApp(wcfg.webAppUrl, wcfg.sheetId, wcfg.tabName);
 
                     if (statusEl) statusEl.textContent = `Saved ${allRows.length} (p${counts.pocket}/i${counts.item}/s${counts.subloc}) @ ${String(computedOn || '').slice(0, 10)}`;
-                    alert(`Saved spike factors to Google Sheet (via Web App).
+                    
+                    
+// TrendFacts: compute + append trend facts to Google Sheets
+try {
+    if (typeof window.writeTrendFacts !== 'function') {
+        console.warn('[TrendFacts] writeTrendFacts not available; skipping');
+    } else if (typeof calculateTrendingItems !== 'function') {
+        console.warn('[TrendFacts] calculateTrendingItems not available; skipping');
+    } else {
+        const tr = calculateTrendingItems();
+        const calculatedAt = (tr && tr.calculatedAt) ? tr.calculatedAt : new Date().toISOString();
+        const up = (tr && Array.isArray(tr.trendingUp)) ? tr.trendingUp : [];
+        const down = (tr && Array.isArray(tr.trendingDown)) ? tr.trendingDown : [];
+
+        // TrendFacts diagnostics (sample fields)
+        try {
+            const s0 = up && up[0];
+            console.log('[TrendFacts] sample up[0] keys:', s0 ? Object.keys(s0) : null);
+            console.log('[TrendFacts] sample up[0] itemCode/avgWeeklyUsage/confidence:', s0 ? { itemCode: s0.itemCode, avgWeeklyUsage: s0.avgWeeklyUsage, confidence: s0.confidence, trendDirection: s0.trendDirection } : null);
+        } catch (_) {}
+
+
+        const _trendItemCode_ = (x) => {
+    if (!x) return '';
+    // try common field names (string/number)
+    const direct = x.itemCode ?? x.item_code ?? x.itemcode ?? x.ItemCode ?? x.code ?? x.item ?? x.itemId ?? x.id ?? x.sku ?? x.ndc ?? x.NDC ?? x.ndcCode;
+    if (direct !== undefined && direct !== null && String(direct).trim() !== '') return String(direct).trim();
+
+    // nested objects
+    const nested = x.item && (x.item.itemCode ?? x.item.item_code ?? x.item.code ?? x.item.id);
+    if (nested !== undefined && nested !== null && String(nested).trim() !== '') return String(nested).trim();
+
+    const meta = x.meta && (x.meta.itemCode ?? x.meta.item_code ?? x.meta.code);
+    if (meta !== undefined && meta !== null && String(meta).trim() !== '') return String(meta).trim();
+
+    return '';
+};
+
+const header = ['calculatedAt','rank','itemCode','confidence','avgWeekly','direction','details'];
+
+const rowFromTrend = (x, idx) => ([
+    calculatedAt,
+    idx + 1,
+    String((x && x.itemCode) ?? ''), // <-- exact key from calculateTrendingItems()
+    Number((x && x.confidence) ?? 0),
+    Number((x && x.avgWeeklyUsage) ?? 0),
+    String((x && (x.trendDirection || x.direction)) || ''),
+    String((x && (x.details || x.reason || x.note)) || '')
+]);
+const rowsUp = [header, ...up.map(rowFromTrend)];
+        const rowsDown = down.length
+            ? [header, ...down.map(rowFromTrend)]
+            : [header, [calculatedAt, 1, '', 0, 0, '', 'NO_TRENDING_DOWN_ITEMS']];
+
+        console.log('[TrendFacts] writing up/down:', rowsUp.length, rowsDown.length, 'calculatedAt:', calculatedAt);
+
+        const rUp = await window.writeTrendFacts({ tabName: 'trend_facts_up', rows2d: rowsUp, action: 'append' });
+        const rDown = await window.writeTrendFacts({ tabName: 'trend_facts_down', rows2d: rowsDown, action: 'append' });
+
+        console.log('[TrendFacts] write results:', rUp, rDown);
+        try { await loadLatestTrendFactsFromSheet(); } catch (_) {}
+    }
+} catch (e) {
+    console.warn('[TrendFacts] save failed:', e);
+}
+alert(`Saved spike factors to Google Sheet (via Web App).
 Pocket: ${counts.pocket}
 Item: ${counts.item}
 Subloc: ${counts.subloc}`);
@@ -826,7 +894,55 @@ Subloc: ${counts.subloc}`);
                 if (statusEl) statusEl.textContent = 'Save failed';
                 alert('Failed to compute/save spike factors. Check console for details.');
             }
+        
+    // --- TrendFacts: persist current trending results to Google Sheets ---
+    try {
+        if (typeof window.writeTrendFacts !== 'function') {
+            console.warn('[TrendFacts] writeTrendFacts not available; skipping Sheets write');
+            return;
         }
+        const tr = (typeof calculateTrendingItems === 'function') ? calculateTrendingItems() : null;
+        if (!tr) {
+            console.warn('[TrendFacts] calculateTrendingItems missing; skipping Sheets write');
+            return;
+        }
+
+        const calculatedAt = tr.calculatedAt || new Date().toISOString();
+        const up = Array.isArray(tr.trendingUp) ? tr.trendingUp : [];
+        const down = Array.isArray(tr.trendingDown) ? tr.trendingDown : [];
+
+        const header = ['calculatedAt','rank','item','confidence','avgWeekly','direction','details'];
+
+        const rowsUp = [header, ...up.map((x, i) => ([
+            calculatedAt,
+            i + 1,
+            x.name || x.itemName || x.item || x.code || '',
+            Number(x.confidence ?? x.confidenceScore ?? x.confidencePct ?? 0),
+            Number(x.avgUsage ?? x.avgWeekly ?? x.avg ?? 0),
+            x.direction || 'increasing',
+            x.details || x.reason || ''
+        ]))];
+
+        const rowsDown = [header, ...down.map((x, i) => ([
+            calculatedAt,
+            i + 1,
+            x.name || x.itemName || x.item || x.code || '',
+            Number(x.confidence ?? x.confidenceScore ?? x.confidencePct ?? 0),
+            Number(x.avgUsage ?? x.avgWeekly ?? x.avg ?? 0),
+            x.direction || 'decreasing',
+            x.details || x.reason || ''
+        ]))];
+
+        console.log('[TrendFacts] writing up/down:', rowsUp.length, rowsDown.length, 'calculatedAt:', calculatedAt);
+
+        const rUp = await window.writeTrendFacts({ tabName: 'trend_facts_up', rows2d: rowsUp, action: 'append' });
+        const rDown = await window.writeTrendFacts({ tabName: 'trend_facts_down', rows2d: rowsDown, action: 'append' });
+
+        console.log('[TrendFacts] write results:', rUp, rDown);
+    } catch (e) {
+        console.warn('[TrendFacts] write failed:', e);
+    }
+}
 
 
         function toggleExcludeStandard() {
@@ -5210,10 +5326,21 @@ Subloc: ${counts.subloc}`);
 
 
         // ---- Trend Facts (Google Sheets append-only timeline) ----
-const TREND_FACTS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzeo7jxZzEyP-kYxmNLjyycuAwsJCIoLf2wigbhvDeFUMAOEKFi7uKUOwgXJl-GRCsH5g/exec";
+const TREND_FACTS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec";
 const TREND_FACTS_SHEET_ID = "1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ";
 const TREND_FACTS_UP_TAB = "trend_facts_up";
 const TREND_FACTS_DOWN_TAB = "trend_facts_down";
+function _setTrendFactsWriteStatus(message) {
+  try {
+    console.log("[TrendFacts] status:", message);
+    // Optional UI hook: if a status element exists, update it.
+    const el = document.getElementById("trendFactsWriteStatus") || document.getElementById("trendFactsStatusLine");
+    if (el) el.textContent = String(message || "");
+  } catch (_) {
+    // never throw from status updates
+  }
+}
+
 
 function getTrendFactsState() {
     if (!window.TrendFactsState || typeof window.TrendFactsState !== "object") {
@@ -5277,6 +5404,362 @@ async function _postTrendRowsAppend(webAppUrl, sheetId, tabName, rows2d) {
     try { return JSON.parse(txt); } catch (_) { return { ok: /ok:/i.test(txt), raw: txt }; }
 }
 
+function _isFileModeForSheetsWrite() {
+    return (window.location && (window.location.protocol === 'file:' || window.location.origin === 'null'));
+}
+
+function _buildWriteResultBase_(rows2d, action) {
+    // Best-effort extraction of calculatedAt from first data row col A
+    let calculatedAt = '';
+    try {
+        if (Array.isArray(rows2d) && rows2d.length > 1 && Array.isArray(rows2d[1]) && rows2d[1].length) {
+            calculatedAt = String(rows2d[1][0] || '');
+        }
+    } catch (_) {}
+    return { ok: false, action, calculatedAt };
+}
+
+
+function _jsonpGet_(url, timeoutMs = 20000) {
+    return new Promise((resolve, reject) => {
+        const cb = '__cb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+        let settled = false;
+
+        function cleanup() {
+            if (settled) return;
+            settled = true;
+            try { delete globalThis[cb]; } catch (_) { globalThis[cb] = undefined; }
+            try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+            const el = document.getElementById(cb);
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+            clearTimeout(t);
+        }
+
+        globalThis[cb] = (resp) => { cleanup(); resolve(resp); };
+        window[cb] = globalThis[cb];
+        try { (0, eval)(`var ${cb} = globalThis["${cb}"];`); } catch (_) {}
+
+        const t = setTimeout(() => {
+            cleanup();
+            reject(new Error('JSONP timeout'));
+        }, timeoutMs);
+
+        const sep = url.includes('?') ? '&' : '?';
+        const s = document.createElement('script');
+        s.id = cb;
+        s.async = true;
+        s.src = url + sep + 'callback=' + encodeURIComponent(cb);
+        s.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
+        document.head.appendChild(s);
+    });
+}
+
+function _formPostWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d, timeoutMs = 30000 }) {
+    return new Promise((resolve, reject) => {
+        try {
+            const iframeName = '__tf_ifr_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+            const iframe = document.createElement('iframe');
+            iframe.name = iframeName;
+            iframe.style.display = 'none';
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = scriptUrl;
+            form.target = iframeName;
+            form.style.display = 'none';
+
+            function addField(name, value) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = String(value == null ? '' : value);
+                form.appendChild(input);
+            }
+
+            addField('action', action);
+            addField('sheetId', sheetId);
+            addField('tabName', tabName);
+            addField('payload', JSON.stringify({ rows: rows2d }));
+
+            let done = false;
+            const cleanup = () => {
+                if (done) return;
+                done = true;
+                clearTimeout(t);
+                try { if (form.parentNode) form.parentNode.removeChild(form); } catch (_) {}
+                try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (_) {}
+            };
+
+            const t = setTimeout(() => {
+                cleanup();
+                reject(new Error('Form POST timeout'));
+            }, timeoutMs);
+
+            iframe.onload = () => {
+                cleanup();
+                resolve({ ok: true, mode: 'form-post' });
+            };
+
+            document.body.appendChild(iframe);
+            document.body.appendChild(form);
+            form.submit();
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+function _jsonpWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d, timeoutMs = 20000 }) {
+    return new Promise((resolve, reject) => {
+        const cb = '__cb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+        let settled = false;
+
+        const script = document.createElement('script');
+        script.id = cb;
+
+        const t = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            cleanup(true);
+            reject(new Error('JSONP timeout'));
+        }, timeoutMs);
+
+        function cleanup(keepNoop) {
+            clearTimeout(t);
+            try {
+                if (keepNoop) {
+                    // prevent late-arrival ReferenceError in some environments
+                    globalThis[cb] = function () { };
+                    window[cb] = globalThis[cb];
+                    try { (0, eval)(`var ${cb} = globalThis["${cb}"];`); } catch (_) { }
+                    setTimeout(() => {
+                        try { delete globalThis[cb]; } catch (_) { }
+                        try { delete window[cb]; } catch (_) { }
+                    }, 60000);
+                } else {
+                    try { delete globalThis[cb]; } catch (_) { }
+                    try { delete window[cb]; } catch (_) { }
+                }
+            } catch (_) { }
+            try { if (script && script.parentNode) script.parentNode.removeChild(script); } catch (_) { }
+        }
+
+        // IMPORTANT: make callback resolvable as an identifier: cb(...)
+        globalThis[cb] = (resp) => {
+            if (settled) return;
+            settled = true;
+            cleanup(false);
+            resolve(resp);
+        };
+        window[cb] = globalThis[cb];
+        try { (0, eval)(`var ${cb} = globalThis["${cb}"];`); } catch (_) { }
+
+        const url =
+            scriptUrl +
+            '?action=' + encodeURIComponent(action) +
+            '&sheetId=' + encodeURIComponent(sheetId) +
+            '&tabName=' + encodeURIComponent(tabName) +
+            '&callback=' + encodeURIComponent(cb) +
+            '&payload=' + encodeURIComponent(JSON.stringify({ rows: rows2d })) +
+            '&_=' + Date.now();
+
+        console.log('[writeTrendFacts] JSONP cb:', cb, 'tabName:', tabName, 'rows:', rows2d.length);
+
+        script.src = url;
+        script.async = true;
+        script.onerror = () => {
+            if (settled) return;
+            settled = true;
+            cleanup(false);
+            reject(new Error('JSONP load error'));
+        };
+        document.head.appendChild(script);
+    });
+
+function _jsonpChunkedWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d, chunkSize = 50 }) {
+    // Chunked JSONP append to avoid URL length limits from file:// origins.
+    // First chunk includes header row; subsequent chunks omit header.
+    if (!Array.isArray(rows2d) || rows2d.length === 0) return Promise.resolve({ ok: true, written: 0, tabName, mode: 'jsonp-chunked', chunks: 0 });
+    const header = rows2d[0];
+    const data = rows2d.slice(1);
+    const chunks = [];
+    if (!data.length) {
+        // Only header: send as-is (backend may treat as no-op)
+        chunks.push([header]);
+    } else {
+        for (let i = 0; i < data.length; i += chunkSize) {
+            const part = data.slice(i, i + chunkSize);
+            chunks.push(i === 0 ? [header, ...part] : part);
+        }
+    }
+
+    const run = async () => {
+        let totalWritten = 0;
+        let lastRes = null;
+        for (let i = 0; i < chunks.length; i++) {
+            const rowsPart = chunks[i];
+            const res = await _jsonpWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d: rowsPart, timeoutMs: 30000 });
+            lastRes = res;
+            if (!res || res.ok !== true) {
+                return Object.assign({ ok: false, tabName, mode: 'jsonp-chunked', chunk: i + 1, chunks: chunks.length, error: (res && res.error) ? String(res.error) : 'JSONP chunk write failed' }, res || {});
+            }
+            totalWritten += Number(res.written || res.appended || 0);
+        }
+        return Object.assign({ ok: true, tabName, mode: 'jsonp-chunked', chunks: chunks.length, written: totalWritten }, lastRes || {});
+    };
+    return run();
+}
+
+}
+
+
+async function _jsonpChunkedWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d, chunkSize = 50, timeoutMs = 25000 } = {}) {
+    if (!Array.isArray(rows2d) || !rows2d.length) {
+        return { ok: false, error: 'rows2d empty', tabName, action };
+    }
+    const header = rows2d[0];
+    const data = rows2d.slice(1);
+    // If only header, just do normal jsonp write (small)
+    if (!data.length) {
+        const payload = encodeURIComponent(JSON.stringify({ rows: rows2d }));
+        const url = `${scriptUrl}?action=${encodeURIComponent(action)}&sheetId=${encodeURIComponent(sheetId)}&tabName=${encodeURIComponent(tabName)}&payload=${payload}`;
+        const resp = await _jsonpGet_(url, timeoutMs);
+        return Object.assign({ ok: !!(resp && resp.ok), mode: 'jsonp', chunks: 1 }, resp || {});
+    }
+
+    let writtenTotal = 0;
+    let chunks = 0;
+
+    for (let i = 0; i < data.length; i += chunkSize) {
+        const slice = data.slice(i, i + chunkSize);
+        const chunkRows = (i === 0) ? [header, ...slice] : slice; // no header after first chunk
+        const payload = encodeURIComponent(JSON.stringify({ rows: chunkRows }));
+        const url = `${scriptUrl}?action=${encodeURIComponent(action)}&sheetId=${encodeURIComponent(sheetId)}&tabName=${encodeURIComponent(tabName)}&payload=${payload}`;
+        const resp = await _jsonpGet_(url, timeoutMs);
+        chunks += 1;
+        const ok = resp && resp.ok === true;
+        if (!ok) {
+            return { ok: false, mode: 'jsonp-chunked', error: (resp && resp.error) ? String(resp.error) : 'chunk write failed', chunkIndex: chunks, tabName, action, response: resp };
+        }
+        const w = Number(resp.written || resp.appended || 0);
+        writtenTotal += w;
+    }
+
+    return { ok: true, mode: 'jsonp-chunked', action, tabName, written: writtenTotal, chunks };
+}
+
+
+async function writeTrendFacts({ tabName, rows2d, action = 'append', scriptUrl = TREND_FACTS_WEBAPP_URL, sheetId = TREND_FACTS_SHEET_ID } = {}) {
+    const base = _buildWriteResultBase_(rows2d, action);
+
+    if (!scriptUrl || !sheetId || !tabName) {
+        const out = Object.assign({}, base, { ok: false, error: 'Missing scriptUrl, sheetId, or tabName' });
+        console.log('[writeTrendFacts] response:', out);
+        return out;
+    }
+    if (!Array.isArray(rows2d) || !rows2d.length || !Array.isArray(rows2d[0]) || !rows2d[0].length) {
+        const out = Object.assign({}, base, { ok: false, error: 'rows2d must be a non-empty 2D array' });
+        console.log('[writeTrendFacts] response:', out);
+        return out;
+    }
+
+    const isFile = _isFileModeForSheetsWrite();
+    const mode = isFile ? 'jsonp' : 'post-json';
+    console.log('[writeTrendFacts] tabName:', tabName, 'rows:', rows2d.length, 'mode:', mode, 'action:', action);
+
+    try {
+        if (isFile) {
+            const payloadBytes = (() => { try { return JSON.stringify({ rows: rows2d }).length; } catch (_) { return 0; } })();
+            // JSONP uses URL query params; large payloads can exceed browser URL limits (ERR_INVALID_URL / JSONP load error).
+            const jsonpTooLarge = (rows2d.length > 50) || (payloadBytes > 12000);
+            if (jsonpTooLarge) {
+                console.log('[writeTrendFacts] payload too large for JSONP; using chunked JSONP', { payloadBytes, rows: rows2d.length });
+                const chunkRes = await _jsonpChunkedWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d, chunkSize: 50 });
+                if (chunkRes && chunkRes.ok === true) {
+                    const out = Object.assign({}, base, chunkRes, { mode: 'jsonp-chunked', appended: chunkRes.written || 0 });
+                    console.log('[writeTrendFacts] response:', out);
+                    return out;
+                }
+                console.log('[writeTrendFacts] chunked JSONP failed; falling back to form-post', chunkRes);
+                const postRes = await _formPostWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d });
+                // verify by JSONP readLatest (small URL)
+                try {
+                    const verifyUrl = `${scriptUrl}?action=readLatest&sheetId=${encodeURIComponent(sheetId)}&tabName=${encodeURIComponent(tabName)}`;
+                    const verify = await _jsonpGet_(verifyUrl, 20000);
+                    const out = Object.assign({}, base, postRes, { ok: true, action, mode: 'form-post+jsonp-verify', verify });
+                    console.log('[writeTrendFacts] response:', out);
+                    return out;
+                } catch (e) {
+                    const out = Object.assign({}, base, postRes, { ok: true, action, mode: 'form-post', verifyError: String(e && e.message || e) });
+                    console.log('[writeTrendFacts] response:', out);
+                    return out;
+                }
+            }
+
+            const res = await _jsonpWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d });
+            // If JSONP failed (often due to URL length / ERR_INVALID_URL), fallback to form-post for large-ish payloads.
+            if (!res || res.ok !== true) {
+                const err = String((res && res.error) || '');
+                const payloadBytes2 = (() => { try { return JSON.stringify({ rows: rows2d }).length; } catch (_) { return 0; } })();
+                const shouldFormPost = (payloadBytes2 > 10000) || /invalid url|jsonp load error/i.test(err);
+                if (shouldFormPost) {
+                    console.log('[writeTrendFacts] JSONP failed; falling back to form-post', { err, payloadBytes: payloadBytes2 });
+                    const postRes = await _formPostWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d });
+                    try {
+                        const verifyUrl = `${scriptUrl}?action=readLatest&sheetId=${encodeURIComponent(sheetId)}&tabName=${encodeURIComponent(tabName)}`;
+                        const verify = await _jsonpGet_(verifyUrl, 20000);
+                        const out = Object.assign({}, base, postRes, { ok: true, action, mode: 'form-post+jsonp-verify', verify });
+                        console.log('[writeTrendFacts] response:', out);
+                        return out;
+                    } catch (e) {
+                        const out = Object.assign({}, base, postRes, { ok: true, action, mode: 'form-post', verifyError: String((e && e.message) || e) });
+                        console.log('[writeTrendFacts] response:', out);
+                        return out;
+                    }
+                }
+            }
+
+            const out = Object.assign({}, base, res, { mode, appended: res && (res.written || res.appended || 0) });
+            console.log('[writeTrendFacts] response:', out);
+            return out;
+        }
+
+        // Hosted: try POST first, but ALWAYS fallback to JSONP because Apps Script often fails preflight
+        const res = await fetch(scriptUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, sheetId, tabName, rows: rows2d })
+        });
+        const txt = await res.text();
+        let parsed = null;
+        try { parsed = JSON.parse(txt); } catch (_) { parsed = null; }
+
+        if (!res.ok || !parsed || parsed.ok !== true) {
+            const fb = await _jsonpWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d, timeoutMs: 20000 });
+            const out = Object.assign({}, base, fb, { mode: 'post-json+jsonp-fallback', appended: fb && (fb.written || fb.appended || 0) });
+            console.log('[writeTrendFacts] response:', out);
+            return out;
+        }
+
+        const out = Object.assign({}, base, parsed, { mode, appended: parsed.written || parsed.appended || 0 });
+        console.log('[writeTrendFacts] response:', out);
+        return out;
+    } catch (err) {
+        try {
+            const fb = await _jsonpWriteTrendFacts_({ scriptUrl, action, sheetId, tabName, rows2d, timeoutMs: 20000 });
+            const out = Object.assign({}, base, fb, { mode: 'error+jsonp-fallback', appended: fb && (fb.written || fb.appended || 0) });
+            console.log('[writeTrendFacts] response:', out);
+            return out;
+        } catch (_) { }
+        const out = Object.assign({}, base, { ok: false, error: String((err && err.message) || err || 'write failed'), mode });
+        console.log('[writeTrendFacts] response:', out);
+        return out;
+    }
+}
+
+// Expose for console/debug + for other modules
+window.writeTrendFacts = writeTrendFacts;
+
 
 async function appendTrendFactsRun({ trendResult }) {
     if (!trendResult) return;
@@ -5284,8 +5767,8 @@ async function appendTrendFactsRun({ trendResult }) {
     trendResult.calculatedAt = calculatedAt;
     const rowsUp = _trendFactsRowsFromTrending(trendResult, calculatedAt, 'up');
     const rowsDown = _trendFactsRowsFromTrending(trendResult, calculatedAt, 'down');
-    await _postTrendRowsAppend(TREND_FACTS_WEBAPP_URL, TREND_FACTS_SHEET_ID, TREND_FACTS_UP_TAB, rowsUp);
-    await _postTrendRowsAppend(TREND_FACTS_WEBAPP_URL, TREND_FACTS_SHEET_ID, TREND_FACTS_DOWN_TAB, rowsDown);
+    await writeTrendFacts({ tabName: TREND_FACTS_UP_TAB, rows2d: rowsUp, action: 'append', scriptUrl: TREND_FACTS_WEBAPP_URL, sheetId: TREND_FACTS_SHEET_ID });
+    await writeTrendFacts({ tabName: TREND_FACTS_DOWN_TAB, rows2d: rowsDown, action: 'append', scriptUrl: TREND_FACTS_WEBAPP_URL, sheetId: TREND_FACTS_SHEET_ID });
 }
 
 async function _readLatestTrendTab(tabName) {
@@ -5609,35 +6092,29 @@ async function loadLatestTrendFactsFromSheet() {
         
 
         async function adminWriteTrendFactsTestRow() {
-            try {
-                const ts = new Date().toISOString();
-                const mkRows = (tab) => [[
-                    'calculatedAt','itemCode','description','drugName','avgWeeklyUsage','percentChange','consecutiveWeeks','confidence','confidenceLevel','trendDirection','isNew','suggestion'
-                ], [
-                    ts, `TEST_${tab.toUpperCase()}`, 'Trend test row', 'Trend test row', 0, 0, 0, 0, 'LOW', 'STABLE', 'false', 'test write'
-                ]];
+  try {
+    const ts = new Date().toISOString();
+    const rows2d = [
+      ['calculatedAt','k'],
+      [ts, 'admin-test']
+    ];
+    _setTrendFactsWriteStatus('Writing test row…');
+    const res = await window.writeTrendFacts({
+      tabName: 'test_tab',
+      rows2d,
+      action: 'append',
+      scriptUrl: TREND_FACTS_WEBAPP_URL,
+      sheetId: TREND_FACTS_SHEET_ID
+    });
+    _setTrendFactsWriteStatus(res && res.ok ? `Saved to Sheets (test_tab ${ts})` : `Write failed: ${(res && res.error) ? res.error : 'unknown error'}`);
+    console.log('adminWriteTrendFactsTestRow:', res);
+    return res;
+  } catch (e) {
+    _setTrendFactsWriteStatus(`Write failed: ${String((e && e.message) || e || 'unknown')}`);
+    throw e;
+  }
+}
 
-                _setTrendFactsWriteStatus('Writing test rows…');
-                await googleSheetsWrite({
-                    webAppUrl: TREND_FACTS_WEBAPP_URL,
-                    sheetId: TREND_FACTS_SHEET_ID,
-                    tabName: TREND_FACTS_UP_TAB,
-                    rows2d: mkRows('up'),
-                    verify: false
-                });
-                await googleSheetsWrite({
-                    webAppUrl: TREND_FACTS_WEBAPP_URL,
-                    sheetId: TREND_FACTS_SHEET_ID,
-                    tabName: TREND_FACTS_DOWN_TAB,
-                    rows2d: mkRows('down'),
-                    verify: false
-                });
-                _setTrendFactsWriteStatus(`Saved to Sheets (test row ${ts})`);
-            } catch (e) {
-                _setTrendFactsWriteStatus('Sheets write failed');
-                console.error('adminWriteTrendFactsTestRow failed', e);
-            }
-        }
 
         async function adminTestSpikeWebApp() {
             try {
@@ -5722,3 +6199,106 @@ async function adminLoadSpikeFactors() {
                 });
             }
         });
+
+/* ==== TrendFacts Auto Hook (patched19-1772267070065) ====
+   Ensures Compute & Save also writes trend_facts_up / trend_facts_down.
+   Idempotent: will not wrap twice.
+*/
+(function () {
+  try {
+    if (window.__trendfacts_auto_hook_installed) return;
+    window.__trendfacts_auto_hook_installed = true;
+
+    function _tf_log() {
+      try { console.log.apply(console, arguments); } catch (_) {}
+    }
+    function _tf_warn() {
+      try { console.warn.apply(console, arguments); } catch (_) {}
+    }
+
+    const orig = window.adminComputeAndSaveSpikeFactors;
+    if (typeof orig !== 'function') {
+      _tf_warn('[TrendFacts] auto-hook: adminComputeAndSaveSpikeFactors missing at load; will retry');
+      // Retry a few times in case dashboard loads in stages
+      let tries = 0;
+      const iv = setInterval(() => {
+        tries++;
+        const fn = window.adminComputeAndSaveSpikeFactors;
+        if (typeof fn === 'function') {
+          clearInterval(iv);
+          // re-run installer
+          window.__trendfacts_auto_hook_installed = false;
+          (function(){})(); // noop
+        }
+        if (tries >= 20) clearInterval(iv);
+      }, 250);
+      _tf_log('[TrendFacts] patched20 hook active (pending)');
+      return;
+    }
+
+    window.adminComputeAndSaveSpikeFactors = async function () {
+      const out = await orig.apply(this, arguments);
+      try {
+        const calc = window.calculateTrendingItems;
+        if (typeof calc !== 'function') {
+          _tf_warn('[TrendFacts] calculateTrendingItems missing; skipping Sheets write');
+          return out;
+        }
+        const tr = calc();
+        const calculatedAt = (tr && tr.calculatedAt) ? tr.calculatedAt : new Date().toISOString();
+
+        const header = ['calculatedAt','rank','itemCode','confidence','avgWeeklyUsage','direction'];
+        const up = (tr && Array.isArray(tr.trendingUp)) ? tr.trendingUp : [];
+        const down = (tr && Array.isArray(tr.trendingDown)) ? tr.trendingDown : [];
+
+        const rowsUp = [header].concat(up.map((x,i)=>[
+          calculatedAt,
+          i+1,
+          (x && x.itemCode != null) ? String(x.itemCode) : '',
+          Number((x && x.confidence != null) ? x.confidence : 0),
+          Number((x && x.avgWeeklyUsage != null) ? x.avgWeeklyUsage : 0),
+          String((x && (x.trendDirection || x.direction)) ? (x.trendDirection || x.direction) : 'increasing')
+        ]));
+
+        const rowsDown = down.length
+          ? [header].concat(down.map((x,i)=>[
+              calculatedAt,
+              i+1,
+              (x && x.itemCode != null) ? String(x.itemCode) : '',
+              Number((x && x.confidence != null) ? x.confidence : 0),
+              Number((x && x.avgWeeklyUsage != null) ? x.avgWeeklyUsage : 0),
+              String((x && (x.trendDirection || x.direction)) ? (x.trendDirection || x.direction) : 'decreasing')
+            ]))
+          : [['calculatedAt','note'], [calculatedAt,'NO_TRENDING_DOWN_ITEMS']];
+
+        _tf_log('[TrendFacts] writing up/down:', rowsUp.length, rowsDown.length, 'calculatedAt:', calculatedAt);
+
+        const sf = window.SpikeFactors;
+        const saver = sf && sf.saveToWebApp;
+        const webAppUrl = localStorage.getItem('spike_webAppUrl') || '';
+        const sheetId = localStorage.getItem('spike_sheetId') || '';
+
+        if (typeof saver !== 'function' || !webAppUrl || !sheetId) {
+          _tf_warn('[TrendFacts] SpikeFactors.saveToWebApp missing or config missing; skipping Sheets write', { hasSaver: typeof saver, webAppUrl: !!webAppUrl, sheetId: !!sheetId });
+          return out;
+        }
+
+        const rUp = await saver(webAppUrl, sheetId, 'trend_facts_up', rowsUp);
+        const rDown = await saver(webAppUrl, sheetId, 'trend_facts_down', rowsDown);
+        _tf_log('[TrendFacts] write results:', rUp, rDown);
+      } catch (e) {
+        _tf_warn('[TrendFacts] auto-hook failed:', e);
+      }
+      return out;
+    };
+
+    _tf_log('[TrendFacts] patched20 hook active');
+  } catch (e) {
+    try { console.warn('[TrendFacts] patched19 hook init error:', e); } catch (_) {}
+  }
+})();
+/* ==== End TrendFacts Auto Hook ==== */
+
+
+;
+
