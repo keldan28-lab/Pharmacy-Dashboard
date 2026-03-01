@@ -7324,8 +7324,8 @@ function dateToISO(d) {
                     ctx.fillStyle = labelNormal;
                     ctx.font = '12px system-ui, -apple-system, sans-serif';
                 }
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'alphabetic';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'middle';
                 
                 // Draw each line, centered vertically within the bar
                 const lineHeight = 13;
@@ -7333,7 +7333,7 @@ function dateToISO(d) {
                 const startY = y + (barHeight - totalTextHeight) / 2 + (lineHeight / 2);
                 
                 displayLines.forEach((line, i) => {
-                    ctx.fillText(line, leftPadding - 10, startY + (i * lineHeight));
+                    ctx.fillText(line, leftPadding - 5, startY + (i * lineHeight));
                 });
                 
                 // Draw value at end of bar (only visible when hovered for non-navigation items)
@@ -11081,7 +11081,7 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                 const rawMaxValue = maxValue;
                 const scaleRoundStep = (rawMaxValue <= 50) ? 5 : (rawMaxValue <= 500) ? 10 : (rawMaxValue <= 5000) ? 100 : 1000;
                 const alignedMaxValue = Math.max(scaleRoundStep, Math.ceil(rawMaxValue / scaleRoundStep) * scaleRoundStep);
-                const scaleLabelX = padding.left + 10; // extra left padding to avoid clipping
+                const scaleLabelX = padding.left + 25; // shift right to avoid clipping on left edge
 
                 // Align bar scaling with grid/scale labels
                 maxValue = alignedMaxValue;
@@ -11094,7 +11094,7 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                     ctx.moveTo(padding.left, y);
                     ctx.lineTo(padding.left + chartWidth, y);
                     ctx.stroke();
-                    ctx.fillText(String(scaleVal), scaleLabelX, y - 2);
+                    ctx.fillText(String(scaleVal), scaleLabelX, y - 5);
                 }
                 ctx.restore();
             })();
