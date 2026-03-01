@@ -11066,20 +11066,26 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
             }
             maxValue = Math.max(1, maxValue);
 
-            // Horizontal grid lines for vertical bar chart (scale-relative, no axis labels)
+            // Horizontal grid lines for vertical bar chart (scale-relative, with scale values)
             (function drawBarChartHorizontalGrid(){
                 const gridSteps = 5;
                 const baseY = displayHeight - padding.bottom;
                 ctx.save();
                 ctx.strokeStyle = 'rgba(200, 205, 210, 0.65)';
                 ctx.lineWidth = 0.8;
+                ctx.fillStyle = 'rgba(120, 130, 140, 0.9)';
+                ctx.font = '10px system-ui';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'middle';
                 for (let g = 0; g <= gridSteps; g++) {
                     const ratio = g / gridSteps;
                     const y = baseY - (ratio * chartHeight);
+                    const scaleVal = Math.round(maxValue * ratio);
                     ctx.beginPath();
                     ctx.moveTo(padding.left, y);
                     ctx.lineTo(padding.left + chartWidth, y);
                     ctx.stroke();
+                    ctx.fillText(String(scaleVal), padding.left - 4, y);
                 }
                 ctx.restore();
             })();

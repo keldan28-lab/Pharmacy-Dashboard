@@ -1470,12 +1470,9 @@ Subloc: ${counts.subloc}`);
                     if (tabName === 'inventory') {
                         const inventoryFrame = document.getElementById('inventoryFrame');
                         if (inventoryFrame && inventoryFrame.contentWindow) {
-                            // Clear filters when navigating from sidebar
-                            inventoryFrame.contentWindow.postMessage({
-                                type: 'clearFilters'
-                            }, '*');
-                            console.log('🧹 Sent clearFilters to inventory (sidebar navigation)');
-                            
+                            // Preserve iframe state when switching tabs (do not clear filters automatically).
+                            console.log('📌 Preserving inventory iframe state on tab switch');
+
                             // Send referrer notification for back button
                             setTimeout(() => {
                                 inventoryFrame.contentWindow.postMessage({
@@ -1494,18 +1491,14 @@ Subloc: ${counts.subloc}`);
                 } else if (tabName === 'analytics') {
                         const analyticsFrame = document.getElementById('analyticsFrame');
                         if (analyticsFrame && analyticsFrame.contentWindow) {
-                            // Only clear filters if not coming from a specific navigation request
+                            // Preserve iframe state when switching tabs (do not clear filters automatically).
                             if (window.skipNextClearFilters) {
-                                console.log('⏭️ Skipping clearFilters - specific navigation in progress');
+                                console.log('⏭️ Specific navigation in progress (state preserved)');
                                 window.skipNextClearFilters = false;
                             } else {
-                                // Clear filters when navigating from sidebar
-                                analyticsFrame.contentWindow.postMessage({
-                                    type: 'clearFilters'
-                                }, '*');
-                                console.log('🧹 Sent clearFilters to analytics (sidebar navigation)');
+                                console.log('📌 Preserving analytics iframe state on tab switch');
                             }
-                            
+
                             // Send referrer notification for back button
                             setTimeout(() => {
                                 analyticsFrame.contentWindow.postMessage({
