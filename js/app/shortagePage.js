@@ -167,6 +167,100 @@
         
         let cachedMockData = null;
         let dataRequestCallbacks = [];
+
+        const PROJECTION_DEBUG_FLAG = '__projectionDebug';
+
+        function _projectionClamp(value, min, max) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return min;
+            return Math.max(min, Math.min(max, n));
+        }
+
+        function getTrendFactForItem(itemCode) {
+            const code = String(itemCode || '').trim();
+            if (!code) return null;
+            const trendState = window.trendingItems || {};
+            trendState._itemLookup = trendState._itemLookup || {};
+            if (trendState._itemLookup[code] !== undefined) return trendState._itemLookup[code];
+
+            const up = Array.isArray(trendState.trendingUp) ? trendState.trendingUp : [];
+            const down = Array.isArray(trendState.trendingDown) ? trendState.trendingDown : [];
+            const match = up.find((x) => String(x.itemCode || '').trim() === code) || down.find((x) => String(x.itemCode || '').trim() === code);
+            if (!match) {
+                trendState._itemLookup[code] = null;
+                return null;
+            }
+
+            const directionRaw = String(match.direction || match.trendDirection || '').toLowerCase();
+            const direction = directionRaw.includes('down') || directionRaw.includes('decreas') ? 'down' : 'up';
+            const confidenceRaw = Number(match.confidence);
+            const confidence = Number.isFinite(confidenceRaw) ? (confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw) : 0;
+            const avgWeeklyUsage = Number(match.avgWeeklyUsage);
+            const trendFact = {
+                itemCode: code,
+                direction,
+                confidence: _projectionClamp(confidence, 0, 1),
+                avgWeeklyUsage: Number.isFinite(avgWeeklyUsage) ? avgWeeklyUsage : null
+            };
+            trendState._itemLookup[code] = trendFact;
+            return trendFact;
+        }
+
+        function getSpikeFactorForItem(itemCode) {
+            const code = String(itemCode || '').trim();
+            if (!code) return 1;
+            if (window.SpikeFactors && typeof window.SpikeFactors.getSpikeMultiplierForItem === 'function') {
+                return Number(window.SpikeFactors.getSpikeMultiplierForItem(code)) || 1;
+            }
+            if (window.parent && window.parent.SpikeFactors && typeof window.parent.SpikeFactors.getSpikeMultiplierForItem === 'function') {
+                return Number(window.parent.SpikeFactors.getSpikeMultiplierForItem(code)) || 1;
+            }
+            return 1;
+        }
+
+        function getWeightedWeeklyUsage(itemCode, baselineWeeklyUsage, ctx) {
+            const baseline = Number.isFinite(Number(baselineWeeklyUsage)) ? Number(baselineWeeklyUsage) : 0;
+            if (!(baseline > 0)) {
+                return {
+                    baselineWeeklyUsage: 0,
+                    weightedWeeklyUsage: 0,
+                    trendMult: 1,
+                    spikeMult: 1,
+                    trendFact: null,
+                    spikeFactor: 1
+                };
+            }
+
+            const trendFact = (ctx && typeof ctx.getTrendFactForItem === 'function') ? ctx.getTrendFactForItem(itemCode) : null;
+            const spikeFactor = (ctx && typeof ctx.getSpikeFactorForItem === 'function') ? ctx.getSpikeFactorForItem(itemCode) : 1;
+
+            let trendMult = 1;
+            if (trendFact && trendFact.direction === 'up') {
+                const c = _projectionClamp(trendFact.confidence, 0, 1);
+                trendMult = 1 + (0.5 * c);
+            } else if (trendFact && trendFact.direction === 'down') {
+                const c = _projectionClamp(trendFact.confidence, 0, 1);
+                trendMult = Math.max(0.6, 1 - (0.25 * c));
+            }
+
+            let spikeMult = 1;
+            if (Number.isFinite(Number(spikeFactor))) {
+                spikeMult = _projectionClamp(Number(spikeFactor), 1, 2.5);
+            }
+
+            let weightedWeeklyUsage = baseline * trendMult * spikeMult;
+            weightedWeeklyUsage = _projectionClamp(weightedWeeklyUsage, baseline * 0.25, baseline * 3);
+            if (!Number.isFinite(weightedWeeklyUsage)) weightedWeeklyUsage = baseline;
+
+            return {
+                baselineWeeklyUsage: baseline,
+                weightedWeeklyUsage,
+                trendMult,
+                spikeMult,
+                trendFact,
+                spikeFactor
+            };
+        }
         
         /**
          * Request mock data from parent Dashboard container
@@ -2039,6 +2133,7 @@
                 
                 // Process usage rate with enhanced algorithm
                 let effectiveUsageRate, usageRateSlope = 0;
+                let baselineWeeklyUsage = 0;
                 
                 if (Array.isArray(usageRateOriginal) && usageRateOriginal.length > 0) {
                     const analysis = calculateTrueUsageRate(usageRateOriginal, item.status);
@@ -2051,18 +2146,29 @@
                         effectiveUsageRate = analysis.dailyBaseline;
                         usageRateSlope = analysis.dailySlope;
                     }
+                    baselineWeeklyUsage = (Number(analysis.weeklyBaseline) || (Number(effectiveUsageRate) || 0) * 7);
                 } else if (Array.isArray(usageRateOriginal) && usageRateOriginal.length === 1) {
                     effectiveUsageRate = usageRateOriginal[0];
+                    baselineWeeklyUsage = (Number(effectiveUsageRate) || 0) * 7;
                 } else {
                     effectiveUsageRate = usageRateOriginal;
+                    baselineWeeklyUsage = (Number(effectiveUsageRate) || 0) * 7;
                 }
+
+                const weightedUsage = getWeightedWeeklyUsage(item.itemCode, baselineWeeklyUsage, {
+                    getTrendFactForItem,
+                    getSpikeFactorForItem
+                });
+                const weightedDailyUsage = Math.max(0, (Number(weightedUsage.weightedWeeklyUsage) || 0) / 7);
+                const slopeScale = (effectiveUsageRate > 0) ? (weightedDailyUsage / effectiveUsageRate) : 1;
+                const adjustedUsageRateSlope = usageRateSlope * (Number.isFinite(slopeScale) ? slopeScale : 1);
                 
                 // Use the global max range (earliest ETA) for all projections
                 const dataPoints = [];
                 let cumulativeQty = qty;
                 
                 for (let day = 0; day <= maxRangeDays; day++) {
-                    const dayUsageRate = effectiveUsageRate + (usageRateSlope * day);
+                    const dayUsageRate = weightedDailyUsage + (adjustedUsageRateSlope * day);
                     const actualUsageRate = Math.max(0, dayUsageRate);
                     dataPoints.push({ day, qty: cumulativeQty, usageRate: actualUsageRate });
                     cumulativeQty -= actualUsageRate;
@@ -2080,7 +2186,14 @@
                     color: isTarget ? '#11998e' : `rgba(100, 100, 100, ${grayShade})`,
                     lineWidth: isTarget ? 2.5 : 1.5,
                     isTarget,
-                    itemIndex
+                    itemIndex,
+                    itemCode: item.itemCode,
+                    usageDetails: {
+                        baselineWeeklyUsage: weightedUsage.baselineWeeklyUsage,
+                        weightedWeeklyUsage: weightedUsage.weightedWeeklyUsage,
+                        trendMult: weightedUsage.trendMult,
+                        spikeMult: weightedUsage.spikeMult
+                    }
                 };
             });
             
@@ -2272,7 +2385,7 @@
                                 <svg class="chart-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                                     <path d="M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z"/>
                                 </svg>
-                                ${nearestItem.description}
+                                ${nearestItem.description} · ${(Number((nearestItem.usageDetails || {}).baselineWeeklyUsage) || 0).toFixed(1)}/wk → ${(Number((nearestItem.usageDetails || {}).weightedWeeklyUsage) || 0).toFixed(1)}/wk (t×${(Number((nearestItem.usageDetails || {}).trendMult) || 1).toFixed(2)}, s×${(Number((nearestItem.usageDetails || {}).spikeMult) || 1).toFixed(2)})
                             `;
                         }
                     }
@@ -2313,6 +2426,38 @@
                     drawInventoryProjectionChart(items, targetIndex);
                 }
             };
+
+            window.debugProjection = function(itemCode) {
+                const code = String(itemCode || '').trim();
+                const found = itemProjections.find((p) => String(p.itemCode || '').trim() === code) || itemProjections[targetIndex] || itemProjections[0];
+                if (!found) return null;
+                const details = found.usageDetails || {};
+                const sample = (found.dataPoints || []).slice(0, 3);
+                const payload = {
+                    itemCode: found.itemCode,
+                    description: found.description,
+                    baselineWeeklyUsage: Number(details.baselineWeeklyUsage) || 0,
+                    weightedWeeklyUsage: Number(details.weightedWeeklyUsage) || 0,
+                    trendMult: Number(details.trendMult) || 1,
+                    spikeMult: Number(details.spikeMult) || 1,
+                    first3ProjectedPoints: sample
+                };
+                console.log('🧪 debugProjection', payload);
+                return payload;
+            };
+
+            if (window[PROJECTION_DEBUG_FLAG] && itemProjections[targetIndex]) {
+                const p = itemProjections[targetIndex];
+                const d = p.usageDetails || {};
+                console.log('🧪 Projection diagnostics (shortage)', {
+                    itemCode: p.itemCode,
+                    baselineWeeklyUsage: d.baselineWeeklyUsage,
+                    trendMult: d.trendMult,
+                    spikeMult: d.spikeMult,
+                    weightedWeeklyUsage: d.weightedWeeklyUsage,
+                    first3ProjectedPoints: (p.dataPoints || []).slice(0, 3)
+                });
+            }
         }
 
         function openSbarFile() {
