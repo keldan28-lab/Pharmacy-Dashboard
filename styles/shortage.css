@@ -2078,6 +2078,10 @@
             margin-top: 10px;
         }
 
+        #pyxisInvCard.is-expanded > .inventory-item-value {
+            display: none;
+        }
+
         .inventory-expansion-header {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2163,7 +2167,8 @@
             padding: 12px;
         }
 
-        .inventory-locations-group {            margin-bottom: 14px;
+        .inventory-locations-group {
+            margin-bottom: 14px;
         }
 
         .inventory-locations-group:last-child {

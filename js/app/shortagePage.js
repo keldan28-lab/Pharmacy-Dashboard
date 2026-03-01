@@ -29,6 +29,23 @@
                         backButtonVisible = true;
                     }
                     console.log('📍 Inventory: Referrer set (state preserved):', previousPage);
+
+                    if (event.data.isBackNavigation) {
+                        const restore = readModalRestoreState();
+                        if (restore && restore.keepOpenOnReturn && Array.isArray(restore.items) && restore.items.length > 0) {
+                            setTimeout(() => {
+                                openDetailsModal(
+                                    restore.drugName || (restore.items[0] && restore.items[0].drugName) || '',
+                                    restore.notes || '',
+                                    restore.filePath || '',
+                                    restore.items,
+                                    !!restore.hasSBAR,
+                                    Number.isFinite(Number(restore.selectedIndex)) ? Number(restore.selectedIndex) : 0
+                                );
+                                clearModalRestoreState();
+                            }, 120);
+                        }
+                    }
                 }
                 return; // Exit early, don't process as navigateWithFilter
             }
@@ -142,6 +159,52 @@
 
         function deleteCookie(name) {
             document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        }
+
+        function buildDeptBreakdown(sublocationsList) {
+            const invMap = (typeof SUBLOCATION_MAP !== 'undefined' && SUBLOCATION_MAP) || (window.SUBLOCATION_MAP || {});
+            const depts = {};
+            const list = Array.isArray(sublocationsList) ? sublocationsList : [];
+
+            function ensureDept(name) {
+                if (!depts[name]) {
+                    depts[name] = { qty: 0, min: 0, max: 0, standard: false, locations: [], main: {} };
+                }
+                return depts[name];
+            }
+
+            for (let i = 0; i < list.length; i++) {
+                const s = list[i] || {};
+                const code = s.sublocation;
+                const qty = Number.isFinite(+s.curQty) ? +s.curQty : (Number.isFinite(+s.qty) ? +s.qty : 0);
+                const min = Number.isFinite(+s.minQty) ? +s.minQty : (Number.isFinite(+s.min) ? +s.min : 0);
+                const max = Number.isFinite(+s.maxQty) ? +s.maxQty : (Number.isFinite(+s.max) ? +s.max : 0);
+                const standard = !!s.standard;
+
+                const info = (code && invMap && invMap[code]) ? invMap[code] : null;
+                let deptName = (info && info.department) ? String(info.department) : 'Pharmacy';
+                let mainLocation = (info && info.mainLocation) ? String(info.mainLocation) : String(code || 'Unknown');
+
+                if (deptName.toLowerCase() === 'pyxis') deptName = 'Pyxis';
+                else deptName = 'Pharmacy';
+
+                const dept = ensureDept(deptName);
+                dept.qty += qty;
+                dept.min += min;
+                dept.max += max;
+                dept.standard = dept.standard || standard;
+
+                const locObj = { code: String(code || ''), qty, min, max, standard, mainLocation, department: deptName };
+                dept.locations.push(locObj);
+
+                if (!dept.main[mainLocation]) dept.main[mainLocation] = { qty: 0, locations: [] };
+                dept.main[mainLocation].qty += qty;
+                dept.main[mainLocation].locations.push(locObj);
+            }
+
+            ensureDept('Pyxis');
+            ensureDept('Pharmacy');
+            return { depts };
         }
 
         // Generate mock data for display
@@ -1137,9 +1200,32 @@
         let currentModalItems = [];
         let currentSelectedIndex = 0;
         let chartHoveredItemIndex = null;
+        const MODAL_RESTORE_KEY = '__inventoryModalRestoreState';
+
+        function saveModalRestoreState(state) {
+            try {
+                sessionStorage.setItem(MODAL_RESTORE_KEY, JSON.stringify(state || {}));
+            } catch (_) {}
+        }
+
+        function readModalRestoreState() {
+            try {
+                const raw = sessionStorage.getItem(MODAL_RESTORE_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function clearModalRestoreState() {
+            try { sessionStorage.removeItem(MODAL_RESTORE_KEY); } catch (_) {}
+        }
 
         function openDetailsModal(drugName, notes, filePath, items, hasSBAR, initialIndex = 0) {
             const modal = document.getElementById('detailsModal');
+            if (!readModalRestoreState()) {
+                clearModalRestoreState();
+            }
             const modalHeader = modal.querySelector('.modal-header');
             const modalDrugName = document.getElementById('modalDrugName');
             const modalnotes = document.getElementById('modalnotes');
@@ -1283,64 +1369,7 @@
                 });
             }
 
-            /**
-             * Group sublocations by department + mainLocation.
-             * Returns:
-             *  {
-             *    depts: {
-             *      Pyxis: { qty, min, max, standard, main: { [mainLocation]: { qty, locations: [...] } }, locations: [...] },
-             *      Pharmacy: { ... }
-             *    }
-             *  }
-             */
-            function groupInventory(sublocationsList) {
-                const depts = {};
-                const list = Array.isArray(sublocationsList) ? sublocationsList : [];
-
-                function ensureDept(name) {
-                    if (!depts[name]) {
-                        depts[name] = { qty: 0, min: 0, max: 0, standard: false, locations: [], main: {} };
-                    }
-                    return depts[name];
-                }
-
-                for (let i = 0; i < list.length; i++) {
-                    const s = list[i] || {};
-                    const code = s.sublocation;
-                    const qty = Number.isFinite(+s.curQty) ? +s.curQty : (Number.isFinite(+s.qty) ? +s.qty : 0);
-                    const min = Number.isFinite(+s.minQty) ? +s.minQty : (Number.isFinite(+s.min) ? +s.min : 0);
-                    const max = Number.isFinite(+s.maxQty) ? +s.maxQty : (Number.isFinite(+s.max) ? +s.max : 0);
-                    const standard = !!s.standard;
-
-                    const info = (code && INV_MAP && INV_MAP[code]) ? INV_MAP[code] : null;
-                    let deptName = (info && info.department) ? String(info.department) : 'Pharmacy';
-                    let mainLocation = (info && info.mainLocation) ? String(info.mainLocation) : String(code || 'Unknown');
-
-                    // Normalize dept casing
-                    if (deptName.toLowerCase() === 'pyxis') deptName = 'Pyxis';
-                    else deptName = 'Pharmacy';
-
-                    const dept = ensureDept(deptName);
-                    dept.qty += qty;
-                    dept.min += min;
-                    dept.max += max;
-                    dept.standard = dept.standard || standard;
-
-                    const locObj = { code: String(code || ''), qty, min, max, standard, mainLocation, department: deptName };
-                    dept.locations.push(locObj);
-
-                    if (!dept.main[mainLocation]) dept.main[mainLocation] = { qty: 0, locations: [] };
-                    dept.main[mainLocation].qty += qty;
-                    dept.main[mainLocation].locations.push(locObj);
-                }
-
-                // Ensure both depts exist for UI stability
-                ensureDept('Pyxis');
-                ensureDept('Pharmacy');
-                return { depts };
-            }
-
-            const invGroups = groupInventory(sublocations);
+            const invGroups = buildDeptBreakdown(sublocations);
             const pyx = invGroups.depts.Pyxis;
             const phx = invGroups.depts.Pharmacy;
 
@@ -1407,6 +1436,15 @@
                         const code = String(itemCode || badge.getAttribute('data-item-code') || '').trim();
                         if (!code || !sublocation) return;
                         try {
+                            saveModalRestoreState({
+                                keepOpenOnReturn: true,
+                                selectedIndex: currentSelectedIndex,
+                                items: currentModalItems,
+                                drugName: (currentModalItems[currentSelectedIndex] && currentModalItems[currentSelectedIndex].drugName) || '',
+                                notes: (currentModalItems[currentSelectedIndex] && currentModalItems[currentSelectedIndex].notes) || '',
+                                filePath: currentFilePath || '',
+                                hasSBAR: !!currentHasSBAR
+                            });
                             window.parent.postMessage({
                                 type: 'drillToItemInVerticalBar',
                                 itemCode: code,
