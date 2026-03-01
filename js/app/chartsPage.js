@@ -22,15 +22,113 @@ function getTrendFactsState() {
     return window.TrendFactsState;
 }
 
-function getTrendFactorForItemCode(itemCode) {
-    const code = String(itemCode || '');
-    if (!code) return 1;
+const PROJECTION_DEBUG_FLAG = '__projectionDebug';
+
+function _projectionClamp(value, min, max) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return min;
+    return Math.max(min, Math.min(max, n));
+}
+
+function getTrendFactForItem(itemCode) {
+    const code = String(itemCode || '').trim();
+    if (!code) return null;
     const state = getTrendFactsState();
+    state._itemLookup = state._itemLookup || {};
+    if (state._itemLookup[code] !== undefined) return state._itemLookup[code];
+
     const up = Array.isArray(state.up) ? state.up : [];
     const down = Array.isArray(state.down) ? state.down : [];
-    if (up.some((x) => String(x.itemCode || '') === code)) return 1.08;
-    if (down.some((x) => String(x.itemCode || '') === code)) return 0.92;
+    const match = up.find((x) => String(x.itemCode || '').trim() === code) || down.find((x) => String(x.itemCode || '').trim() === code);
+    if (!match) {
+        state._itemLookup[code] = null;
+        return null;
+    }
+
+    const directionRaw = String(match.direction || match.trendDirection || '').toLowerCase();
+    const direction = directionRaw.includes('down') || directionRaw.includes('decreas') ? 'down' : 'up';
+    const confidenceRaw = Number(match.confidence);
+    const confidence = Number.isFinite(confidenceRaw) ? (confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw) : 0;
+    const avgWeeklyUsage = Number(match.avgWeeklyUsage);
+    const trendFact = {
+        itemCode: code,
+        direction,
+        confidence: _projectionClamp(confidence, 0, 1),
+        avgWeeklyUsage: Number.isFinite(avgWeeklyUsage) ? avgWeeklyUsage : null
+    };
+    state._itemLookup[code] = trendFact;
+    return trendFact;
+}
+
+function getSpikeFactorForItem(itemCode) {
+    const code = String(itemCode || '').trim();
+    if (!code) return 1;
+    if (window.SpikeFactors && typeof window.SpikeFactors.getSpikeMultiplierForItem === 'function') {
+        return Number(window.SpikeFactors.getSpikeMultiplierForItem(code)) || 1;
+    }
+    // Accessing window.parent can throw SecurityError under file:// iframe isolation.
+    try {
+        const parentSpike = window.parent && window.parent !== window ? window.parent.SpikeFactors : null;
+        if (parentSpike && typeof parentSpike.getSpikeMultiplierForItem === 'function') {
+            return Number(parentSpike.getSpikeMultiplierForItem(code)) || 1;
+        }
+    } catch (_) {
+        // Safe fallback: keep baseline behavior (multiplier 1)
+    }
     return 1;
+}
+
+
+function getTrendFactorForItemCode(itemCode) {
+    const trend = getTrendFactForItem(itemCode);
+    if (!trend) return 1;
+    if (trend.direction === 'up') return 1 + (0.5 * _projectionClamp(trend.confidence, 0, 1));
+    if (trend.direction === 'down') return Math.max(0.6, 1 - (0.25 * _projectionClamp(trend.confidence, 0, 1)));
+    return 1;
+}
+function getWeightedWeeklyUsage(itemCode, baselineWeeklyUsage, ctx) {
+    const baseline = Number.isFinite(Number(baselineWeeklyUsage)) ? Number(baselineWeeklyUsage) : 0;
+    if (!(baseline > 0)) {
+        return {
+            baselineWeeklyUsage: 0,
+            weightedWeeklyUsage: 0,
+            trendMult: 1,
+            spikeMult: 1,
+            trendFact: null,
+            spikeFactor: 1
+        };
+    }
+
+    const trendFact = (ctx && typeof ctx.getTrendFactForItem === 'function') ? ctx.getTrendFactForItem(itemCode) : null;
+    const spikeFactor = (ctx && typeof ctx.getSpikeFactorForItem === 'function') ? ctx.getSpikeFactorForItem(itemCode) : 1;
+
+    let trendMult = 1;
+    if (trendFact && trendFact.direction === 'up') {
+        const c = _projectionClamp(trendFact.confidence, 0, 1);
+        trendMult = 1 + (0.5 * c);
+    } else if (trendFact && trendFact.direction === 'down') {
+        const c = _projectionClamp(trendFact.confidence, 0, 1);
+        trendMult = Math.max(0.6, 1 - (0.25 * c));
+    }
+
+    let spikeMult = 1;
+    if (Number.isFinite(Number(spikeFactor))) {
+        spikeMult = _projectionClamp(Number(spikeFactor), 1, 2.5);
+    }
+
+    let weightedWeeklyUsage = baseline * trendMult * spikeMult;
+    weightedWeeklyUsage = _projectionClamp(weightedWeeklyUsage, baseline * 0.25, baseline * 3);
+
+    if (!Number.isFinite(weightedWeeklyUsage)) weightedWeeklyUsage = baseline;
+
+    return {
+        baselineWeeklyUsage: baseline,
+        weightedWeeklyUsage,
+        trendMult,
+        spikeMult,
+        trendFact,
+        spikeFactor
+    };
 }
         
         // Listen for navigation messages that include referrer information
@@ -11927,16 +12025,24 @@ if (view === 'all') {
                         const effectiveInv = getEffectiveInventory(item);
                         const qty = effectiveInv.effectiveQuantity;
                         const usageRate = item.usageRate || 0;
-                        
-                        // Calculate daily usage
-                        let dailyUsage = 0;
+
+                        // Calculate baseline + weighted daily usage
+                        let baselineWeeklyUsage = 0;
+                        let baselineDailyUsage = 0;
                         if (Array.isArray(usageRate) && usageRate.length > 0) {
-                            const avg = usageRate.reduce((sum, val) => sum + val, 0) / usageRate.length;
-                            dailyUsage = avg / 7; // Convert weekly to daily
+                            baselineWeeklyUsage = usageRate.reduce((sum, val) => sum + val, 0) / usageRate.length;
+                            baselineDailyUsage = baselineWeeklyUsage / 7;
                         } else if (typeof usageRate === 'number') {
-                            dailyUsage = usageRate;
+                            baselineDailyUsage = usageRate;
+                            baselineWeeklyUsage = usageRate * 7;
                         }
-                        
+
+                        const weightedUsage = getWeightedWeeklyUsage(item.itemCode, baselineWeeklyUsage, {
+                            getTrendFactForItem,
+                            getSpikeFactorForItem
+                        });
+                        const dailyUsage = Math.max(0, (Number(weightedUsage.weightedWeeklyUsage) || 0) / 7);
+
                         // Calculate days until out of stock
                         const daysUntilEmpty = dailyUsage > 0 ? qty / dailyUsage : Infinity;
                         
@@ -11972,18 +12078,26 @@ if (view === 'all') {
                     const effectiveInv = getEffectiveInventory(item);
                     const qty = effectiveInv.effectiveQuantity;
                     const usageRate = item.usageRate || 0;
-                    
-                    // Calculate daily usage
-                    let dailyUsage = 0;
-                    if (Array.isArray(usageRate) && usageRate.length > 0) {
-                        const avg = usageRate.reduce((sum, val) => sum + val, 0) / usageRate.length;
-                        dailyUsage = avg / 7; // Convert weekly to daily
-                    } else if (typeof usageRate === 'number') {
-                        dailyUsage = usageRate;
-                    }
-                    
-                    // Calculate days until out of stock
-                    const daysUntilEmpty = dailyUsage > 0 ? qty / dailyUsage : Infinity;
+
+                        // Calculate baseline + weighted daily usage
+                        let baselineWeeklyUsage = 0;
+                        let baselineDailyUsage = 0;
+                        if (Array.isArray(usageRate) && usageRate.length > 0) {
+                            baselineWeeklyUsage = usageRate.reduce((sum, val) => sum + val, 0) / usageRate.length;
+                            baselineDailyUsage = baselineWeeklyUsage / 7;
+                        } else if (typeof usageRate === 'number') {
+                            baselineDailyUsage = usageRate;
+                            baselineWeeklyUsage = usageRate * 7;
+                        }
+
+                        const weightedUsage = getWeightedWeeklyUsage(item.itemCode, baselineWeeklyUsage, {
+                            getTrendFactForItem,
+                            getSpikeFactorForItem
+                        });
+                        const dailyUsage = Math.max(0, (Number(weightedUsage.weightedWeeklyUsage) || 0) / 7);
+
+                        // Calculate days until out of stock
+                        const daysUntilEmpty = dailyUsage > 0 ? qty / dailyUsage : Infinity;
                     
                     return {
                         ...item,
@@ -12027,16 +12141,24 @@ if (view === 'all') {
                 const usageRate = item.usageRate || 0;
                 const eta = item.ETA || '';
                 const daysUntilETA = eta ? Math.ceil((new Date(eta) - new Date()) / (1000 * 60 * 60 * 24)) : null;
-                
-                // Simple daily usage rate
-                let dailyUsage = 0;
+
+                // Baseline + weighted usage (weekly->daily)
+                let baselineWeeklyUsage = 0;
+                let baselineDailyUsage = 0;
                 if (Array.isArray(usageRate) && usageRate.length > 0) {
-                    const avg = usageRate.reduce((sum, val) => sum + val, 0) / usageRate.length;
-                    dailyUsage = avg / 7; // Convert weekly to daily
+                    baselineWeeklyUsage = usageRate.reduce((sum, val) => sum + val, 0) / usageRate.length;
+                    baselineDailyUsage = baselineWeeklyUsage / 7;
                 } else if (typeof usageRate === 'number') {
-                    dailyUsage = usageRate;
+                    baselineDailyUsage = usageRate;
+                    baselineWeeklyUsage = usageRate * 7;
                 }
-                
+
+                const weightedUsage = getWeightedWeeklyUsage(item.itemCode, baselineWeeklyUsage, {
+                    getTrendFactForItem,
+                    getSpikeFactorForItem
+                });
+                const dailyUsage = Math.max(0, (Number(weightedUsage.weightedWeeklyUsage) || 0) / 7);
+
                 // Generate projection points
                 const dataPoints = [];
                 let remainingQty = qty;
@@ -12050,7 +12172,16 @@ if (view === 'all') {
                     dataPoints,
                     daysUntilETA,
                     color: colors[itemIndex % colors.length],
-                    currentInventory: qty
+                    currentInventory: qty,
+                    itemCode: item.itemCode,
+                    usageDetails: {
+                        baselineWeeklyUsage: weightedUsage.baselineWeeklyUsage,
+                        baselineDailyUsage,
+                        weightedWeeklyUsage: weightedUsage.weightedWeeklyUsage,
+                        weightedDailyUsage: dailyUsage,
+                        trendMult: weightedUsage.trendMult,
+                        spikeMult: weightedUsage.spikeMult
+                    }
                 };
             });
             
@@ -12238,11 +12369,17 @@ if (view === 'all') {
                     ctx.save();
                     
                     // Draw tooltip
-                    const tooltipText = nearestItem.description;
-                    ctx.font = '13px system-ui';
-                    const textWidth = ctx.measureText(tooltipText).width;
+                    const usageDetails = nearestItem.usageDetails || {};
+                    const tooltipLines = [
+                        nearestItem.description,
+                        `Baseline: ${(Number(usageDetails.baselineWeeklyUsage) || 0).toFixed(1)} /wk`,
+                        `Weighted: ${(Number(usageDetails.weightedWeeklyUsage) || 0).toFixed(1)} /wk`,
+                        `Multipliers: trend ${(Number(usageDetails.trendMult) || 1).toFixed(2)} × spike ${(Number(usageDetails.spikeMult) || 1).toFixed(2)}`
+                    ];
+                    ctx.font = '12px system-ui';
+                    const textWidth = Math.max(...tooltipLines.map(line => ctx.measureText(line).width));
                     const tooltipWidth = textWidth + 24;
-                    const tooltipHeight = 30;
+                    const tooltipHeight = 24 + (tooltipLines.length * 16);
                     let tooltipX = mouseX + 15;
                     let tooltipY = mouseY - 15;
                     
@@ -12257,7 +12394,9 @@ if (view === 'all') {
                     ctx.fillStyle = '#ffffff';
                     ctx.textAlign = 'left';
                     ctx.textBaseline = 'middle';
-                    ctx.fillText(tooltipText, tooltipX + 12, tooltipY - tooltipHeight / 2);
+                    tooltipLines.forEach((line, idx) => {
+                        ctx.fillText(line, tooltipX + 12, tooltipY - tooltipHeight + 12 + (idx * 16));
+                    });
                     
                     ctx.restore();
                 } else {
@@ -12391,6 +12530,38 @@ if (view === 'all') {
             canvas.addEventListener('mousemove', canvas.inventoryProjectionMouseMove);
             canvas.addEventListener('mouseleave', canvas.inventoryProjectionMouseLeave);
             canvas.addEventListener('click', canvas.inventoryProjectionClick);
+
+            window.debugProjection = function(itemCode) {
+                const code = String(itemCode || '').trim();
+                const found = itemProjections.find((p) => String(p.itemCode || '').trim() === code) || itemProjections[0];
+                if (!found) return null;
+                const details = found.usageDetails || {};
+                const sample = (found.dataPoints || []).slice(0, 3);
+                const payload = {
+                    itemCode: found.itemCode,
+                    description: found.description,
+                    baselineWeeklyUsage: Number(details.baselineWeeklyUsage) || 0,
+                    weightedWeeklyUsage: Number(details.weightedWeeklyUsage) || 0,
+                    trendMult: Number(details.trendMult) || 1,
+                    spikeMult: Number(details.spikeMult) || 1,
+                    first3ProjectedPoints: sample
+                };
+                console.log('🧪 debugProjection', payload);
+                return payload;
+            };
+
+            if (window[PROJECTION_DEBUG_FLAG] && itemProjections[0]) {
+                const p = itemProjections[0];
+                const d = p.usageDetails || {};
+                console.log('🧪 Projection diagnostics (charts)', {
+                    itemCode: p.itemCode,
+                    baselineWeeklyUsage: d.baselineWeeklyUsage,
+                    trendMult: d.trendMult,
+                    spikeMult: d.spikeMult,
+                    weightedWeeklyUsage: d.weightedWeeklyUsage,
+                    first3ProjectedPoints: (p.dataPoints || []).slice(0, 3)
+                });
+            }
         }
         
         // Setup mouse interactions for vertical bar chart
