@@ -2752,6 +2752,26 @@
             };
         }
 
+
+        function getItemDescriptionByCode(itemCode) {
+            const code = String(itemCode || '').trim();
+            if (!code) return '';
+            if (!window.__itemDescriptionByCodeMap) {
+                const map = Object.create(null);
+                try {
+                    const src = (typeof ITEMS_DATA !== 'undefined' && ITEMS_DATA && Array.isArray(ITEMS_DATA.items)) ? ITEMS_DATA.items : [];
+                    for (let i = 0; i < src.length; i++) {
+                        const row = src[i] || {};
+                        const k = String(row.itemCode || '').trim();
+                        const desc = String(row.description || row.drugName || '').trim();
+                        if (k && desc && !map[k]) map[k] = desc;
+                    }
+                } catch (_) {}
+                window.__itemDescriptionByCodeMap = map;
+            }
+            return String(window.__itemDescriptionByCodeMap[code] || '');
+        }
+
         /**
          * Update top categories with top 4 used items by week
          * Now prioritizes trending items from Dashboard
@@ -2867,7 +2887,8 @@
                         : (pct === null ? '' : `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`);
 
                     const suggestion = String(item.suggestion ?? item.recommendation ?? '').trim();
-                    const displayName = item.description || item.drugName || item.name || item.itemCode || 'Unknown';
+                    const itemDetailsDescription = getItemDescriptionByCode(item.itemCode);
+                    const displayName = itemDetailsDescription || item.description || item.drugName || item.name || item.itemCode || 'Unknown';
                     const avgWeeklyUsage = _num(item.avgWeeklyUsage ?? item.weeklyUsage ?? item.avgUsage, 0);
 
                     const li = document.createElement('li');
