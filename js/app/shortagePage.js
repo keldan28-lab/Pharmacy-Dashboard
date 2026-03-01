@@ -168,7 +168,7 @@
 
             function ensureDept(name) {
                 if (!depts[name]) {
-                    depts[name] = { qty: 0, min: 0, max: 0, standard: false, locations: [], main: {} };
+                    depts[name] = { qty: 0, min: 0, max: 0, standard: false, standardQty: 0, locations: [], main: {} };
                 }
                 return depts[name];
             }
@@ -193,6 +193,7 @@
                 dept.min += min;
                 dept.max += max;
                 dept.standard = dept.standard || standard;
+                if (standard) dept.standardQty += (Number.isFinite(+s.standardQty) ? +s.standardQty : qty);
 
                 const locObj = { code: String(code || ''), qty, min, max, standard, mainLocation, department: deptName };
                 dept.locations.push(locObj);
@@ -207,6 +208,85 @@
             return { depts };
         }
 
+
+        function captionForDept(dept) {
+            const d = dept || { min: 0, max: 0, standard: false };
+            const parts = [];
+            if (d.standard) parts.push('Standard');
+            parts.push(`Min: ${Number(d.min) || 0}`);
+            parts.push(`Max: ${Number(d.max) || 0}`);
+            return parts.join('  |  ');
+        }
+
+        function buildPyxisLocationsBadges(dept, itemCode) {
+            const d = dept || { main: {} };
+            const mainKeys = Object.keys(d.main || {});
+            mainKeys.sort((a, b) => a.localeCompare(b));
+
+            let html = '';
+            for (let m = 0; m < mainKeys.length; m++) {
+                const main = mainKeys[m];
+                const group = d.main[main];
+                const locs = (group && Array.isArray(group.locations)) ? group.locations : [];
+                const nonZero = locs.filter(l => (l && typeof l.qty === 'number' && l.qty > 0));
+                if (nonZero.length === 0) continue;
+
+                html += `<div class="inventory-locations-group"><div class="inventory-locations-group-title">${main}</div><div class="inventory-locations-badges">`;
+                nonZero.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+                for (let i = 0; i < nonZero.length; i++) {
+                    const l = nonZero[i];
+                    const badgeText = `${l.code} (${l.qty})`;
+                    const standardClass = l.standard ? ' is-standard' : '';
+                    html += `<button type="button" class="inv-loc-badge${standardClass}" data-sublocation="${String(l.code)}" data-item-code="${String(itemCode || '')}" title="View ${String(l.code)} in Charts">${badgeText}</button>`;
+                }
+                html += `</div></div>`;
+            }
+            return html || '<div class="inventory-locations-empty">No Pyxis inventory on hand</div>';
+        }
+
+        function updateCompactInventoryHeader(pyxisQty, pyxisStandardQty, pharmacyQty, pyxCaption, phxCaption) {
+            const pyxEl = document.getElementById('compactPyxisValue');
+            const phxEl = document.getElementById('compactPharmacyValue');
+            const pyxCapEl = document.getElementById('compactPyxisCaption');
+            const phxCapEl = document.getElementById('compactPharmacyCaption');
+            if (pyxEl) pyxEl.innerHTML = pyxisQty + (pyxisStandardQty > 0 ? ` <span class="compact-standard-note">(${pyxisStandardQty} Std)</span>` : '');
+            if (phxEl) phxEl.textContent = String(pharmacyQty || 0);
+            if (pyxCapEl) pyxCapEl.textContent = pyxCaption || '';
+            if (phxCapEl) phxCapEl.textContent = phxCaption || '';
+        }
+
+        function wireInventoryBadgeActions(itemCode) {
+            const badges = document.querySelectorAll('#pyxisLocationsPanel .inv-loc-badge[data-sublocation]');
+            badges.forEach((badge) => {
+                badge.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const sublocation = String(badge.getAttribute('data-sublocation') || '').trim();
+                    const code = String(itemCode || badge.getAttribute('data-item-code') || '').trim();
+                    if (!code || !sublocation) return;
+                    try {
+                        saveModalRestoreState({
+                            keepOpenOnReturn: true,
+                            selectedIndex: currentSelectedIndex,
+                            items: currentModalItems,
+                            drugName: (currentModalItems[currentSelectedIndex] && currentModalItems[currentSelectedIndex].drugName) || '',
+                            notes: (currentModalItems[currentSelectedIndex] && currentModalItems[currentSelectedIndex].notes) || '',
+                            filePath: currentFilePath || '',
+                            hasSBAR: !!currentHasSBAR
+                        });
+                        window.parent.postMessage({
+                            type: 'drillToItemInVerticalBar',
+                            itemCode: code,
+                            sublocation: sublocation,
+                            location: sublocation
+                        }, '*');
+                        closeDetailsModal();
+                    } catch (err) {
+                        console.warn('⚠️ Failed to send drillToItemInVerticalBar', err);
+                    }
+                };
+            });
+        }
         // Generate mock data for display
         // 
         // USAGE RATE FEATURE:
@@ -1373,92 +1453,6 @@
             const pyx = invGroups.depts.Pyxis;
             const phx = invGroups.depts.Pharmacy;
 
-            function captionFor(dept) {
-                const parts = [];
-                if (dept.standard) parts.push('Standard');
-                parts.push(`Min: ${dept.min}`);
-                parts.push(`Max: ${dept.max}`);
-                return parts.join('  |  ');
-            }
-
-            function buildPyxisLocationsBadges(dept, itemCode) {
-                const mainKeys = Object.keys((dept && dept.main) ? dept.main : {});
-                // Sort main locations alphabetically for predictability
-                mainKeys.sort((a, b) => a.localeCompare(b));
-
-                let html = '';
-                for (let m = 0; m < mainKeys.length; m++) {
-                    const main = mainKeys[m];
-                    const group = dept.main[main];
-                    const locs = (group && Array.isArray(group.locations)) ? group.locations : [];
-                    // Only show locations that actually have qty > 0
-                    const nonZero = locs.filter(l => (l && typeof l.qty === 'number' && l.qty > 0));
-                    if (nonZero.length === 0) continue;
-
-                    html += `<div class="inventory-locations-group">
-                        <div class="inventory-locations-group-title">${main}</div>
-                        <div class="inventory-locations-badges">`;
-
-                    // Sort by sublocation code
-                    nonZero.sort((a, b) => String(a.code).localeCompare(String(b.code)));
-                    for (let i = 0; i < nonZero.length; i++) {
-                        const l = nonZero[i];
-                        const badgeText = `${l.code} (${l.qty})`;
-                        const isStandard = !!l.standard;
-                        const standardClass = isStandard ? ' is-standard' : '';
-                        html += `<button type="button" class="inv-loc-badge${standardClass}" data-sublocation="${String(l.code)}" data-item-code="${String(itemCode || '')}" title="View ${String(l.code)} in Charts">${badgeText}</button>`;
-                    }
-                    html += `</div></div>`;
-                }
-                return html || '<div class="inventory-locations-empty">No Pyxis inventory on hand</div>';
-            }
-
-            function updateCompactInventoryHeader(pyxisQty, pyxisStandardQty, pharmacyQty, pyxCaption, phxCaption) {
-                const pyxEl = document.getElementById('compactPyxisValue');
-                const phxEl = document.getElementById('compactPharmacyValue');
-                const pyxCapEl = document.getElementById('compactPyxisCaption');
-                const phxCapEl = document.getElementById('compactPharmacyCaption');
-                if (pyxEl) {
-                    pyxEl.innerHTML = pyxisQty + (pyxisStandardQty > 0 ? ` <span class="compact-standard-note">(${pyxisStandardQty} Std)</span>` : '');
-                }
-                if (phxEl) phxEl.textContent = String(pharmacyQty || 0);
-                if (pyxCapEl) pyxCapEl.textContent = pyxCaption || '';
-                if (phxCapEl) phxCapEl.textContent = phxCaption || '';
-            }
-
-            function wireInventoryBadgeActions(itemCode) {
-                const badges = document.querySelectorAll('#pyxisLocationsPanel .inv-loc-badge[data-sublocation]');
-                badges.forEach((badge) => {
-                    badge.onclick = function(e) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const sublocation = String(badge.getAttribute('data-sublocation') || '').trim();
-                        const code = String(itemCode || badge.getAttribute('data-item-code') || '').trim();
-                        if (!code || !sublocation) return;
-                        try {
-                            saveModalRestoreState({
-                                keepOpenOnReturn: true,
-                                selectedIndex: currentSelectedIndex,
-                                items: currentModalItems,
-                                drugName: (currentModalItems[currentSelectedIndex] && currentModalItems[currentSelectedIndex].drugName) || '',
-                                notes: (currentModalItems[currentSelectedIndex] && currentModalItems[currentSelectedIndex].notes) || '',
-                                filePath: currentFilePath || '',
-                                hasSBAR: !!currentHasSBAR
-                            });
-                            window.parent.postMessage({
-                                type: 'drillToItemInVerticalBar',
-                                itemCode: code,
-                                sublocation: sublocation,
-                                location: sublocation
-                            }, '*');
-                            closeDetailsModal();
-                        } catch (err) {
-                            console.warn('⚠️ Failed to send drillToItemInVerticalBar', err);
-                        }
-                    };
-                });
-            }
-
             // Build inventory breakdown section
             const inventoryBreakdownHTML = `
                 <div class="inventory-breakdown" id="inventoryBreakdown">
@@ -1470,19 +1464,19 @@
                             <span class="inventory-item-label">Pyxis</span>
                         </div>
                         <div class="inventory-item-value" id="displayPyxis">${pyx.qty}</div>
-                        <div class="inventory-item-caption" id="displayPyxisCaption">${captionFor(pyx)}</div>
+                        <div class="inventory-item-caption" id="displayPyxisCaption">${captionForDept(pyx)}</div>
 
                         <div class="inventory-expansion" id="pyxisExpansion" aria-hidden="true">
                             <div class="inventory-expansion-header" id="pyxisExpansionHeader" role="button" tabindex="0" aria-label="Collapse location details">
                                 <div class="inventory-expansion-metric">
                                     <span class="inventory-expansion-label">Pyxis</span>
                                     <span class="inventory-expansion-value" id="compactPyxisValue">${pyx.qty}${pyx.standardQty > 0 ? ` <span class="compact-standard-note">(${pyx.standardQty} Std)</span>` : ''}</span>
-                                    <span class="inventory-expansion-caption" id="compactPyxisCaption">${captionFor(pyx)}</span>
+                                    <span class="inventory-expansion-caption" id="compactPyxisCaption">${captionForDept(pyx)}</span>
                                 </div>
                                 <div class="inventory-expansion-metric">
                                     <span class="inventory-expansion-label">Pharmacy</span>
                                     <span class="inventory-expansion-value" id="compactPharmacyValue">${phx.qty}</span>
-                                    <span class="inventory-expansion-caption" id="compactPharmacyCaption">${captionFor(phx)}</span>
+                                    <span class="inventory-expansion-caption" id="compactPharmacyCaption">${captionForDept(phx)}</span>
                                 </div>
                             </div>
                             <div class="inventory-locations-panel" id="pyxisLocationsPanel">
@@ -1499,7 +1493,7 @@
                             <span class="inventory-item-label">Pharmacy</span>
                         </div>
                         <div class="inventory-item-value" id="displayPharmacy">${phx.qty}</div>
-                        <div class="inventory-item-caption" id="displayPharmacyCaption">${captionFor(phx)}</div>
+                        <div class="inventory-item-caption" id="displayPharmacyCaption">${captionForDept(phx)}</div>
                     </div>
                 </div>
             `;
@@ -1782,8 +1776,6 @@
             
             // Update display elements
             document.getElementById('displayETA').textContent = eta;
-            document.getElementById('displayPyxis').innerHTML = pyxis + (pyxisStandard > 0 ? ` <span style="color: var(--text-secondary); font-size: 0.9em;">(${pyxisStandard} Standard)</span>` : '');
-            document.getElementById('displayPharmacy').textContent = pharmacy;
 
             const selectedInvEntry = (cachedMockData && cachedMockData.inventory && cachedMockData.inventory[selectedItem.itemCode])
                 ? cachedMockData.inventory[selectedItem.itemCode]
@@ -1809,8 +1801,14 @@
             const selectedGroups = buildDeptBreakdown(selectedSublocations);
             const selectedPyx = selectedGroups.depts.Pyxis;
             const selectedPhx = selectedGroups.depts.Pharmacy;
+            const selectedPyxQty = Number(selectedPyx.qty) || 0;
+            const selectedPhxQty = Number(selectedPhx.qty) || 0;
+            const selectedStdQty = Number(selectedPyx.standardQty) || pyxisStandard;
 
-            updateCompactInventoryHeader(pyxis, pyxisStandard, pharmacy, captionFor(selectedPyx), captionFor(selectedPhx));
+            document.getElementById('displayPyxis').innerHTML = selectedPyxQty + (selectedStdQty > 0 ? ` <span style="color: var(--text-secondary); font-size: 0.9em;">(${selectedStdQty} Standard)</span>` : '');
+            document.getElementById('displayPharmacy').textContent = String(selectedPhxQty);
+
+            updateCompactInventoryHeader(selectedPyxQty, selectedStdQty, selectedPhxQty, captionForDept(selectedPyx), captionForDept(selectedPhx));
 
             const pyxisPanel = document.getElementById('pyxisLocationsPanel');
             if (pyxisPanel) {
