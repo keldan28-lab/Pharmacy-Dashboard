@@ -2036,6 +2036,103 @@
             text-overflow: ellipsis;
         }
 
+
+        .inventory-breakdown.is-expanded {
+            grid-template-columns: 1fr;
+        }
+
+        .inventory-breakdown.is-expanded #pyxisInvCard {
+            grid-column: 1 / -1;
+            border-color: var(--teal-primary);
+        }
+
+        #pharmacyInvCard {
+            transition: opacity 180ms ease, transform 180ms ease, max-height 180ms ease, margin 180ms ease, padding 180ms ease;
+            max-height: 180px;
+        }
+
+        #pharmacyInvCard.is-collapsed {
+            opacity: 0;
+            transform: translateY(-8px);
+            pointer-events: none;
+            max-height: 0;
+            margin: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            border-width: 0;
+        }
+
+        .inventory-expansion {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transform: translateY(-8px);
+            transition: max-height 220ms ease, opacity 180ms ease, transform 180ms ease, margin-top 180ms ease;
+            margin-top: 0;
+        }
+
+        #pyxisInvCard.is-expanded .inventory-expansion {
+            max-height: 520px;
+            opacity: 1;
+            transform: translateY(0);
+            margin-top: 10px;
+        }
+
+        .inventory-expansion-header {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            padding: 8px 10px;
+            border: 1px solid rgba(17, 153, 142, 0.22);
+            border-radius: 8px;
+            background: rgba(17, 153, 142, 0.05);
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        .inventory-expansion-header:focus-visible {
+            outline: 2px solid rgba(17, 153, 142, 0.65);
+            outline-offset: 2px;
+        }
+
+        .inventory-expansion-metric {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .inventory-expansion-label {
+            font-size: 0.72em;
+            font-weight: 700;
+            color: var(--teal-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .inventory-expansion-value {
+            font-size: 0.98em;
+            font-weight: 700;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .inventory-expansion-caption {
+            font-size: 0.72em;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .compact-standard-note {
+            color: var(--text-secondary);
+            font-size: 0.82em;
+            font-weight: 600;
+        }
+
         .inventory-item-clickable {
             cursor: pointer;
             transition: transform 140ms ease, box-shadow 140ms ease;
@@ -2059,8 +2156,14 @@
             margin-bottom: var(--section-margin-bottom);
         }
 
-        .inventory-locations-group {
-            margin-bottom: 14px;
+
+        .inventory-expansion .inventory-locations-panel {
+            margin-top: 0;
+            margin-bottom: 0;
+            padding: 12px;
+        }
+
+        .inventory-locations-group {            margin-bottom: 14px;
         }
 
         .inventory-locations-group:last-child {
@@ -2082,6 +2185,8 @@
 
         .inv-loc-badge {
             display: inline-flex;
+            appearance: none;
+            cursor: pointer;
             align-items: center;
             gap: 6px;
             padding: 6px 10px;
@@ -2094,6 +2199,12 @@
             letter-spacing: 0.2px;
         }
 
+
+        .inv-loc-badge.is-standard {
+            border-color: rgba(255, 127, 80, 0.65);
+            background: rgba(255, 127, 80, 0.16);
+            color: #8f3f2c;
+        }
         .inventory-locations-empty {
             color: var(--text-secondary);
             font-size: 0.95em;

@@ -167,6 +167,106 @@
         
         let cachedMockData = null;
         let dataRequestCallbacks = [];
+
+        const PROJECTION_DEBUG_FLAG = '__projectionDebug';
+
+        function _projectionClamp(value, min, max) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return min;
+            return Math.max(min, Math.min(max, n));
+        }
+
+        function getTrendFactForItem(itemCode) {
+            const code = String(itemCode || '').trim();
+            if (!code) return null;
+            const trendState = window.trendingItems || {};
+            trendState._itemLookup = trendState._itemLookup || {};
+            if (trendState._itemLookup[code] !== undefined) return trendState._itemLookup[code];
+
+            const up = Array.isArray(trendState.trendingUp) ? trendState.trendingUp : [];
+            const down = Array.isArray(trendState.trendingDown) ? trendState.trendingDown : [];
+            const match = up.find((x) => String(x.itemCode || '').trim() === code) || down.find((x) => String(x.itemCode || '').trim() === code);
+            if (!match) {
+                trendState._itemLookup[code] = null;
+                return null;
+            }
+
+            const directionRaw = String(match.direction || match.trendDirection || '').toLowerCase();
+            const direction = directionRaw.includes('down') || directionRaw.includes('decreas') ? 'down' : 'up';
+            const confidenceRaw = Number(match.confidence);
+            const confidence = Number.isFinite(confidenceRaw) ? (confidenceRaw > 1 ? confidenceRaw / 100 : confidenceRaw) : 0;
+            const avgWeeklyUsage = Number(match.avgWeeklyUsage);
+            const trendFact = {
+                itemCode: code,
+                direction,
+                confidence: _projectionClamp(confidence, 0, 1),
+                avgWeeklyUsage: Number.isFinite(avgWeeklyUsage) ? avgWeeklyUsage : null
+            };
+            trendState._itemLookup[code] = trendFact;
+            return trendFact;
+        }
+
+        function getSpikeFactorForItem(itemCode) {
+            const code = String(itemCode || '').trim();
+            if (!code) return 1;
+            if (window.SpikeFactors && typeof window.SpikeFactors.getSpikeMultiplierForItem === 'function') {
+                return Number(window.SpikeFactors.getSpikeMultiplierForItem(code)) || 1;
+            }
+            // Accessing window.parent can throw SecurityError under file:// iframe isolation.
+            try {
+                const parentSpike = window.parent && window.parent !== window ? window.parent.SpikeFactors : null;
+                if (parentSpike && typeof parentSpike.getSpikeMultiplierForItem === 'function') {
+                    return Number(parentSpike.getSpikeMultiplierForItem(code)) || 1;
+                }
+            } catch (_) {
+                // Safe fallback: keep baseline behavior (multiplier 1)
+            }
+            return 1;
+        }
+
+        function getWeightedWeeklyUsage(itemCode, baselineWeeklyUsage, ctx) {
+            const baseline = Number.isFinite(Number(baselineWeeklyUsage)) ? Number(baselineWeeklyUsage) : 0;
+            if (!(baseline > 0)) {
+                return {
+                    baselineWeeklyUsage: 0,
+                    weightedWeeklyUsage: 0,
+                    trendMult: 1,
+                    spikeMult: 1,
+                    trendFact: null,
+                    spikeFactor: 1
+                };
+            }
+
+            const trendFact = (ctx && typeof ctx.getTrendFactForItem === 'function') ? ctx.getTrendFactForItem(itemCode) : null;
+            const spikeFactor = (ctx && typeof ctx.getSpikeFactorForItem === 'function') ? ctx.getSpikeFactorForItem(itemCode) : 1;
+
+            let trendMult = 1;
+            if (trendFact && trendFact.direction === 'up') {
+                const c = _projectionClamp(trendFact.confidence, 0, 1);
+                trendMult = 1 + (0.5 * c);
+            } else if (trendFact && trendFact.direction === 'down') {
+                const c = _projectionClamp(trendFact.confidence, 0, 1);
+                trendMult = Math.max(0.6, 1 - (0.25 * c));
+            }
+
+            let spikeMult = 1;
+            if (Number.isFinite(Number(spikeFactor))) {
+                spikeMult = _projectionClamp(Number(spikeFactor), 1, 2.5);
+            }
+
+            let weightedWeeklyUsage = baseline * trendMult * spikeMult;
+            weightedWeeklyUsage = _projectionClamp(weightedWeeklyUsage, baseline * 0.25, baseline * 3);
+            if (!Number.isFinite(weightedWeeklyUsage)) weightedWeeklyUsage = baseline;
+
+            return {
+                baselineWeeklyUsage: baseline,
+                weightedWeeklyUsage,
+                trendMult,
+                spikeMult,
+                trendFact,
+                spikeFactor
+            };
+        }
         
         /**
          * Request mock data from parent Dashboard container
@@ -1252,11 +1352,8 @@
                 return parts.join('  |  ');
             }
 
-            function buildPyxisLocationsBadges(dept) {
-                const mainKeys = Object.keys(dept.main || {});
-                if (mainKeys.length === 0) {
-                    return '<div class="inventory-locations-empty">No Pyxis locations found</div>';
-                }
+            function buildPyxisLocationsBadges(dept, itemCode) {
+                const mainKeys = Object.keys((dept && dept.main) ? dept.main : {});
                 // Sort main locations alphabetically for predictability
                 mainKeys.sort((a, b) => a.localeCompare(b));
 
@@ -1278,16 +1375,55 @@
                     for (let i = 0; i < nonZero.length; i++) {
                         const l = nonZero[i];
                         const badgeText = `${l.code} (${l.qty})`;
-                        html += `<span class="inv-loc-badge">${badgeText}</span>`;
+                        const isStandard = !!l.standard;
+                        const standardClass = isStandard ? ' is-standard' : '';
+                        html += `<button type="button" class="inv-loc-badge${standardClass}" data-sublocation="${String(l.code)}" data-item-code="${String(itemCode || '')}" title="View ${String(l.code)} in Charts">${badgeText}</button>`;
                     }
                     html += `</div></div>`;
                 }
                 return html || '<div class="inventory-locations-empty">No Pyxis inventory on hand</div>';
             }
 
+            function updateCompactInventoryHeader(pyxisQty, pyxisStandardQty, pharmacyQty, pyxCaption, phxCaption) {
+                const pyxEl = document.getElementById('compactPyxisValue');
+                const phxEl = document.getElementById('compactPharmacyValue');
+                const pyxCapEl = document.getElementById('compactPyxisCaption');
+                const phxCapEl = document.getElementById('compactPharmacyCaption');
+                if (pyxEl) {
+                    pyxEl.innerHTML = pyxisQty + (pyxisStandardQty > 0 ? ` <span class="compact-standard-note">(${pyxisStandardQty} Std)</span>` : '');
+                }
+                if (phxEl) phxEl.textContent = String(pharmacyQty || 0);
+                if (pyxCapEl) pyxCapEl.textContent = pyxCaption || '';
+                if (phxCapEl) phxCapEl.textContent = phxCaption || '';
+            }
+
+            function wireInventoryBadgeActions(itemCode) {
+                const badges = document.querySelectorAll('#pyxisLocationsPanel .inv-loc-badge[data-sublocation]');
+                badges.forEach((badge) => {
+                    badge.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const sublocation = String(badge.getAttribute('data-sublocation') || '').trim();
+                        const code = String(itemCode || badge.getAttribute('data-item-code') || '').trim();
+                        if (!code || !sublocation) return;
+                        try {
+                            window.parent.postMessage({
+                                type: 'drillToItemInVerticalBar',
+                                itemCode: code,
+                                sublocation: sublocation,
+                                location: sublocation
+                            }, '*');
+                            closeDetailsModal();
+                        } catch (err) {
+                            console.warn('⚠️ Failed to send drillToItemInVerticalBar', err);
+                        }
+                    };
+                });
+            }
+
             // Build inventory breakdown section
             const inventoryBreakdownHTML = `
-                <div class="inventory-breakdown">
+                <div class="inventory-breakdown" id="inventoryBreakdown">
                     <div class="inventory-item inventory-item-clickable" id="pyxisInvCard" role="button" tabindex="0" aria-expanded="false">
                         <div class="inventory-item-header">
                             <svg class="inventory-item-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -1297,7 +1433,26 @@
                         </div>
                         <div class="inventory-item-value" id="displayPyxis">${pyx.qty}</div>
                         <div class="inventory-item-caption" id="displayPyxisCaption">${captionFor(pyx)}</div>
+
+                        <div class="inventory-expansion" id="pyxisExpansion" aria-hidden="true">
+                            <div class="inventory-expansion-header" id="pyxisExpansionHeader" role="button" tabindex="0" aria-label="Collapse location details">
+                                <div class="inventory-expansion-metric">
+                                    <span class="inventory-expansion-label">Pyxis</span>
+                                    <span class="inventory-expansion-value" id="compactPyxisValue">${pyx.qty}${pyx.standardQty > 0 ? ` <span class="compact-standard-note">(${pyx.standardQty} Std)</span>` : ''}</span>
+                                    <span class="inventory-expansion-caption" id="compactPyxisCaption">${captionFor(pyx)}</span>
+                                </div>
+                                <div class="inventory-expansion-metric">
+                                    <span class="inventory-expansion-label">Pharmacy</span>
+                                    <span class="inventory-expansion-value" id="compactPharmacyValue">${phx.qty}</span>
+                                    <span class="inventory-expansion-caption" id="compactPharmacyCaption">${captionFor(phx)}</span>
+                                </div>
+                            </div>
+                            <div class="inventory-locations-panel" id="pyxisLocationsPanel">
+                                ${buildPyxisLocationsBadges(pyx, firstItem.itemCode)}
+                            </div>
+                        </div>
                     </div>
+
                     <div class="inventory-item" id="pharmacyInvCard">
                         <div class="inventory-item-header">
                             <svg class="inventory-item-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -1309,11 +1464,8 @@
                         <div class="inventory-item-caption" id="displayPharmacyCaption">${captionFor(phx)}</div>
                     </div>
                 </div>
-                <div class="inventory-locations-panel" id="pyxisLocationsPanel" style="display:none;">
-                    ${buildPyxisLocationsBadges(pyx)}
-                </div>
             `;
-            
+
             // Build usage rate section
             const usageRateHTML = `
                 <div class="usage-rate-container">
@@ -1417,28 +1569,49 @@
             // Enable Pyxis inventory expansion (locations badges)
             (function initPyxisInventoryExpansion() {
                 const pyxisCard = document.getElementById('pyxisInvCard');
+                const pharmacyCard = document.getElementById('pharmacyInvCard');
                 const panel = document.getElementById('pyxisLocationsPanel');
-                if (!pyxisCard || !panel) return;
+                const expansion = document.getElementById('pyxisExpansion');
+                const expansionHeader = document.getElementById('pyxisExpansionHeader');
+                const breakdown = document.querySelector('.inventory-breakdown');
+                if (!pyxisCard || !pharmacyCard || !panel || !expansion || !expansionHeader || !breakdown) return;
 
-                function toggle() {
-                    const isOpen = panel.style.display !== 'none';
-                    panel.style.display = isOpen ? 'none' : 'block';
-                    pyxisCard.setAttribute('aria-expanded', String(!isOpen));
-                    pyxisCard.classList.toggle('is-expanded', !isOpen);
+                function toggle(forceOpen) {
+                    const isOpen = pyxisCard.classList.contains('is-expanded');
+                    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : !isOpen;
+                    pyxisCard.setAttribute('aria-expanded', String(nextOpen));
+                    pyxisCard.classList.toggle('is-expanded', nextOpen);
+                    pharmacyCard.classList.toggle('is-collapsed', nextOpen);
+                    breakdown.classList.toggle('is-expanded', nextOpen);
+                    expansion.setAttribute('aria-hidden', String(!nextOpen));
                 }
 
                 pyxisCard.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    toggle();
+                    if (!pyxisCard.classList.contains('is-expanded')) toggle(true);
                 });
 
                 pyxisCard.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         e.stopPropagation();
-                        toggle();
+                        if (!pyxisCard.classList.contains('is-expanded')) toggle(true);
                     }
                 });
+
+                expansionHeader.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    toggle(false);
+                });
+                expansionHeader.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggle(false);
+                    }
+                });
+
+                wireInventoryBadgeActions(firstItem.itemCode);
             })();
             
             // Insert notes section - position depends on SBAR status
@@ -1573,6 +1746,40 @@
             document.getElementById('displayETA').textContent = eta;
             document.getElementById('displayPyxis').innerHTML = pyxis + (pyxisStandard > 0 ? ` <span style="color: var(--text-secondary); font-size: 0.9em;">(${pyxisStandard} Standard)</span>` : '');
             document.getElementById('displayPharmacy').textContent = pharmacy;
+
+            const selectedInvEntry = (cachedMockData && cachedMockData.inventory && cachedMockData.inventory[selectedItem.itemCode])
+                ? cachedMockData.inventory[selectedItem.itemCode]
+                : null;
+            let selectedSublocations = [];
+            if (selectedInvEntry && Array.isArray(selectedInvEntry.sublocations)) {
+                selectedSublocations = selectedInvEntry.sublocations;
+            } else if (selectedInvEntry && typeof selectedInvEntry === 'object') {
+                selectedSublocations = Object.keys(selectedInvEntry).map(code => {
+                    const row = selectedInvEntry[code] || {};
+                    return {
+                        sublocation: code,
+                        curQty: Number(row.qty ?? row.curQty ?? 0),
+                        minQty: Number(row.min ?? row.minQty ?? 0),
+                        maxQty: Number(row.max ?? row.maxQty ?? 0),
+                        standard: !!row.standard,
+                        standardQty: Number(row.standardQty ?? 0),
+                        pocket: row.pocket,
+                        expires: row.expires || row.expiry || ''
+                    };
+                });
+            }
+            const selectedGroups = buildDeptBreakdown(selectedSublocations);
+            const selectedPyx = selectedGroups.depts.Pyxis;
+            const selectedPhx = selectedGroups.depts.Pharmacy;
+
+            updateCompactInventoryHeader(pyxis, pyxisStandard, pharmacy, captionFor(selectedPyx), captionFor(selectedPhx));
+
+            const pyxisPanel = document.getElementById('pyxisLocationsPanel');
+            if (pyxisPanel) {
+                pyxisPanel.innerHTML = buildPyxisLocationsBadges(selectedPyx, selectedItem.itemCode);
+                wireInventoryBadgeActions(selectedItem.itemCode);
+            }
+
             document.getElementById('displayUsageRate').textContent = usageRateDisplay;
             
             const daysRemainingHTML = daysRemaining !== '∞' ? 
@@ -2039,6 +2246,7 @@
                 
                 // Process usage rate with enhanced algorithm
                 let effectiveUsageRate, usageRateSlope = 0;
+                let baselineWeeklyUsage = 0;
                 
                 if (Array.isArray(usageRateOriginal) && usageRateOriginal.length > 0) {
                     const analysis = calculateTrueUsageRate(usageRateOriginal, item.status);
@@ -2051,18 +2259,29 @@
                         effectiveUsageRate = analysis.dailyBaseline;
                         usageRateSlope = analysis.dailySlope;
                     }
+                    baselineWeeklyUsage = (Number(analysis.weeklyBaseline) || (Number(effectiveUsageRate) || 0) * 7);
                 } else if (Array.isArray(usageRateOriginal) && usageRateOriginal.length === 1) {
                     effectiveUsageRate = usageRateOriginal[0];
+                    baselineWeeklyUsage = (Number(effectiveUsageRate) || 0) * 7;
                 } else {
                     effectiveUsageRate = usageRateOriginal;
+                    baselineWeeklyUsage = (Number(effectiveUsageRate) || 0) * 7;
                 }
+
+                const weightedUsage = getWeightedWeeklyUsage(item.itemCode, baselineWeeklyUsage, {
+                    getTrendFactForItem,
+                    getSpikeFactorForItem
+                });
+                const weightedDailyUsage = Math.max(0, (Number(weightedUsage.weightedWeeklyUsage) || 0) / 7);
+                const slopeScale = (effectiveUsageRate > 0) ? (weightedDailyUsage / effectiveUsageRate) : 1;
+                const adjustedUsageRateSlope = usageRateSlope * (Number.isFinite(slopeScale) ? slopeScale : 1);
                 
                 // Use the global max range (earliest ETA) for all projections
                 const dataPoints = [];
                 let cumulativeQty = qty;
                 
                 for (let day = 0; day <= maxRangeDays; day++) {
-                    const dayUsageRate = effectiveUsageRate + (usageRateSlope * day);
+                    const dayUsageRate = weightedDailyUsage + (adjustedUsageRateSlope * day);
                     const actualUsageRate = Math.max(0, dayUsageRate);
                     dataPoints.push({ day, qty: cumulativeQty, usageRate: actualUsageRate });
                     cumulativeQty -= actualUsageRate;
@@ -2080,7 +2299,14 @@
                     color: isTarget ? '#11998e' : `rgba(100, 100, 100, ${grayShade})`,
                     lineWidth: isTarget ? 2.5 : 1.5,
                     isTarget,
-                    itemIndex
+                    itemIndex,
+                    itemCode: item.itemCode,
+                    usageDetails: {
+                        baselineWeeklyUsage: weightedUsage.baselineWeeklyUsage,
+                        weightedWeeklyUsage: weightedUsage.weightedWeeklyUsage,
+                        trendMult: weightedUsage.trendMult,
+                        spikeMult: weightedUsage.spikeMult
+                    }
                 };
             });
             
@@ -2272,7 +2498,7 @@
                                 <svg class="chart-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                                     <path d="M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z"/>
                                 </svg>
-                                ${nearestItem.description}
+                                ${nearestItem.description} · ${(Number((nearestItem.usageDetails || {}).baselineWeeklyUsage) || 0).toFixed(1)}/wk → ${(Number((nearestItem.usageDetails || {}).weightedWeeklyUsage) || 0).toFixed(1)}/wk (t×${(Number((nearestItem.usageDetails || {}).trendMult) || 1).toFixed(2)}, s×${(Number((nearestItem.usageDetails || {}).spikeMult) || 1).toFixed(2)})
                             `;
                         }
                     }
@@ -2313,6 +2539,38 @@
                     drawInventoryProjectionChart(items, targetIndex);
                 }
             };
+
+            window.debugProjection = function(itemCode) {
+                const code = String(itemCode || '').trim();
+                const found = itemProjections.find((p) => String(p.itemCode || '').trim() === code) || itemProjections[targetIndex] || itemProjections[0];
+                if (!found) return null;
+                const details = found.usageDetails || {};
+                const sample = (found.dataPoints || []).slice(0, 3);
+                const payload = {
+                    itemCode: found.itemCode,
+                    description: found.description,
+                    baselineWeeklyUsage: Number(details.baselineWeeklyUsage) || 0,
+                    weightedWeeklyUsage: Number(details.weightedWeeklyUsage) || 0,
+                    trendMult: Number(details.trendMult) || 1,
+                    spikeMult: Number(details.spikeMult) || 1,
+                    first3ProjectedPoints: sample
+                };
+                console.log('🧪 debugProjection', payload);
+                return payload;
+            };
+
+            if (window[PROJECTION_DEBUG_FLAG] && itemProjections[targetIndex]) {
+                const p = itemProjections[targetIndex];
+                const d = p.usageDetails || {};
+                console.log('🧪 Projection diagnostics (shortage)', {
+                    itemCode: p.itemCode,
+                    baselineWeeklyUsage: d.baselineWeeklyUsage,
+                    trendMult: d.trendMult,
+                    spikeMult: d.spikeMult,
+                    weightedWeeklyUsage: d.weightedWeeklyUsage,
+                    first3ProjectedPoints: (p.dataPoints || []).slice(0, 3)
+                });
+            }
         }
 
         function openSbarFile() {
