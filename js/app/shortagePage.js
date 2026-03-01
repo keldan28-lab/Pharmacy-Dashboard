@@ -2597,7 +2597,7 @@
                                 <svg class="chart-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                                     <path d="M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z"/>
                                 </svg>
-                                ${nearestItem.description} · ${(Number((nearestItem.usageDetails || {}).baselineWeeklyUsage) || 0).toFixed(1)}/wk → ${(Number((nearestItem.usageDetails || {}).weightedWeeklyUsage) || 0).toFixed(1)}/wk (t×${(Number((nearestItem.usageDetails || {}).trendMult) || 1).toFixed(2)}, s×${(Number((nearestItem.usageDetails || {}).spikeMult) || 1).toFixed(2)})
+                                ${nearestItem.description}
                             `;
                         }
                     }

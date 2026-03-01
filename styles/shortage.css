@@ -2098,6 +2098,12 @@
             cursor: pointer;
         }
 
+        
+        .inventory-expansion-header:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+        }
+
         .inventory-expansion-header:focus-visible {
             outline: 2px solid rgba(17, 153, 142, 0.65);
             outline-offset: 2px;
@@ -2208,6 +2214,12 @@
             letter-spacing: 0.2px;
         }
 
+
+        
+        .inv-loc-badge:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+        }
 
         .inv-loc-badge.is-standard {
             border-color: rgba(255, 127, 80, 0.65);

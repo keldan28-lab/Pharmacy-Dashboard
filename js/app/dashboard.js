@@ -3158,6 +3158,9 @@ Subloc: ${counts.subloc}`);
                 if (tab === 'shortage') {
                     tab = 'inventory';
                     console.log('📋 Remapping shortage tab to inventory tab');
+                } else if (tab === 'dashboard') {
+                    tab = 'overview';
+                    console.log('📋 Remapping dashboard tab to overview tab');
                 }
                 
                 // Find the tab button and trigger click based on the requested tab

@@ -11077,15 +11077,20 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                 ctx.font = '10px system-ui';
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'middle';
+
+                const scaleRoundStep = (maxValue <= 50) ? 5 : (maxValue <= 500) ? 10 : (maxValue <= 5000) ? 100 : 1000;
+                const scaleLabelX = padding.left + 5; // extra left padding to avoid clipping
+
                 for (let g = 0; g <= gridSteps; g++) {
                     const ratio = g / gridSteps;
                     const y = baseY - (ratio * chartHeight);
-                    const scaleVal = Math.round(maxValue * ratio);
+                    const rawVal = maxValue * ratio;
+                    const scaleVal = Math.round(rawVal / scaleRoundStep) * scaleRoundStep;
                     ctx.beginPath();
                     ctx.moveTo(padding.left, y);
                     ctx.lineTo(padding.left + chartWidth, y);
                     ctx.stroke();
-                    ctx.fillText(String(scaleVal), padding.left - 4, y);
+                    ctx.fillText(String(scaleVal), scaleLabelX, y);
                 }
                 ctx.restore();
             })();
