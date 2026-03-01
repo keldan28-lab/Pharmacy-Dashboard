@@ -11066,6 +11066,24 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
             }
             maxValue = Math.max(1, maxValue);
 
+            // Horizontal grid lines for vertical bar chart (scale-relative, no axis labels)
+            (function drawBarChartHorizontalGrid(){
+                const gridSteps = 5;
+                const baseY = displayHeight - padding.bottom;
+                ctx.save();
+                ctx.strokeStyle = 'rgba(200, 205, 210, 0.65)';
+                ctx.lineWidth = 0.8;
+                for (let g = 0; g <= gridSteps; g++) {
+                    const ratio = g / gridSteps;
+                    const y = baseY - (ratio * chartHeight);
+                    ctx.beginPath();
+                    ctx.moveTo(padding.left, y);
+                    ctx.lineTo(padding.left + chartWidth, y);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            })();
+
             try {
                 console.log('🧩 VBar diagnostics (scale):', {
                     weekCount,

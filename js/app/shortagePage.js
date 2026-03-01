@@ -15,6 +15,11 @@
         // ==================================================================================
         let previousPage = null;
         let backButtonVisible = false;
+        let currentFilter = {
+            type: null,
+            value: null,
+            itemCodes: null
+        };
         
         // Listen for navigation messages that include referrer information
         window.addEventListener('message', (event) => {
@@ -31,6 +36,8 @@
                     console.log('📍 Inventory: Referrer set (state preserved):', previousPage);
 
                     if (event.data.isBackNavigation) {
+                        restoreTableViewState();
+
                         const restore = readModalRestoreState();
                         if (restore && restore.keepOpenOnReturn && Array.isArray(restore.items) && restore.items.length > 0) {
                             setTimeout(() => {
@@ -265,6 +272,7 @@
                     const code = String(itemCode || badge.getAttribute('data-item-code') || '').trim();
                     if (!code || !sublocation) return;
                     try {
+                        saveTableViewState();
                         saveModalRestoreState({
                             keepOpenOnReturn: true,
                             selectedIndex: currentSelectedIndex,
@@ -1281,6 +1289,61 @@
         let currentSelectedIndex = 0;
         let chartHoveredItemIndex = null;
         const MODAL_RESTORE_KEY = '__inventoryModalRestoreState';
+        const TABLE_VIEW_RESTORE_KEY = '__inventoryTableViewState';
+
+        function saveTableViewState() {
+            try {
+                const tableContainer = document.querySelector('.table-container');
+                const searchInput = document.getElementById('searchInput');
+                const payload = {
+                    currentFilter: currentFilter ? JSON.parse(JSON.stringify(currentFilter)) : null,
+                    searchTerm: searchInput ? String(searchInput.value || '') : '',
+                    scrollTop: tableContainer ? Number(tableContainer.scrollTop || 0) : 0,
+                    savedAt: Date.now()
+                };
+                sessionStorage.setItem(TABLE_VIEW_RESTORE_KEY, JSON.stringify(payload));
+            } catch (_) {}
+        }
+
+        function readTableViewState() {
+            try {
+                const raw = sessionStorage.getItem(TABLE_VIEW_RESTORE_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function clearTableViewState() {
+            try { sessionStorage.removeItem(TABLE_VIEW_RESTORE_KEY); } catch (_) {}
+        }
+
+        function restoreTableViewState() {
+            const state = readTableViewState();
+            if (!state) return;
+
+            try {
+                if (state.currentFilter && typeof state.currentFilter === 'object') {
+                    currentFilter = state.currentFilter;
+                }
+
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput && typeof state.searchTerm === 'string') {
+                    searchInput.value = state.searchTerm;
+                }
+
+                const applyDone = () => {
+                    const tableContainer = document.querySelector('.table-container');
+                    if (tableContainer) tableContainer.scrollTop = Number(state.scrollTop || 0);
+                };
+
+                if (currentFilter && currentFilter.type) {
+                    Promise.resolve(applyCurrentFilter()).then(() => setTimeout(applyDone, 0)).catch(() => setTimeout(applyDone, 0));
+                } else {
+                    Promise.resolve(autoLoadJSON()).then(() => setTimeout(applyDone, 0)).catch(() => setTimeout(applyDone, 0));
+                }
+            } catch (_) {}
+        }
 
         function saveModalRestoreState(state) {
             try {
@@ -2656,7 +2719,7 @@
             direction: 'asc'
         };
         
-        let currentFilter = {
+        currentFilter = {
             type: null,  // 'critical', 'resolved', 'lowSupply', 'fdaShortages', 'search', null
             value: null,  // filter value (e.g., search term)
             itemCodes: null  // array of itemCodes for FDA shortages filter

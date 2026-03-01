@@ -2082,6 +2082,10 @@
             display: none;
         }
 
+        #pyxisInvCard.is-expanded > .inventory-item-caption {
+            display: none;
+        }
+
         .inventory-expansion-header {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
