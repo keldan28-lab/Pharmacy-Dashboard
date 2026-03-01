@@ -1470,12 +1470,9 @@ Subloc: ${counts.subloc}`);
                     if (tabName === 'inventory') {
                         const inventoryFrame = document.getElementById('inventoryFrame');
                         if (inventoryFrame && inventoryFrame.contentWindow) {
-                            // Clear filters when navigating from sidebar
-                            inventoryFrame.contentWindow.postMessage({
-                                type: 'clearFilters'
-                            }, '*');
-                            console.log('🧹 Sent clearFilters to inventory (sidebar navigation)');
-                            
+                            // Preserve iframe state when switching tabs (do not clear filters automatically).
+                            console.log('📌 Preserving inventory iframe state on tab switch');
+
                             // Send referrer notification for back button
                             setTimeout(() => {
                                 inventoryFrame.contentWindow.postMessage({
@@ -1487,25 +1484,29 @@ Subloc: ${counts.subloc}`);
                             }, 100);
                         }
                     } else if (tabName === 'optimization') {
-                    const stockoutFrame = document.getElementById('optimizationFrame');
-                    if (stockoutFrame && stockoutFrame.contentWindow) {
-                        stockoutFrame.contentWindow.focus();
-                    }
-                } else if (tabName === 'analytics') {
+                        const optimizationFrame = document.getElementById('optimizationFrame');
+                        if (optimizationFrame && optimizationFrame.contentWindow) {
+                            console.log('📌 Preserving optimization iframe state on tab switch');
+                            setTimeout(() => {
+                                optimizationFrame.contentWindow.postMessage({
+                                    type: 'setReferrer',
+                                    referrer: previousTab,
+                                    isBackNavigation: (window.__lastIsBackNavigation === true)
+                                }, '*');
+                                console.log('📍 Notified optimization of referrer:', previousTab);
+                            }, 100);
+                        }
+                    } else if (tabName === 'analytics') {
                         const analyticsFrame = document.getElementById('analyticsFrame');
                         if (analyticsFrame && analyticsFrame.contentWindow) {
-                            // Only clear filters if not coming from a specific navigation request
+                            // Preserve iframe state when switching tabs (do not clear filters automatically).
                             if (window.skipNextClearFilters) {
-                                console.log('⏭️ Skipping clearFilters - specific navigation in progress');
+                                console.log('⏭️ Specific navigation in progress (state preserved)');
                                 window.skipNextClearFilters = false;
                             } else {
-                                // Clear filters when navigating from sidebar
-                                analyticsFrame.contentWindow.postMessage({
-                                    type: 'clearFilters'
-                                }, '*');
-                                console.log('🧹 Sent clearFilters to analytics (sidebar navigation)');
+                                console.log('📌 Preserving analytics iframe state on tab switch');
                             }
-                            
+
                             // Send referrer notification for back button
                             setTimeout(() => {
                                 analyticsFrame.contentWindow.postMessage({
@@ -3165,6 +3166,9 @@ Subloc: ${counts.subloc}`);
                 if (tab === 'shortage') {
                     tab = 'inventory';
                     console.log('📋 Remapping shortage tab to inventory tab');
+                } else if (tab === 'dashboard') {
+                    tab = 'overview';
+                    console.log('📋 Remapping dashboard tab to overview tab');
                 }
                 
                 // Find the tab button and trigger click based on the requested tab

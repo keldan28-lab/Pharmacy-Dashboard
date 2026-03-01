@@ -3774,10 +3774,82 @@ if (metric === 'min'){
   });
 }
 
+
+// Back-button style navigation parity with Inventory/Charts pages
+let optimizationPreviousPage = null;
+let optimizationBackButtonVisible = false;
+
+function ensureOptimizationBackButton() {
+  let backButton = document.getElementById('backButton');
+  if (backButton) return backButton;
+
+  const headerContent = document.querySelector('.charts-header .header-content');
+  if (!headerContent) return null;
+
+  let headerRight = headerContent.querySelector('.header-right');
+  if (!headerRight) {
+    headerRight = document.createElement('div');
+    headerRight.className = 'header-right';
+    headerContent.appendChild(headerRight);
+  }
+
+  backButton = document.createElement('div');
+  backButton.id = 'backButton';
+  backButton.className = 'back-button';
+  backButton.setAttribute('role', 'button');
+  backButton.setAttribute('tabindex', '0');
+  backButton.setAttribute('aria-label', 'Back');
+  backButton.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"/></svg>';
+  headerRight.appendChild(backButton);
+
+  const goBack = () => {
+    if (optimizationPreviousPage && window.parent) {
+      window.parent.postMessage({
+        type: 'navigateToTab',
+        tab: optimizationPreviousPage,
+        isBackNavigation: true
+      }, '*');
+      backButton.classList.remove('visible');
+      optimizationBackButtonVisible = false;
+      optimizationPreviousPage = null;
+    }
+  };
+
+  backButton.addEventListener('click', goBack);
+  backButton.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      goBack();
+    }
+  });
+
+  return backButton;
+}
 // Messaging
 window.addEventListener('message', function(e){
   const msg = e && e.data;
   if (!msg || typeof msg !== 'object' || !msg.type) return;
+
+  const backButton = ensureOptimizationBackButton();
+  if (msg.type === 'setReferrer') {
+    if (msg.referrer && msg.referrer !== null) {
+      optimizationPreviousPage = msg.referrer;
+      if (backButton) {
+        backButton.classList.add('visible');
+        optimizationBackButtonVisible = true;
+      }
+    }
+    return;
+  }
+  if (msg.type === 'navigateWithFilter') {
+    if (msg.referrer && msg.referrer !== null) {
+      optimizationPreviousPage = msg.referrer;
+      if (backButton) {
+        backButton.classList.add('visible');
+        optimizationBackButtonVisible = true;
+      }
+    }
+  }
 
   if (msg.type === 'mockDataResponse' || msg.type === 'sendMockData'){
     window.__optLastRaw = _getRawFromMessage(msg);
@@ -3932,7 +4004,7 @@ function _openMinSuggestionReport(){
 
     const row = {
       itemCode: code,
-      itemName: code,
+      itemName: String(meta.description || meta.drugName || meta.name || code),
       sublocation: sub,
       location: loc,
       curMin,
@@ -3966,7 +4038,9 @@ function _openMinSuggestionReport(){
     table{ width:100%; border-collapse:collapse; font-size:12px; }
     th,td{ padding:6px 8px; border-bottom:1px solid #ddd; text-align:left; vertical-align:top; }
     th{ background:#f6f6f6; position:sticky; top:0; }
-    .num{ text-align:right; font-variant-numeric: tabular-nums; }
+    .num{ text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
+    .item-col{ width: 260px; max-width: 260px; }
+    .item-wrap{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient: vertical; overflow:hidden; line-height:1.25; }
     .inc{ font-weight:700; }
     .dec{ font-weight:700; }
     @media print{ button{ display:none; } h2{ page-break-after: avoid; } }
@@ -4002,15 +4076,15 @@ const sNetSign = (sNet>0)?'+':'';
 const sCostSign = (sCost>0)?'+':'';
 html += `<div class="meta">Adjustments: ${esc(String(sInc))} increase • ${esc(String(sDec))} decrease • Net ΔMin: ${esc(sNetSign+String(Math.round(sNet)))} • Est $: ${esc(sCostSign+'$'+Math.round(Math.abs(sCost)).toLocaleString())}</div>`;
       html += `<table><thead><tr>`+
-              `<th>Item</th><th>Code</th><th>Action</th>`+
+              `<th class="item-col">Items</th><th>ADS</th><th>Action</th>`+
               `<th class="num">Min</th><th class="num">Suggested</th><th class="num">Δ</th>`+
-              `<th class="num">Lead</th><th class="num">Demand/d</th><th class="num">Cover</th><th class="num">SS</th><th class="num">Unit</th><th class="num">Δ$</th>`+
+              `<th class="num">Lead</th><th class="num">Demand/d</th><th class="num">Cover</th><th class="num">SS</th><th class="num">Δ</th>`+
               `</tr></thead><tbody>`;
       for (const r of rows){
         const cls = (r.delta >= thr) ? 'inc' : 'dec';
         const sign = (r.delta > 0) ? '+' : '';
         html += `<tr>`+
-                `<td>${esc(r.itemName||'')}</td>`+
+                `<td class="item-col"><div class="item-wrap">${esc(r.itemName||'')}</div></td>`+
                 `<td>${esc(r.itemCode||'')}</td>`+
                 `<td class="${cls}">${esc(r.bucket)}</td>`+
                 `<td class="num">${esc(fmt(r.curMin,0))}</td>`+
@@ -4020,8 +4094,7 @@ html += `<div class="meta">Adjustments: ${esc(String(sInc))} increase • ${esc(
                 `<td class="num">${esc(fmt(r.demand,2))}</td>`+
                 `<td class="num">${esc(fmt(r.coverDays,1))}d</td>`+
                 `<td class="num">${esc(fmt(r.safetyStock,1))}</td>`+
-                `<td class="num">$${esc(fmt(r.unitCost,2))}</td>`+
-                `<td class="num">${esc((r.deltaCost>=0?'+':'-')+'$'+Math.round(Math.abs(_num(r.deltaCost,0))).toLocaleString())}</td>`+
+                `<td class="num">${esc((r.deltaCost>=0?'+':'-')+String(Math.round(Math.abs(_num(r.deltaCost,0))).toLocaleString()))}</td>`+
                 `</tr>`;
       }
       html += `</tbody></table>`;

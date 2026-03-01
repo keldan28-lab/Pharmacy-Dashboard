@@ -7333,7 +7333,7 @@ function dateToISO(d) {
                 const startY = y + (barHeight - totalTextHeight) / 2 + (lineHeight / 2);
                 
                 displayLines.forEach((line, i) => {
-                    ctx.fillText(line, leftPadding - 10, startY + (i * lineHeight));
+                    ctx.fillText(line, leftPadding - 5, startY + (i * lineHeight));
                 });
                 
                 // Draw value at end of bar (only visible when hovered for non-navigation items)
@@ -11065,6 +11065,39 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                 maxValue = seriesMax(aggregatedData.waste);
             }
             maxValue = Math.max(1, maxValue);
+
+            // Horizontal grid lines for vertical bar chart (scale-relative, with scale values)
+            (function drawBarChartHorizontalGrid(){
+                const gridSteps = 5;
+                const baseY = displayHeight - padding.bottom;
+                ctx.save();
+                ctx.strokeStyle = 'rgba(200, 205, 210, 0.65)';
+                ctx.lineWidth = 0.8;
+                ctx.fillStyle = 'rgba(120, 130, 140, 0.9)';
+                ctx.font = '10px system-ui';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'middle';
+
+                const rawMaxValue = maxValue;
+                const scaleRoundStep = (rawMaxValue <= 50) ? 5 : (rawMaxValue <= 500) ? 10 : (rawMaxValue <= 5000) ? 100 : 1000;
+                const alignedMaxValue = Math.max(scaleRoundStep, Math.ceil(rawMaxValue / scaleRoundStep) * scaleRoundStep);
+                const scaleLabelX = padding.left + 25; // shift right to avoid clipping on left edge
+
+                // Align bar scaling with grid/scale labels
+                maxValue = alignedMaxValue;
+
+                for (let g = 0; g <= gridSteps; g++) {
+                    const ratio = g / gridSteps;
+                    const y = baseY - (ratio * chartHeight);
+                    const scaleVal = Math.round((alignedMaxValue * ratio) / scaleRoundStep) * scaleRoundStep;
+                    ctx.beginPath();
+                    ctx.moveTo(padding.left, y);
+                    ctx.lineTo(padding.left + chartWidth, y);
+                    ctx.stroke();
+                    ctx.fillText(String(scaleVal), scaleLabelX, y - 5);
+                }
+                ctx.restore();
+            })();
 
             try {
                 console.log('🧩 VBar diagnostics (scale):', {
