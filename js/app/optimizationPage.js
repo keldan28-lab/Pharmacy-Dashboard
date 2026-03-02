@@ -141,7 +141,15 @@ function _getSublocationMap(){
 
 function _mapEntryForSubloc(subloc, ref){
   if (!ref || !subloc) return null;
-  return ref[subloc] || null;
+  if (ref[subloc]) return ref[subloc];
+
+  // Fallback to case-insensitive match so keys like "Frig R107" are found
+  // even when incoming transaction/inventory sublocation casing differs.
+  const target = _normLocToken(subloc);
+  for (const k of Object.keys(ref)) {
+    if (_normLocToken(k) === target) return ref[k];
+  }
+  return null;
 }
 
 function _departmentForSubloc(subloc, ref){
