@@ -3538,10 +3538,9 @@ function applyFlowOverrideFromVerticalBarSelection() {
                     }
 }, 'loc'));
 
-            // Sublocation toggles for selected location (hidden until loc chosen)
-	            if (curLoc && curLoc !== 'ALL') {
-	                const subChoices = (map.byLocation && map.byLocation[curLoc]) ? map.byLocation[curLoc] : [];
-	                container.appendChild(_mkToggleBar(subChoices, curSub, (val)=>{
+            // Keep sublocation toggle visible in vertical view.
+            const subChoices = (curLoc && curLoc !== 'ALL' && map.byLocation && map.byLocation[curLoc]) ? map.byLocation[curLoc] : ['ALL'];
+            container.appendChild(_mkToggleBar(subChoices, curSub, (val)=>{
                         costChartState.itemSublocFilter = String(val);
                         try {
                             console.log('🧭 Toggle pick (Sublocation):', {
@@ -3556,7 +3555,6 @@ function applyFlowOverrideFromVerticalBarSelection() {
                             try { scheduleChartsRedraw('sublocFilter'); } catch(e) {}
                         }
 }, 'subloc'));
-            }
             return container;
         }
 
@@ -11034,7 +11032,7 @@ if (!__vbLocOn && !__vbSublocOnEff) {
                 top: 50,
                 right: 15,
                 bottom: 90,
-                left: 15
+                left: 58
             };
             const chartWidth = Math.max(10, displayWidth - padding.left - padding.right);
             const chartHeight = Math.max(10, displayHeight - padding.top - padding.bottom);
@@ -11081,7 +11079,7 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                 const rawMaxValue = maxValue;
                 const scaleRoundStep = (rawMaxValue <= 50) ? 5 : (rawMaxValue <= 500) ? 10 : (rawMaxValue <= 5000) ? 100 : 1000;
                 const alignedMaxValue = Math.max(scaleRoundStep, Math.ceil(rawMaxValue / scaleRoundStep) * scaleRoundStep);
-                const scaleLabelX = padding.left + 25; // shift right to avoid clipping on left edge
+                const scaleLabelX = padding.left - 8; // keep y-scale labels left of first bar
 
                 // Align bar scaling with grid/scale labels
                 maxValue = alignedMaxValue;

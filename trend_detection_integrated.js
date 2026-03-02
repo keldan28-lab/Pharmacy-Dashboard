@@ -1487,7 +1487,7 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
             // Categorize based on direction
             if (tm.direction === 'increasing') {
                 trendingUp.push(trendingItem);
-            } else {
+            } else if (tm.direction === 'decreasing') {
                 trendingDown.push(trendingItem);
             }
             
