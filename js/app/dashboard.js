@@ -571,36 +571,99 @@ function _trendMathDefaults() {
     return cfg;
 }
 
+function _trendParamMeta(key, defaultValue) {
+    const isWeeks = /Weeks$/i.test(key);
+    const isInteger = isWeeks || key === 'shortWindowWeeks' || key === 'spikeLookbackWeeks' || key === 'spikeRecentWeeks' || key === 'usageScale';
+    const step = isInteger ? 1 : (Math.abs(defaultValue) >= 10 ? 0.1 : 0.01);
+
+    if (isInteger) {
+        const base = Math.max(1, Number(defaultValue) || 1);
+        return { min: 1, max: Math.max(200, Math.ceil(base * 5)), step };
+    }
+
+    const absBase = Math.max(Math.abs(Number(defaultValue) || 0), 0.1);
+    const min = 0;
+    const max = Math.max(absBase * 5, 1);
+    return { min, max, step };
+}
+
+function _setTrendParamValue(key, value) {
+    const rangeEl = document.querySelector(`[data-trend-param-slider="${key}"]`);
+    const numEl = document.querySelector(`[data-trend-param-number="${key}"]`);
+    const valueEl = document.querySelector(`[data-trend-param-value="${key}"]`);
+    if (rangeEl) rangeEl.value = String(value);
+    if (numEl) numEl.value = String(value);
+    if (valueEl) valueEl.textContent = String(value);
+}
+
 function _renderTrendMathParams() {
     const box = document.getElementById('trendMathParamsContainer');
     if (!box || box.dataset.rendered === '1') return;
     const defaults = _trendMathDefaults();
+
     box.innerHTML = TREND_MATH_PARAM_KEYS.map((k) => {
         const dv = Number.isFinite(defaults[k]) ? defaults[k] : 0;
-        return `<label style="display:flex;flex-direction:column;font-size:12px;color:var(--text-primary)">${k}<input data-trend-param="${k}" type="number" step="any" value="${dv}" style="margin-top:4px;padding:6px;border-radius:6px;border:1px solid var(--border-color);"></label>`;
+        const meta = _trendParamMeta(k, dv);
+        return `
+          <div class="slider-control" style="margin-top: 8px;">
+            <div class="slider-label">
+              <span class="slider-label-text">${k}</span>
+              <span class="slider-value" data-trend-param-value="${k}">${dv}</span>
+            </div>
+            <input type="range" class="slider-input"
+                   data-trend-param-slider="${k}"
+                   min="${meta.min}" max="${meta.max}" step="${meta.step}" value="${dv}">
+            <div style="margin-top:8px;">
+              <input type="number" data-trend-param-number="${k}" value="${dv}" min="${meta.min}" max="${meta.max}" step="${meta.step}"
+                     style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border-color);background:var(--card-bg);color:var(--text-primary);">
+            </div>
+          </div>`;
     }).join('');
+
+    box.querySelectorAll('[data-trend-param-slider]').forEach((rangeEl) => {
+        rangeEl.addEventListener('input', () => {
+            const key = rangeEl.getAttribute('data-trend-param-slider');
+            _setTrendParamValue(key, rangeEl.value);
+        });
+    });
+
+    box.querySelectorAll('[data-trend-param-number]').forEach((numEl) => {
+        numEl.addEventListener('input', () => {
+            const key = numEl.getAttribute('data-trend-param-number');
+            const rangeEl = document.querySelector(`[data-trend-param-slider="${key}"]`);
+            let val = Number(numEl.value);
+            if (!Number.isFinite(val)) return;
+            if (rangeEl) {
+                const min = Number(rangeEl.min);
+                const max = Number(rangeEl.max);
+                if (Number.isFinite(min)) val = Math.max(min, val);
+                if (Number.isFinite(max)) val = Math.min(max, val);
+            }
+            _setTrendParamValue(key, val);
+        });
+    });
+
     box.dataset.rendered = '1';
 }
 
 function _loadTrendMathParamsFromStorage() {
     const defaults = _trendMathDefaults();
     for (const key of TREND_MATH_PARAM_KEYS) {
-        const el = document.querySelector(`[data-trend-param="${key}"]`);
-        if (!el) continue;
         const raw = localStorage.getItem('trendMath_' + key);
-        el.value = (raw == null || raw === '') ? String(defaults[key] ?? '') : raw;
+        const val = (raw == null || raw === '') ? (defaults[key] ?? '') : raw;
+        _setTrendParamValue(key, val);
     }
 }
 
 function _saveTrendMathParamsToStorage() {
     const defaults = _trendMathDefaults();
     for (const key of TREND_MATH_PARAM_KEYS) {
-        const el = document.querySelector(`[data-trend-param="${key}"]`);
+        const el = document.querySelector(`[data-trend-param-number="${key}"]`);
         if (!el) continue;
         const n = Number(el.value);
         const v = Number.isFinite(n) ? n : Number(defaults[key] ?? 0);
         localStorage.setItem('trendMath_' + key, String(v));
-        el.value = String(v);
+        _setTrendParamValue(key, v);
     }
 }
 
