@@ -12642,6 +12642,8 @@ if (view === 'all') {
                     
                     if (costChartState.verticalBarPositions) {
                         for (let bar of costChartState.verticalBarPositions) {
+                            const barValue = Number(bar && bar.value);
+                            if (!Number.isFinite(barValue) || barValue <= 0) continue;
                             if (x >= bar.x && x <= bar.x + bar.width &&
                                 y >= bar.y && y <= bar.y + bar.height) {
                                 hoveredBarIndex = bar.weekIndex;
