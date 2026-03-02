@@ -453,22 +453,44 @@ function _ingestTrendFactsRows(rows) {
   let maxComputedOn = null;
 
   if (!Array.isArray(rows) || !rows.length) return null;
-  const header = Array.isArray(rows[0]) ? rows[0].map(v => String(v || '').trim()) : null;
-  if (!header || header.indexOf('itemCode') === -1 || header.indexOf('spikeMultiplier') === -1) return null;
 
-  const idx = Object.fromEntries(header.map((h, i) => [h, i]));
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const itemCode = String(row[idx.itemCode] || '').trim();
+  // Accept either array-of-arrays with a header row or array-of-objects.
+  let rowReader = null;
+  if (Array.isArray(rows[0])) {
+    const header = rows[0].map(v => String(v || '').trim());
+    if (header.indexOf('itemCode') === -1 || header.indexOf('spikeMultiplier') === -1) return null;
+    const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+    rowReader = (row) => ({
+      itemCode: row[idx.itemCode],
+      spikeMultiplier: row[idx.spikeMultiplier],
+      location: row[idx.location] || row[idx.sendToLocation],
+      calculatedAt: row[idx.calculatedAt]
+    });
+    rows = rows.slice(1);
+  } else if (rows[0] && typeof rows[0] === 'object') {
+    if (!('itemCode' in rows[0]) || !('spikeMultiplier' in rows[0])) return null;
+    rowReader = (row) => ({
+      itemCode: row.itemCode,
+      spikeMultiplier: row.spikeMultiplier,
+      location: row.location || row.sendToLocation,
+      calculatedAt: row.calculatedAt
+    });
+  } else {
+    return null;
+  }
+
+  for (const row of rows) {
+    const mapped = rowReader(row || {});
+    const itemCode = String(mapped.itemCode || '').trim();
     if (!itemCode) continue;
-    const mult = Number(row[idx.spikeMultiplier]);
+    const mult = Number(mapped.spikeMultiplier);
     const safeMult = Number.isFinite(mult) ? mult : 1;
     itemMap[itemCode] = safeMult;
 
-    const locVal = String(row[idx.location] || row[idx.sendToLocation] || '').trim().toUpperCase();
+    const locVal = String(mapped.location || '').trim().toUpperCase();
     if (locVal) itemLocMap[`${itemCode}|${locVal}`] = safeMult;
 
-    const calcAt = String(row[idx.calculatedAt] || '').trim();
+    const calcAt = String(mapped.calculatedAt || '').trim();
     if (calcAt && (!maxComputedOn || new Date(calcAt) > new Date(maxComputedOn))) maxComputedOn = calcAt;
   }
 

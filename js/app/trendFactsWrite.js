@@ -179,7 +179,7 @@ let writtenTotal = 0;
         `&tabName=${encodeURIComponent(tabName)}` +
         `&payload=${payload}`;
 
-      console.log("[TrendFacts] chunk append", { tabName, chunk: 1, from: 0, count: 1 });
+      console.log("[TrendFacts] chunk append", { tabName, chunk: chunks, from: i, count: chunkRows.length });
       const res = await _jsonp(url, 25000);
       if (!res || res.ok !== true) {
         throw new Error(`chunk ${chunks} failed: ` + (res?.error || "unknown error"));
