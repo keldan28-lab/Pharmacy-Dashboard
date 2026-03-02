@@ -141,12 +141,38 @@ function _getSublocationMap(){
 
 function _mapEntryForSubloc(subloc, ref){
   if (!ref || !subloc) return null;
-  return ref[subloc] || null;
+  if (ref[subloc]) return ref[subloc];
+
+  // Fallback to case-insensitive match so keys like "Frig R107" are found
+  // even when incoming transaction/inventory sublocation casing differs.
+  const target = _normLocToken(subloc);
+  for (const k of Object.keys(ref)) {
+    if (_normLocToken(k) === target) return ref[k];
+  }
+  return null;
 }
 
 function _departmentForSubloc(subloc, ref){
   const e = _mapEntryForSubloc(subloc, ref);
   return e ? _str(e.department || '') : '';
+}
+
+
+
+const __OPT_HIDDEN_PHARMACY_LOCATIONS = new Set([
+  'VC', 'FRIDGE', 'FRID', 'DEPT ORDER', 'CHEMO ROOM', 'FREEZER', 'CW1524'
+]);
+
+function _normLocToken(v){
+  return String(v || '').trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
+function _isHiddenPharmacyLocationLabel(locLabel){
+  const n = _normLocToken(locLabel);
+  if (!n) return false;
+  if (__OPT_HIDDEN_PHARMACY_LOCATIONS.has(n)) return true;
+  if (n.indexOf('FRID') >= 0 || n.indexOf('FRIDGE') >= 0) return true;
+  return false;
 }
 
 function _locationLabelForSubloc(subloc, ref){
@@ -1530,9 +1556,20 @@ const itemSublocFilter = (viewBy === 'item' && window.__optDrillScope && window.
     // NOTE: In list-comparison mode, toggles do NOT filter the list; they only affect rendering (dim/collapse non-matching items).
     // We still compute tiers later for display logic.
 
+    const subKeyRaw = rec.sublocation || 'UNKNOWN';
+    const locKeyRaw = _locationLabelForSubloc(rec.sublocation, ref) || 'UNKNOWN';
+
+    // Hide Pharmacy department locations in Optimization location/sublocation views.
+    const dep = _departmentForSubloc(subKeyRaw, ref);
+    const hidePharmacyScope = (
+      (viewBy === 'location' && (_isHiddenPharmacyLocationLabel(locKeyRaw) || dep.toUpperCase() === 'PHARMACY')) ||
+      (viewBy === 'sublocation' && dep.toUpperCase() === 'PHARMACY')
+    );
+    if (hidePharmacyScope) continue;
+
     const key =
-      (viewBy === 'sublocation') ? (rec.sublocation || 'UNKNOWN') :
-      (viewBy === 'location') ? (_locationLabelForSubloc(rec.sublocation, ref) || 'UNKNOWN') :
+      (viewBy === 'sublocation') ? subKeyRaw :
+      (viewBy === 'location') ? locKeyRaw :
       (() => {
         const meta = metaByCode[rec.itemCode] || {};
         const base = _str(meta.description || meta.name || '') || rec.itemCode || 'UNKNOWN';
@@ -1551,8 +1588,8 @@ const itemSublocFilter = (viewBy === 'item' && window.__optDrillScope && window.
 
     // Build nested sublocation groups when in location view so we can expand rows.
     if (viewBy === 'location'){
-      const locKey = _locationLabelForSubloc(rec.sublocation, ref) || 'UNKNOWN';
-      const subKey = rec.sublocation || 'UNKNOWN';
+      const locKey = locKeyRaw;
+      const subKey = subKeyRaw;
       addToLocSubloc(locKey, subKey, rec.itemCode, rec);
     }
   }

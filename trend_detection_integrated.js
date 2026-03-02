@@ -1243,6 +1243,30 @@ function calculateAllTrendsAdvanced(items, threshold = 2) {
  * @param {number} threshold - Minimum consecutive weeks (now used as confidence threshold)
  * @returns {Object} Trending items result with confidence scores
  */
+
+
+function _loadTrendMathConfigFromSettings() {
+    const cfg = (typeof TrendMath !== 'undefined' && TrendMath.defaultTrendMathConfig)
+        ? TrendMath.defaultTrendMathConfig()
+        : {};
+    const keys = [
+        'shortWindowWeeks','spikeLookbackWeeks','accelStrong','slopeMin','monoMin','pMin','zMin',
+        'slopeFlat','pFlat','monoFlat','accelFlat','weakLambda','pctFloor','pctCap','zSpike','zPersist',
+        'accelScale','slopeScale','pctScale','zScale','volScale','volWeight','noiseVolHigh','noiseMonoAbsMax',
+        'spikeRecentWeeks','spikeZScale','bumpMax','halfLifeWeeks','spikeVolPenaltyWeight','usageScale',
+        'urgencyZScale','accelToMultiplierScale','maxTrendBump'
+    ];
+    for (const k of keys) {
+        const raw = localStorage.getItem('trendMath_' + k);
+        if (raw == null || raw === '') continue;
+        const n = Number(raw);
+        if (Number.isFinite(n)) cfg[k] = n;
+    }
+    if (!Number.isFinite(cfg.accelToMultiplierScale)) cfg.accelToMultiplierScale = 0.35;
+    if (!Number.isFinite(cfg.maxTrendBump)) cfg.maxTrendBump = 0.50;
+    return cfg;
+}
+
 function calculateTrendingItemsAdvanced(items, threshold = 2) {
     console.log('📈 Advanced trending calculation started...');
     console.log(`   Analyzing ${items.length} items`);
@@ -1320,6 +1344,12 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
                 ? analysis.metadata.adjustedData
                 : completeWeeks;
 
+            const tmCfg = _loadTrendMathConfigFromSettings();
+            const tm = (typeof TrendMath !== 'undefined' && TrendMath.computeTrendMetrics)
+                ? TrendMath.computeTrendMetrics(completeWeeks, tmCfg)
+                : null;
+            if (!tm) return;
+
             // Skip if insufficient data or very low confidence
             if (analysis.overallDirection === TrendDirection.INSUFFICIENT_DATA ||
                 analysis.overallConfidence < 0.2) {
@@ -1333,12 +1363,13 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
                 : 0;
 
             // Keep consecutive weeks for UI thresholding/compatibility
-            const consecutiveWeeks = estimateConsecutiveWeeks(completeWeeks, analysis.overallDirection);
+            const trendDirForWeeks = tm.direction === 'increasing'
+                ? TrendDirection.INCREASING
+                : (tm.direction === 'decreasing' ? TrendDirection.DECREASING : TrendDirection.STABLE);
+            const consecutiveWeeks = estimateConsecutiveWeeks(completeWeeks, trendDirForWeeks);
 
             // Enforce a true "uptrend" requirement: the item must be increasing for at least `threshold` consecutive weeks.
-            // (Prevents the card from looking like a raw top-usage list when the overall direction is increasing but
-            // the last few weeks are not actually consecutively rising.)
-            if (analysis.overallDirection === TrendDirection.INCREASING && consecutiveWeeks < threshold) {
+            if (tm.direction === 'increasing' && consecutiveWeeks < threshold) {
                 return;
             }
 
@@ -1367,7 +1398,7 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
                 : null;
             
             // Determine if trend meets our threshold
-            const meetsThreshold = analysis.overallConfidence >= confidenceThreshold;
+            const meetsThreshold = tm.trendStrengthScore >= confidenceThreshold;
             
             if (!meetsThreshold) {
                 return;
@@ -1385,9 +1416,9 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
                 usageRate: item.usageRate,
                 
                 // Advanced trend metrics
-                confidence: analysis.overallConfidence,
-                confidenceLevel: getConfidenceLevel(analysis.overallConfidence),
-                trendDirection: analysis.overallDirection,
+                confidence: tm.trendStrengthScore,
+                confidenceLevel: getConfidenceLevel(tm.trendStrengthScore),
+                trendDirection: tm.direction,
                 
                 // Method agreement
                 ensembleScores: analysis.ensembleTrend.methodScores,
@@ -1427,15 +1458,36 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
                 reorderRecommendedOffset: analysis.reorder.recommendedOrderOffset,
                 reorderSeverity: analysis.reorder.severity,
 
+                // TrendMath audit + acceleration-first ranking
+                acceleration: tm.acceleration,
+                shortSlope: tm.shortSlope,
+                longSlope: tm.longSlope,
+                monotonicity: tm.monotonicity,
+                zLatest: tm.zLatest,
+                pctChangeShort: tm.pctChangeShort,
+                volatility: tm.volatility,
+                spikeIntensity: tm.spike.spikeIntensity,
+                spikeRecencyWeeks: tm.spike.spikeRecencyWeeks,
+                spikeFrequency: tm.spike.spikeFrequency,
+                spikePersistence: tm.spike.spikePersistence,
+                shockClass: tm.shockClass,
+                trendStrengthScore: tm.trendStrengthScore,
+                spikeMultiplier: tm.spikeMultiplier,
+                rankScore: tm.rankScore,
+                trendMultiplier: 1 + Math.max(-tmCfg.maxTrendBump, Math.min(tmCfg.maxTrendBump,
+                    tm.acceleration / Math.max(tmCfg.accelToMultiplierScale || 0.35, 1e-9))),
+                projectedWeekly: 0,
+
                 // Internal ranking helper
                 seasonalUrgencyBoost: (analysis.seasonal.strength > 0.6 &&
                     (analysis.reorder.severity === 'high' || analysis.reorder.severity === 'medium')) ? 1.08 : 1
             };
+            trendingItem.projectedWeekly = trendingItem.avgWeeklyUsage * trendingItem.trendMultiplier * tm.spikeMultiplier;
             
             // Categorize based on direction
-            if (analysis.overallDirection === TrendDirection.INCREASING) {
+            if (tm.direction === 'increasing') {
                 trendingUp.push(trendingItem);
-            } else if (analysis.overallDirection === TrendDirection.DECREASING) {
+            } else if (tm.direction === 'decreasing') {
                 trendingDown.push(trendingItem);
             }
             
@@ -1444,52 +1496,22 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
         }
     });
     
-    // Sort trending up by highest percent increase, then NEW items, then confidence, then average usage
+    // Acceleration-first ranking via TrendMath rankScore (usage remains display/secondary)
     const sortTrendingUp = (a, b) => {
-        const aHasPct = (typeof a.percentChange === 'number' && isFinite(a.percentChange));
-        const bHasPct = (typeof b.percentChange === 'number' && isFinite(b.percentChange));
-        const aPct = aHasPct ? a.percentChange * (a.seasonalUrgencyBoost || 1) : -Infinity;
-        const bPct = bHasPct ? b.percentChange * (b.seasonalUrgencyBoost || 1) : -Infinity;
-
-        // Primary: Items with real % deltas first; sort by higher percent increase
-        if (aHasPct !== bHasPct) {
-            return bHasPct - aHasPct; // true > false
-        }
-        if (aHasPct && bHasPct && Math.abs(bPct - aPct) > 0.0001) {
-            return bPct - aPct;
-        }
-
-        // Secondary: "NEW" items (baseline==0) after real % changes, but before everything else
-        const aNew = !!a.isNew;
-        const bNew = !!b.isNew;
-        if (aNew !== bNew) {
-            return bNew - aNew;
-        }
-
-        // If both are NEW, rank by recent average usage first (more meaningful than raw avgWeeklyUsage)
-        if (aNew && bNew) {
-            const aRecent = (typeof a.recentAvgWeeklyUsage === 'number' && isFinite(a.recentAvgWeeklyUsage)) ? a.recentAvgWeeklyUsage : 0;
-            const bRecent = (typeof b.recentAvgWeeklyUsage === 'number' && isFinite(b.recentAvgWeeklyUsage)) ? b.recentAvgWeeklyUsage : 0;
-            if (Math.abs(bRecent - aRecent) > 0.0001) {
-                return bRecent - aRecent;
-            }
-        }
-
-        // Secondary: Higher confidence
-        if (Math.abs(b.confidence - a.confidence) > 0.05) {
-            return b.confidence - a.confidence;
-        }
-
-        // Tertiary: Higher usage
-        return b.avgWeeklyUsage - a.avgWeeklyUsage;
+        const aRank = Number.isFinite(a.rankScore) ? a.rankScore : 0;
+        const bRank = Number.isFinite(b.rankScore) ? b.rankScore : 0;
+        if (Math.abs(bRank - aRank) > 1e-9) return bRank - aRank;
+        if (Math.abs((b.confidence || 0) - (a.confidence || 0)) > 0.05) return (b.confidence || 0) - (a.confidence || 0);
+        return (b.avgWeeklyUsage || 0) - (a.avgWeeklyUsage || 0);
     };
 
-    // Sort trending down by confidence, then usage (unchanged behavior)
+    // Keep acceleration-first ordering consistent for decreasing/flat bucket as well.
     const sortTrendingDown = (a, b) => {
-        if (Math.abs(b.confidence - a.confidence) > 0.1) {
-            return b.confidence - a.confidence;
-        }
-        return b.avgWeeklyUsage - a.avgWeeklyUsage;
+        const aRank = Number.isFinite(a.rankScore) ? a.rankScore : 0;
+        const bRank = Number.isFinite(b.rankScore) ? b.rankScore : 0;
+        if (Math.abs(bRank - aRank) > 1e-9) return bRank - aRank;
+        if (Math.abs((b.confidence || 0) - (a.confidence || 0)) > 0.05) return (b.confidence || 0) - (a.confidence || 0);
+        return (b.avgWeeklyUsage || 0) - (a.avgWeeklyUsage || 0);
     };
     
     trendingUp.sort(sortTrendingUp);

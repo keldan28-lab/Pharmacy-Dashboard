@@ -446,6 +446,76 @@ let _cache = null;
 
 
   
+
+function _parseTrendFactsRows(rows) {
+  const itemMap = {};
+  const itemLocMap = {};
+  let maxComputedOn = null;
+
+  if (!Array.isArray(rows) || !rows.length) return null;
+
+  // Accept either array-of-arrays with a header row or array-of-objects.
+  let rowReader = null;
+  if (Array.isArray(rows[0])) {
+    const header = rows[0].map(v => String(v || '').trim());
+    if (header.indexOf('itemCode') === -1 || header.indexOf('spikeMultiplier') === -1) return null;
+    const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+    rowReader = (row) => ({
+      itemCode: row[idx.itemCode],
+      spikeMultiplier: row[idx.spikeMultiplier],
+      location: row[idx.location] || row[idx.sendToLocation],
+      calculatedAt: row[idx.calculatedAt]
+    });
+    rows = rows.slice(1);
+  } else if (rows[0] && typeof rows[0] === 'object') {
+    if (!('itemCode' in rows[0]) || !('spikeMultiplier' in rows[0])) return null;
+    rowReader = (row) => ({
+      itemCode: row.itemCode,
+      spikeMultiplier: row.spikeMultiplier,
+      location: row.location || row.sendToLocation,
+      calculatedAt: row.calculatedAt
+    });
+  } else {
+    return null;
+  }
+
+  for (const row of rows) {
+    const mapped = rowReader(row || {});
+    const itemCode = String(mapped.itemCode || '').trim();
+    if (!itemCode) continue;
+    const mult = Number(mapped.spikeMultiplier);
+    const safeMult = Number.isFinite(mult) ? mult : 1;
+    itemMap[itemCode] = safeMult;
+
+    const locVal = String(mapped.location || '').trim().toUpperCase();
+    if (locVal) itemLocMap[`${itemCode}|${locVal}`] = safeMult;
+
+    const calcAt = String(mapped.calculatedAt || '').trim();
+    if (calcAt && (!maxComputedOn || new Date(calcAt) > new Date(maxComputedOn))) maxComputedOn = calcAt;
+  }
+
+  return { itemMap, itemLocMap, maxComputedOn };
+}
+
+function _ingestTrendFactsRows(rows) {
+  const parsed = _parseTrendFactsRows(rows);
+  if (!parsed) return null;
+  _cache = {
+    locationMap: {},
+    sublocMap: {},
+    itemMap: parsed.itemMap,
+    itemLocMap: parsed.itemLocMap,
+    itemLocSublocMap: {},
+    seasonItemMap: {},
+    seasonItemLocMap: {},
+    seasonItemLocSublocMap: {},
+    itemLocToSubloc: {},
+    maxComputedOn: parsed.maxComputedOn,
+    loadedAt: new Date().toISOString()
+  };
+  return _cache;
+}
+
 function _ingestRows(rows) {
   const locationMap = {};
   const sublocMap = {};
@@ -905,6 +975,25 @@ async function saveToWebApp(webAppUrl, sheetId, tabName, rows){
 
 
   
+
+function _mergeTrendFactsIntoExistingCache(rows) {
+  if (!_cache || !rows || !rows.length) return _cache;
+  const parsed = _parseTrendFactsRows(rows);
+  if (!parsed) return _cache;
+
+  _cache.itemMap = _cache.itemMap || {};
+  _cache.itemLocMap = _cache.itemLocMap || {};
+
+  Object.keys(parsed.itemMap || {}).forEach((k) => { _cache.itemMap[k] = parsed.itemMap[k]; });
+  Object.keys(parsed.itemLocMap || {}).forEach((k) => { _cache.itemLocMap[k] = parsed.itemLocMap[k]; });
+
+  if (parsed.maxComputedOn && (!_cache.maxComputedOn || new Date(parsed.maxComputedOn) > new Date(_cache.maxComputedOn))) {
+    _cache.maxComputedOn = parsed.maxComputedOn;
+  }
+  _cache.loadedAt = new Date().toISOString();
+  return _cache;
+}
+
 function _normalizeReadResponse(payload){
   // Apps Script responses vary: {ok,rows}, {rows}, array, {data}, {result:{rows}}, etc.
   if (payload == null) return { ok: false, rows: [], error: 'empty response' };
@@ -940,39 +1029,69 @@ function _normalizeReadResponse(payload){
 }
 
 async function loadFromWebApp(webAppUrl,sheetId,tabName){
-  const qs = _buildReadQuery(sheetId, tabName);
-  const url = `${webAppUrl}?action=read&${qs}`;
-  console.log('[SpikeFactors] loadFromWebApp URL:', url);
+  const selectedTab = String(tabName || '').trim();
 
-  // Local file origin: use JSONP (no CORS)
-  if(_isLocalFileOrigin()){
-    try {
+  async function readRows(tab){
+    const qs = _buildReadQuery(sheetId, tab);
+    const url = `${webAppUrl}?action=read&${qs}`;
+    console.log('[SpikeFactors] loadFromWebApp URL:', url);
+
+    if(_isLocalFileOrigin()){
       const raw = await _jsonp(url, 30000);
       const norm = _normalizeReadResponse(raw);
       if(!norm.ok) throw new Error(norm.error || (raw && raw.error) || 'read failed');
-      return _ingestRows(norm.rows || []);
-    } catch (e) {
-      if (CACHE && CACHE.loadedAt) {
-        console.warn('[SpikeFactors] loadFromWebApp JSONP timed out; using existing local cache.', e);
-        return CACHE;
-      }
-      throw e;
+      return norm.rows || [];
     }
+
+    const res = await fetch(url, { method: 'GET' });
+    const txt = await res.text();
+    let raw = null;
+    try { raw = JSON.parse(txt); } catch (e) { raw = txt; }
+    const norm = _normalizeReadResponse(raw);
+    if(!res.ok || !norm.ok){
+      const hint = (typeof txt === 'string' && txt.slice) ? txt.slice(0, 220) : '';
+      throw new Error(norm.error || (raw && raw.error) || `read failed (http ${res.status}) ${hint}`);
+    }
+    return norm.rows || [];
   }
 
-  const res = await fetch(url, { method: 'GET' });
+  const isLegacyDefault = !selectedTab || selectedTab === 'min_spike_factors';
+  const isTrendTabOnly = selectedTab === 'trend_facts_up' || selectedTab === 'trend_facts_down';
 
-  // Apps Script sometimes returns text/html on errors; parse defensively
-  const txt = await res.text();
-  let raw = null;
-  try { raw = JSON.parse(txt); } catch (e) { raw = txt; }
+  try {
+    if (isTrendTabOnly) {
+      const upRows = await readRows('trend_facts_up');
+      const downRows = await readRows('trend_facts_down');
+      const merged = upRows.concat((downRows || []).slice(1));
+      const trendCache = _ingestTrendFactsRows(merged);
+      if (trendCache) return trendCache;
+      throw new Error('trend_facts rows not parseable');
+    }
 
-  const norm = _normalizeReadResponse(raw);
-  if(!res.ok || !norm.ok){
-    const hint = (typeof txt === 'string' && txt.slice) ? txt.slice(0, 220) : '';
-    throw new Error(norm.error || (raw && raw.error) || `read failed (http ${res.status}) ${hint}`);
+    // Keep legacy maps (seasonality/trend/sigma) as primary cache source.
+    const legacyRows = await readRows(selectedTab || 'min_spike_factors');
+    const baseCache = _ingestRows(legacyRows || []);
+
+    // Overlay item/itemLoc multipliers from trend facts when available.
+    if (isLegacyDefault) {
+      try {
+        const upRows = await readRows('trend_facts_up');
+        const downRows = await readRows('trend_facts_down');
+        const merged = upRows.concat((downRows || []).slice(1));
+        _mergeTrendFactsIntoExistingCache(merged);
+      } catch (e) {
+        console.warn('[SpikeFactors] trend_facts overlay failed; keeping legacy cache only:', e);
+      }
+    }
+
+    return _cache || baseCache;
+  } catch (e) {
+    if (_cache && _cache.loadedAt) {
+      console.warn('[SpikeFactors] loadFromWebApp failed; using existing local cache.', e);
+      return _cache;
+    }
+    throw e;
   }
-  return _ingestRows(norm.rows || []);
 }
 
 async function pingWebApp(webAppUrl){

@@ -67,22 +67,49 @@
     });
   }
 
+  function _trendFactsHeader() {
+    return [
+      'calculatedAt', 'rank', 'itemCode', 'confidence', 'avgWeeklyUsage', 'direction',
+      'acceleration', 'shortSlope', 'longSlope', 'monotonicity', 'zLatest', 'pctChangeShort', 'volatility',
+      'spikeIntensity', 'spikeRecencyWeeks', 'spikeFrequency', 'spikePersistence', 'shockClass',
+      'trendStrengthScore', 'spikeMultiplier', 'rankScore'
+    ];
+  }
+
+  function _rowFromTrend(x, calculatedAt, rank) {
+    const y = x || {};
+    return [
+      calculatedAt,
+      rank,
+      String(y.itemCode ?? ''),
+      Number(y.confidence ?? y.trendStrengthScore ?? 0),
+      Number(y.avgWeeklyUsage ?? 0),
+      String(y.trendDirection ?? y.direction ?? 'flat'),
+      Number(y.acceleration ?? 0),
+      Number(y.shortSlope ?? 0),
+      Number(y.longSlope ?? 0),
+      Number(y.monotonicity ?? 0),
+      Number(y.zLatest ?? 0),
+      Number(y.pctChangeShort ?? 0),
+      Number(y.volatility ?? 0),
+      Number(y.spikeIntensity ?? 0),
+      Number(y.spikeRecencyWeeks ?? 0),
+      Number(y.spikeFrequency ?? 0),
+      Number(y.spikePersistence ?? 0),
+      String(y.shockClass ?? 'none'),
+      Number(y.trendStrengthScore ?? y.confidence ?? 0),
+      Number(y.spikeMultiplier ?? 1),
+      Number(y.rankScore ?? 0)
+    ];
+  }
+
   function _rowsFromTrending(list, calculatedAt) {
-    const header = ["calculatedAt", "rank", "itemCode", "confidence", "avgWeeklyUsage", "direction"];
+    const header = _trendFactsHeader();
     const rows = [header];
-    for (let i = 0; i < list.length; i++) {
-      const x = list[i] || {};
-      rows.push([
-        calculatedAt,
-        i + 1,
-        String(x.itemCode ?? ""),
-        Number(x.confidence ?? 0),
-        Number(x.avgWeeklyUsage ?? 0),
-        String(x.trendDirection ?? x.direction ?? "increasing"),
-      ]);
-    }
+    for (let i = 0; i < list.length; i++) rows.push(_rowFromTrend(list[i], calculatedAt, i + 1));
     return rows;
   }
+
 
   
 async function _ensureHeaderJsonp({ scriptUrl, sheetId, tabName, header }) {
@@ -134,7 +161,7 @@ let writtenTotal = 0;
         `&sheetId=${encodeURIComponent(sheetId)}` +
         `&tabName=${encodeURIComponent(tabName)}` +
         `&payload=${payload}`;
-      console.log("[TrendFacts] chunk append", { tabName, chunk: chunks, from: i, count: chunkRows.length });
+      console.log("[TrendFacts] chunk append", { tabName, chunk: 1, from: 0, count: 1 });
       const res = await _jsonp(url, 25000);
       if (!res || res.ok !== true) throw new Error(res?.error || "append failed");
       return { ok: true, mode: "jsonp-chunked", tabName, written: Number(res.written || 0), chunks: 1 };
@@ -185,9 +212,7 @@ let writtenTotal = 0;
     });
 
     const rowsUp = _rowsFromTrending(up, calculatedAt);
-    const rowsDown = down.length
-      ? _rowsFromTrending(down, calculatedAt)
-      : [["calculatedAt","note"], [calculatedAt, "NO_TRENDING_DOWN_ITEMS"]];
+    const rowsDown = _rowsFromTrending(down, calculatedAt);
 
     const rUp = await _appendChunkedJsonp({ scriptUrl, sheetId, tabName: "trend_facts_up", rows2d: rowsUp, chunkSize: 50 });
     const rDown = await _appendChunkedJsonp({ scriptUrl, sheetId, tabName: "trend_facts_down", rows2d: rowsDown, chunkSize: 50 });
