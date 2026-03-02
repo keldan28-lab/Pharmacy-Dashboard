@@ -1505,12 +1505,13 @@ function calculateTrendingItemsAdvanced(items, threshold = 2) {
         return (b.avgWeeklyUsage || 0) - (a.avgWeeklyUsage || 0);
     };
 
-    // Sort trending down by confidence, then usage (unchanged behavior)
+    // Keep acceleration-first ordering consistent for decreasing/flat bucket as well.
     const sortTrendingDown = (a, b) => {
-        if (Math.abs(b.confidence - a.confidence) > 0.1) {
-            return b.confidence - a.confidence;
-        }
-        return b.avgWeeklyUsage - a.avgWeeklyUsage;
+        const aRank = Number.isFinite(a.rankScore) ? a.rankScore : 0;
+        const bRank = Number.isFinite(b.rankScore) ? b.rankScore : 0;
+        if (Math.abs(bRank - aRank) > 1e-9) return bRank - aRank;
+        if (Math.abs((b.confidence || 0) - (a.confidence || 0)) > 0.05) return (b.confidence || 0) - (a.confidence || 0);
+        return (b.avgWeeklyUsage || 0) - (a.avgWeeklyUsage || 0);
     };
     
     trendingUp.sort(sortTrendingUp);
