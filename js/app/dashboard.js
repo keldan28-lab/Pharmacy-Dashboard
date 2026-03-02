@@ -553,6 +553,57 @@ function _initLogToggles() {
     });
 }
 
+
+const TREND_MATH_PARAM_KEYS = [
+  'shortWindowWeeks','spikeLookbackWeeks','accelStrong','slopeMin','monoMin','pMin','zMin',
+  'slopeFlat','pFlat','monoFlat','accelFlat','weakLambda','pctFloor','pctCap','zSpike','zPersist',
+  'accelScale','slopeScale','pctScale','zScale','volScale','volWeight','noiseVolHigh','noiseMonoAbsMax','spikeRecentWeeks',
+  'spikeZScale','bumpMax','halfLifeWeeks','spikeVolPenaltyWeight','usageScale','urgencyZScale',
+  'accelToMultiplierScale','maxTrendBump'
+];
+
+function _trendMathDefaults() {
+    const cfg = (window.TrendMath && typeof window.TrendMath.defaultTrendMathConfig === 'function')
+        ? window.TrendMath.defaultTrendMathConfig()
+        : {};
+    if (!Number.isFinite(cfg.accelToMultiplierScale)) cfg.accelToMultiplierScale = 0.35;
+    if (!Number.isFinite(cfg.maxTrendBump)) cfg.maxTrendBump = 0.50;
+    return cfg;
+}
+
+function _renderTrendMathParams() {
+    const box = document.getElementById('trendMathParamsContainer');
+    if (!box || box.dataset.rendered === '1') return;
+    const defaults = _trendMathDefaults();
+    box.innerHTML = TREND_MATH_PARAM_KEYS.map((k) => {
+        const dv = Number.isFinite(defaults[k]) ? defaults[k] : 0;
+        return `<label style="display:flex;flex-direction:column;font-size:12px;color:var(--text-primary)">${k}<input data-trend-param="${k}" type="number" step="any" value="${dv}" style="margin-top:4px;padding:6px;border-radius:6px;border:1px solid var(--border-color);"></label>`;
+    }).join('');
+    box.dataset.rendered = '1';
+}
+
+function _loadTrendMathParamsFromStorage() {
+    const defaults = _trendMathDefaults();
+    for (const key of TREND_MATH_PARAM_KEYS) {
+        const el = document.querySelector(`[data-trend-param="${key}"]`);
+        if (!el) continue;
+        const raw = localStorage.getItem('trendMath_' + key);
+        el.value = (raw == null || raw === '') ? String(defaults[key] ?? '') : raw;
+    }
+}
+
+function _saveTrendMathParamsToStorage() {
+    const defaults = _trendMathDefaults();
+    for (const key of TREND_MATH_PARAM_KEYS) {
+        const el = document.querySelector(`[data-trend-param="${key}"]`);
+        if (!el) continue;
+        const n = Number(el.value);
+        const v = Number.isFinite(n) ? n : Number(defaults[key] ?? 0);
+        localStorage.setItem('trendMath_' + key, String(v));
+        el.value = String(v);
+    }
+}
+
 function _initSettingsCardCollapse() {
     const cards = document.querySelectorAll('#settingsModal .usage-params-card');
     cards.forEach((card, idx) => {
@@ -571,6 +622,8 @@ function _initSettingsCardCollapse() {
             document.getElementById('settingsModal').classList.add('active');
             _initLogToggles();
             _initSettingsCardCollapse();
+            _renderTrendMathParams();
+            _loadTrendMathParamsFromStorage();
 
             // Load Google Sheets admin config (for spike-factor cache) into inputs
             try {
@@ -1219,6 +1272,7 @@ Subloc: ${counts.subloc}`);
             localStorage.setItem('whatIfServiceLevelPreset', String(serviceLevelPreset || '95'));
             localStorage.setItem('whatIfHorizonDays', String(Number.isFinite(whatIfHorizonDays) ? whatIfHorizonDays : 14));
             localStorage.setItem('whatIfApplyLeadTimeTo', String(applyLeadTimeTo || 'ALL'));
+            _saveTrendMathParamsToStorage();
 
             // (avoid writing duplicate keys)
             
@@ -1317,6 +1371,8 @@ Subloc: ${counts.subloc}`);
             const whatIfApplyLeadTimeTo = (localStorage.getItem('whatIfApplyLeadTimeTo') || 'ALL');
 
             const excludeStandard = localStorage.getItem('excludeStandardInventory') === 'true';
+            _renderTrendMathParams();
+            _loadTrendMathParamsFromStorage();
             const trendThreshold = parseInt(localStorage.getItem('consecutiveWeekThreshold') || '2');
             
             // Set trend threshold slider value
@@ -2417,6 +2473,8 @@ Subloc: ${counts.subloc}`);
          */
         function getEffectiveInventory(item) {
             const excludeStandard = localStorage.getItem('excludeStandardInventory') === 'true';
+            _renderTrendMathParams();
+            _loadTrendMathParamsFromStorage();
             
             const pyxis = item.pyxis || 0;
             const pyxisStandard = item.pyxisStandard || 0;
@@ -6251,29 +6309,41 @@ async function adminLoadSpikeFactors() {
         const tr = calc();
         const calculatedAt = (tr && tr.calculatedAt) ? tr.calculatedAt : new Date().toISOString();
 
-        const header = ['calculatedAt','rank','itemCode','confidence','avgWeeklyUsage','direction'];
+        const header = [
+          'calculatedAt','rank','itemCode','confidence','avgWeeklyUsage','direction',
+          'acceleration','shortSlope','longSlope','monotonicity','zLatest','pctChangeShort','volatility',
+          'spikeIntensity','spikeRecencyWeeks','spikeFrequency','spikePersistence','shockClass',
+          'trendStrengthScore','spikeMultiplier','rankScore'
+        ];
         const up = (tr && Array.isArray(tr.trendingUp)) ? tr.trendingUp : [];
         const down = (tr && Array.isArray(tr.trendingDown)) ? tr.trendingDown : [];
 
-        const rowsUp = [header].concat(up.map((x,i)=>[
+        const mapTrendRow = (x, i) => [
           calculatedAt,
-          i+1,
+          i + 1,
           (x && x.itemCode != null) ? String(x.itemCode) : '',
-          Number((x && x.confidence != null) ? x.confidence : 0),
+          Number((x && (x.confidence ?? x.trendStrengthScore) != null) ? (x.confidence ?? x.trendStrengthScore) : 0),
           Number((x && x.avgWeeklyUsage != null) ? x.avgWeeklyUsage : 0),
-          String((x && (x.trendDirection || x.direction)) ? (x.trendDirection || x.direction) : 'increasing')
-        ]));
+          String((x && (x.trendDirection || x.direction)) ? (x.trendDirection || x.direction) : 'flat'),
+          Number((x && x.acceleration != null) ? x.acceleration : 0),
+          Number((x && x.shortSlope != null) ? x.shortSlope : 0),
+          Number((x && x.longSlope != null) ? x.longSlope : 0),
+          Number((x && x.monotonicity != null) ? x.monotonicity : 0),
+          Number((x && x.zLatest != null) ? x.zLatest : 0),
+          Number((x && x.pctChangeShort != null) ? x.pctChangeShort : 0),
+          Number((x && x.volatility != null) ? x.volatility : 0),
+          Number((x && x.spikeIntensity != null) ? x.spikeIntensity : 0),
+          Number((x && x.spikeRecencyWeeks != null) ? x.spikeRecencyWeeks : 0),
+          Number((x && x.spikeFrequency != null) ? x.spikeFrequency : 0),
+          Number((x && x.spikePersistence != null) ? x.spikePersistence : 0),
+          String((x && x.shockClass != null) ? x.shockClass : 'none'),
+          Number((x && x.trendStrengthScore != null) ? x.trendStrengthScore : (x && x.confidence != null ? x.confidence : 0)),
+          Number((x && x.spikeMultiplier != null) ? x.spikeMultiplier : 1),
+          Number((x && x.rankScore != null) ? x.rankScore : 0)
+        ];
 
-        const rowsDown = down.length
-          ? [header].concat(down.map((x,i)=>[
-              calculatedAt,
-              i+1,
-              (x && x.itemCode != null) ? String(x.itemCode) : '',
-              Number((x && x.confidence != null) ? x.confidence : 0),
-              Number((x && x.avgWeeklyUsage != null) ? x.avgWeeklyUsage : 0),
-              String((x && (x.trendDirection || x.direction)) ? (x.trendDirection || x.direction) : 'decreasing')
-            ]))
-          : [['calculatedAt','note'], [calculatedAt,'NO_TRENDING_DOWN_ITEMS']];
+        const rowsUp = [header].concat(up.map(mapTrendRow));
+        const rowsDown = [header].concat(down.map(mapTrendRow));
 
         _tf_log('[TrendFacts] writing up/down:', rowsUp.length, rowsDown.length, 'calculatedAt:', calculatedAt);
 

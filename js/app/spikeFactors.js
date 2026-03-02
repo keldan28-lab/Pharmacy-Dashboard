@@ -446,6 +446,49 @@ let _cache = null;
 
 
   
+
+function _ingestTrendFactsRows(rows) {
+  const itemMap = {};
+  const itemLocMap = {};
+  let maxComputedOn = null;
+
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const header = Array.isArray(rows[0]) ? rows[0].map(v => String(v || '').trim()) : null;
+  if (!header || header.indexOf('itemCode') === -1 || header.indexOf('spikeMultiplier') === -1) return null;
+
+  const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const itemCode = String(row[idx.itemCode] || '').trim();
+    if (!itemCode) continue;
+    const mult = Number(row[idx.spikeMultiplier]);
+    const safeMult = Number.isFinite(mult) ? mult : 1;
+    itemMap[itemCode] = safeMult;
+
+    const locVal = String(row[idx.location] || row[idx.sendToLocation] || '').trim().toUpperCase();
+    if (locVal) itemLocMap[`${itemCode}|${locVal}`] = safeMult;
+
+    const calcAt = String(row[idx.calculatedAt] || '').trim();
+    if (calcAt && (!maxComputedOn || new Date(calcAt) > new Date(maxComputedOn))) maxComputedOn = calcAt;
+  }
+
+  _cache = {
+    locationMap: {},
+    sublocMap: {},
+    itemMap,
+    itemLocMap,
+    itemLocSublocMap: {},
+    seasonItemMap: {},
+    seasonItemLocMap: {},
+    seasonItemLocSublocMap: {},
+    itemLocToSubloc: {},
+    maxComputedOn,
+    loadedAt: new Date().toISOString()
+  };
+  return _cache;
+}
+
+
 function _ingestRows(rows) {
   const locationMap = {};
   const sublocMap = {};
@@ -940,39 +983,55 @@ function _normalizeReadResponse(payload){
 }
 
 async function loadFromWebApp(webAppUrl,sheetId,tabName){
-  const qs = _buildReadQuery(sheetId, tabName);
-  const url = `${webAppUrl}?action=read&${qs}`;
-  console.log('[SpikeFactors] loadFromWebApp URL:', url);
+  const selectedTab = String(tabName || '').trim();
 
-  // Local file origin: use JSONP (no CORS)
-  if(_isLocalFileOrigin()){
-    try {
+  async function readRows(tab){
+    const qs = _buildReadQuery(sheetId, tab);
+    const url = `${webAppUrl}?action=read&${qs}`;
+    console.log('[SpikeFactors] loadFromWebApp URL:', url);
+
+    if(_isLocalFileOrigin()){
       const raw = await _jsonp(url, 30000);
       const norm = _normalizeReadResponse(raw);
       if(!norm.ok) throw new Error(norm.error || (raw && raw.error) || 'read failed');
-      return _ingestRows(norm.rows || []);
+      return norm.rows || [];
+    }
+
+    const res = await fetch(url, { method: 'GET' });
+    const txt = await res.text();
+    let raw = null;
+    try { raw = JSON.parse(txt); } catch (e) { raw = txt; }
+    const norm = _normalizeReadResponse(raw);
+    if(!res.ok || !norm.ok){
+      const hint = (typeof txt === 'string' && txt.slice) ? txt.slice(0, 220) : '';
+      throw new Error(norm.error || (raw && raw.error) || `read failed (http ${res.status}) ${hint}`);
+    }
+    return norm.rows || [];
+  }
+
+  const prefersTrendFacts = !selectedTab || selectedTab === 'min_spike_factors' || selectedTab === 'trend_facts_up' || selectedTab === 'trend_facts_down';
+  if (prefersTrendFacts) {
+    try {
+      const upRows = await readRows('trend_facts_up');
+      const downRows = await readRows('trend_facts_down');
+      const merged = upRows.concat((downRows || []).slice(1));
+      const trendCache = _ingestTrendFactsRows(merged);
+      if (trendCache) return trendCache;
     } catch (e) {
-      if (CACHE && CACHE.loadedAt) {
-        console.warn('[SpikeFactors] loadFromWebApp JSONP timed out; using existing local cache.', e);
-        return CACHE;
-      }
-      throw e;
+      console.warn('[SpikeFactors] trend_facts read failed; falling back to legacy tab:', e);
     }
   }
 
-  const res = await fetch(url, { method: 'GET' });
-
-  // Apps Script sometimes returns text/html on errors; parse defensively
-  const txt = await res.text();
-  let raw = null;
-  try { raw = JSON.parse(txt); } catch (e) { raw = txt; }
-
-  const norm = _normalizeReadResponse(raw);
-  if(!res.ok || !norm.ok){
-    const hint = (typeof txt === 'string' && txt.slice) ? txt.slice(0, 220) : '';
-    throw new Error(norm.error || (raw && raw.error) || `read failed (http ${res.status}) ${hint}`);
+  try {
+    const rows = await readRows(selectedTab || 'min_spike_factors');
+    return _ingestRows(rows || []);
+  } catch (e) {
+    if (_cache && _cache.loadedAt) {
+      console.warn('[SpikeFactors] loadFromWebApp failed; using existing local cache.', e);
+      return _cache;
+    }
+    throw e;
   }
-  return _ingestRows(norm.rows || []);
 }
 
 async function pingWebApp(webAppUrl){

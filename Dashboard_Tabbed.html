@@ -94,6 +94,9 @@
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
     
+    <!-- Acceleration-first Trend + Spike Math -->
+    <script src="js/app/trend_math.js"></script>
+
     <!-- Advanced Trend Detection with Pharmaceutical Integration -->
     <script src="trend_detection_integrated.js"></script>
     <script src="js/app/spikeFactors.js"></script>
@@ -339,6 +342,14 @@
                         </div>
 
                         
+                    </div>
+
+                    <div class="usage-params-card" style="margin-top: 20px;">
+                        <div class="usage-params-title">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17h3v-7H3v7zm5 0h3V7H8v10zm5 0h3v-4h-3v4zm5 0h3V4h-3v13z"/></svg>
+                            Trend Detection Parameters
+                        </div>
+                        <div id="trendMathParamsContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;"></div>
                     </div>
 
                     <!-- Restock Efficiency Threshold Section -->
