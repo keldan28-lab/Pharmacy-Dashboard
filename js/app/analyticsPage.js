@@ -7614,6 +7614,7 @@ wrap.innerHTML = '';
                     if (prev != null){
                         x = isLeft ? Math.min(x, prev - gap) : Math.max(x, prev + gap);
                     }
+                    x = isLeft ? _clamp(x, leftBound, leftNearOrigin) : _clamp(x, rightNearOrigin, rightBound);
                     prev = x;
                     out.push(Object.assign({}, p, { x }));
                 }
@@ -7630,6 +7631,8 @@ wrap.innerHTML = '';
             const rightPanMin = Math.min(0, rightBound - maxXRight);
             panState.left = _clamp(_num(panState.left,0), 0, leftPanMax);
             panState.right = _clamp(_num(panState.right,0), rightPanMin, 0);
+            panLimits.leftMax = Math.max(_num(panLimits.leftMax,0), leftPanMax);
+            panLimits.rightMin = Math.min(_num(panLimits.rightMin,0), rightPanMin);
 
             const placed = [
                 ...placedLeft.map(p=>Object.assign({}, p, { x: p.x + panState.left })),
@@ -7655,40 +7658,6 @@ Overstock risk: ${_num(pt.overRisk,0).toFixed(2)}`;
                 track.appendChild(seg);
             }
 
-            function mkArrow(symbol, leftPx, onClick, show){
-                const el = document.createElement('button');
-                el.type = 'button';
-                el.className = 'stockout-pan-arrow';
-                el.textContent = symbol;
-                el.style.left = leftPx + 'px';
-                el.style.top = '50%';
-                el.style.transform = 'translate(-50%, -50%)';
-                el.style.display = show ? 'flex' : 'none';
-                el.addEventListener('click', (e)=>{ e.stopPropagation(); onClick(); renderAll(); });
-                track.appendChild(el);
-            }
-
-            mkArrow('◀', leftBound + 10, ()=>{ panState.left = _clamp(panState.left + 60, 0, leftPanMax); }, leftPanMax > 0);
-            mkArrow('▶', rightBound - 10, ()=>{ panState.right = _clamp(panState.right - 60, rightPanMin, 0); }, rightPanMin < 0);
-
-            if (!track.__panWheelWired){
-                track.__panWheelWired = true;
-                track.addEventListener('wheel', (ev)=>{
-                    if (!divergingEnabled) return;
-                    const rect = track.getBoundingClientRect();
-                    const x = ev.clientX - rect.left;
-                    const d = _num(ev.deltaY || ev.deltaX, 0);
-                    if (x < originX){
-                        if (leftPanMax <= 0) return;
-                        panState.left = _clamp(panState.left + (d > 0 ? 30 : -30), 0, leftPanMax);
-                    } else {
-                        if (rightPanMin >= 0) return;
-                        panState.right = _clamp(panState.right + (d > 0 ? -30 : 30), rightPanMin, 0);
-                    }
-                    ev.preventDefault();
-                    renderAll();
-                }, { passive:false });
-            }
             return;
         }
 
@@ -7922,8 +7891,65 @@ ${top3.join(', ')}${more}`;
 
     // Keep track references so we can re-render ALL rows when the scale changes.
     const rowRefs = [];
+    const panLimits = { leftMax: 0, rightMin: 0 };
+
+    function ensureGlobalPanControls(){
+        if (!divergingEnabled){
+            const old = wrap.querySelector('.stockout-pan-global');
+            if (old) old.remove();
+            return;
+        }
+        let controls = wrap.querySelector('.stockout-pan-global');
+        if (!controls){
+            controls = document.createElement('div');
+            controls.className = 'stockout-pan-global';
+            controls.innerHTML = '<button type="button" class="stockout-pan-btn left" aria-label="Scroll stock-out side">‹</button><button type="button" class="stockout-pan-btn right" aria-label="Scroll overstock side">›</button>';
+            wrap.appendChild(controls);
+            const leftBtn = controls.querySelector('.stockout-pan-btn.left');
+            const rightBtn = controls.querySelector('.stockout-pan-btn.right');
+            leftBtn.addEventListener('click', (e)=>{
+                e.stopPropagation();
+                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+                pan.left = _clamp(_num(pan.left,0) + 80, 0, _num(panLimits.leftMax,0));
+                renderAll();
+            });
+            rightBtn.addEventListener('click', (e)=>{
+                e.stopPropagation();
+                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+                pan.right = _clamp(_num(pan.right,0) - 80, _num(panLimits.rightMin,0), 0);
+                renderAll();
+            });
+        }
+        const leftBtn = controls.querySelector('.stockout-pan-btn.left');
+        const rightBtn = controls.querySelector('.stockout-pan-btn.right');
+        if (leftBtn) leftBtn.style.display = panLimits.leftMax > 0 ? 'flex' : 'none';
+        if (rightBtn) rightBtn.style.display = panLimits.rightMin < 0 ? 'flex' : 'none';
+
+        if (!wrap.__panWheelWired){
+            wrap.__panWheelWired = true;
+            wrap.addEventListener('wheel', (ev)=>{
+                if (!divergingEnabled) return;
+                const rect = wrap.getBoundingClientRect();
+                const x = ev.clientX - rect.left;
+                const mid = rect.width * 0.5;
+                const d = _num(ev.deltaY || ev.deltaX, 0);
+                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+                if (x < mid){
+                    if (panLimits.leftMax <= 0) return;
+                    pan.left = _clamp(_num(pan.left,0) + (d > 0 ? 30 : -30), 0, _num(panLimits.leftMax,0));
+                } else {
+                    if (panLimits.rightMin >= 0) return;
+                    pan.right = _clamp(_num(pan.right,0) + (d > 0 ? -30 : 30), _num(panLimits.rightMin,0), 0);
+                }
+                ev.preventDefault();
+                renderAll();
+            }, { passive:false });
+        }
+    }
 
     function renderAll(){
+        panLimits.leftMax = 0;
+        panLimits.rightMin = 0;
         for (const ref of rowRefs){
             const it = ref.item;
             const track = ref.track;
@@ -7954,6 +7980,7 @@ ${top3.join(', ')}${more}`;
                 renderRow(track, it, curMinV, curMaxV, shouldZoom ? st.cluster : null);
             }
         }
+        ensureGlobalPanControls();
     }
 
     function resetZoom(){
