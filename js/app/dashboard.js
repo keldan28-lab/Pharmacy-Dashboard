@@ -2275,12 +2275,29 @@ Subloc: ${counts.subloc}`);
             return target;
         }
 
+        function __deriveTrendTimelineEndISO(timeline){
+            try {
+                const fromMeta = timeline && timeline.meta && String(timeline.meta.datasetEndISO || '').slice(0,10);
+                if (/^\d{4}-\d{2}-\d{2}$/.test(fromMeta)) return fromMeta;
+                let maxISO = '';
+                const byLoc = (timeline && timeline.byLocation && typeof timeline.byLocation === 'object') ? timeline.byLocation : {};
+                for (const byItem of Object.values(byLoc)){
+                    if (!byItem || typeof byItem !== 'object') continue;
+                    for (const byDate of Object.values(byItem)){
+                        if (!byDate || typeof byDate !== 'object') continue;
+                        for (const iso of Object.keys(byDate)) if (iso > maxISO) maxISO = iso;
+                    }
+                }
+                return /^\d{4}-\d{2}-\d{2}$/.test(maxISO) ? maxISO : '';
+            } catch (_) { return ''; }
+        }
+
         function __ensureTrendTimelinePayload(target, transactions){
             if (!target || typeof target !== 'object') return target;
             const fromSheet = __getCachedSheetTrendTimeline();
             if (fromSheet && fromSheet.byLocation){
                 target.trendTimeline = fromSheet;
-                const ds = fromSheet.meta && fromSheet.meta.datasetEndISO;
+                const ds = __deriveTrendTimelineEndISO(fromSheet);
                 __attachProjectionMeta(target, ds);
                 return target;
             }

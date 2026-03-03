@@ -6888,7 +6888,7 @@
                     if (!tx || typeof tx !== 'object') continue;
                     const sublocation = String(tx.sublocation ?? '').trim();
                     const txLoc = String(sublocation || tx.location || tx.pyxisLocation || tx.sendToLocation || '').trim().toUpperCase();
-                    if (locNeedle && txLoc && txLoc !== locNeedle) continue;
+                    if (locNeedle && txLoc !== locNeedle) continue;
                     const dt = new Date(String(tx.transDate ?? tx.date ?? tx.txDate ?? tx.dispenseDate ?? tx.timestamp ?? ''));
                     if (!Number.isFinite(dt.getTime())) continue;
                     dt.setHours(0,0,0,0);
