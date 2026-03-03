@@ -7403,33 +7403,36 @@ function renderStockOutRiskTimeline(md){
         } catch(_) { return true; }
     })();
 
-    function getRowSignedScore(r){
-        if (!divergingEnabled) return _num(r && r.stockoutScore, 0);
+    function getRiskComponents(r){
         const minQty = Math.max(1, _num(r && r.minQty, 0));
         const maxQty = Math.max(1, _num(r && r.maxQty, 0));
         const usageRate = Math.max(0, _num(r && r.usageRate, 0));
         const curQty = Math.max(0, _num(r && r.curQty, 0));
-        const stockoutScore = usageRate / minQty;
-        const overstockScore = curQty > maxQty ? ((curQty - maxQty) / maxQty) : 0;
-        return stockoutScore - overstockScore;
+        const stockoutRisk = usageRate / minQty;
+        const overstockRisk = curQty > maxQty ? ((curQty - maxQty) / maxQty) : 0;
+        return { stockoutRisk, overstockRisk };
+    }
+
+    function getRowSignedScore(r){
+        return _num(r && r.stockoutScore, 0);
     }
 
     // Global score axis: highest on the left, lowest on the right
     let sMin = Math.min(0, Math.floor(sMinRaw));
     let sMax = Math.max(1, Math.ceil(sMaxRaw));
     if (divergingEnabled){
-        let mn = 0, mx = 0;
+        let leftMax = 0, rightMax = 0;
         for (const it of rawItems){
             const segs = Array.isArray(it && it.sublocations) ? it.sublocations : [];
             for (const rr of segs){
-                const val = getRowSignedScore(rr);
-                if (!Number.isFinite(val)) continue;
-                mn = Math.min(mn, val);
-                mx = Math.max(mx, val);
+                const comps = getRiskComponents(rr);
+                if (Number.isFinite(comps.stockoutRisk)) leftMax = Math.max(leftMax, comps.stockoutRisk);
+                if (Number.isFinite(comps.overstockRisk)) rightMax = Math.max(rightMax, comps.overstockRisk);
             }
         }
-        sMin = Math.floor(Math.min(sMin, mn));
-        sMax = Math.ceil(Math.max(sMax, mx, 1));
+        const axisMax = Math.max(1, leftMax, rightMax);
+        sMin = -Math.ceil(axisMax);
+        sMax = Math.ceil(axisMax);
     }
 
     // Filter: do not show items with max score <= 1 (explicit request)
@@ -7479,7 +7482,7 @@ function renderStockOutRiskTimeline(md){
             const note = legend.querySelector('.legend-note');
             if (note){
                 note.textContent = divergingEnabled
-                    ? 'Position = Signed pressure (Stock-out minus Overstock)'
+                    ? 'Origin = 0 • Stock-out risk on negative side • Overstock risk on positive side'
                     : 'Position = Stock-out score (Daily Usage / Min Qty)';
             }
         }
@@ -7569,40 +7572,34 @@ wrap.innerHTML = '';
             origin.style.background = 'rgba(180,180,180,0.45)';
             track.appendChild(origin);
 
-            const sorted = [...filtered].sort((a,b)=>_num(b.usageRate,0)-_num(a.usageRate,0));
+            const sorted = [...segs].sort((a,b)=>_num(b.usageRate,0)-_num(a.usageRate,0));
+            const trackW = Math.max(1, track.clientWidth || 1);
             for (const rr of sorted){
-                const minQty = Math.max(1, _num(rr && rr.minQty, 0));
-                const maxQty = Math.max(1, _num(rr && rr.maxQty, 0));
-                const onHand = Math.max(0, _num(rr && rr.curQty, 0));
-                const stockoutPressure = onHand < minQty ? ((minQty - onHand) / minQty) : 0;
-                const overstockPressure = onHand > maxQty ? ((onHand - maxQty) / maxQty) : 0;
-                const stockW = _clamp(stockoutPressure, 0, 1.5) / 1.5 * 48;
-                const overW = _clamp(overstockPressure, 0, 1.5) / 1.5 * 48;
-                if (!(stockW > 0 || overW > 0)) continue;
+                const comps = getRiskComponents(rr);
+                const points = [];
+                if (_num(comps.stockoutRisk, 0) > 0) points.push({ side: 'stockout', score: -_num(comps.stockoutRisk, 0) });
+                if (_num(comps.overstockRisk, 0) > 0) points.push({ side: 'overstock', score: _num(comps.overstockRisk, 0) });
+                if (!points.length) continue;
 
                 const isStd = !!(rr && rr.standard);
-                const seg = document.createElement('div');
-                seg.className = 'stockout-gantt-seg ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
-                applyGanttSegmentTone(seg, isStd);
-                seg.style.position = 'absolute';
-                seg.style.top = '50%';
-                seg.style.transform = 'translateY(-50%)';
-                seg.style.height = '22px';
-                if (stockW > overW){
-                    seg.style.left = (50 - stockW) + '%';
-                    seg.style.width = Math.max(stockW, 3) + '%';
-                } else {
-                    seg.style.left = '50%';
-                    seg.style.width = Math.max(overW, 3) + '%';
-                }
-                seg.title = `${rr.sublocation || ''}${rr.mainLocation ? ' • ' + rr.mainLocation : ''}
-Stockout: ${stockoutPressure.toFixed(2)}  Overstock: ${overstockPressure.toFixed(2)}`;
+                for (const pt of points){
+                    const pct = scoreToPct(pt.score, minV, maxV);
+                    const xPx = (pct / 100) * trackW;
+                    const seg = document.createElement('div');
+                    seg.className = 'stockout-gantt-seg ' + (pt.side === 'stockout' ? 'seg-stockout' : 'seg-overstock') + ' ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
+                    applyGanttSegmentTone(seg, isStd);
+                    seg.style.left = _clamp(xPx - (segWpx/2), 0, trackW - segWpx) + 'px';
+                    seg.style.width = segWpx + 'px';
+                    seg.title = `${rr.sublocation || ''}${rr.mainLocation ? ' • ' + rr.mainLocation : ''}
+Stock-out risk: ${_num(comps.stockoutRisk,0).toFixed(2)}
+Overstock risk: ${_num(comps.overstockRisk,0).toFixed(2)}`;
 
-                const lbl = document.createElement('div');
-                lbl.className = 'stockout-gantt-seg-label';
-                lbl.textContent = (rr.sublocation || '').toUpperCase();
-                seg.appendChild(lbl);
-                track.appendChild(seg);
+                    const lbl = document.createElement('div');
+                    lbl.className = 'stockout-gantt-seg-label';
+                    lbl.textContent = (rr.sublocation || '').toUpperCase();
+                    seg.appendChild(lbl);
+                    track.appendChild(seg);
+                }
             }
             return;
         }
