@@ -7630,12 +7630,16 @@ wrap.innerHTML = '';
             const maxXLeft = placedLeft.length ? Math.max(...placedLeft.map(p=>p.x)) : leftNearOrigin;
             const minXRight = placedRight.length ? Math.min(...placedRight.map(p=>p.x)) : rightNearOrigin;
             const maxXRight = placedRight.length ? Math.max(...placedRight.map(p=>p.x)) : rightBound;
+            const leftPanMin = Math.min(0, leftBound - minXLeft);
             const leftPanMax = Math.max(0, leftNearOrigin - maxXLeft);
             const rightPanMin = Math.min(0, rightNearOrigin - minXRight);
-            panState.left = _clamp(_num(panState.left,0), 0, leftPanMax);
-            panState.right = _clamp(_num(panState.right,0), rightPanMin, 0);
+            const rightPanMax = Math.max(0, rightBound - maxXRight);
+            panState.left = _clamp(_num(panState.left,0), leftPanMin, leftPanMax);
+            panState.right = _clamp(_num(panState.right,0), rightPanMin, rightPanMax);
+            panLimits.leftMin = Math.min(_num(panLimits.leftMin,0), leftPanMin);
             panLimits.leftMax = Math.max(_num(panLimits.leftMax,0), leftPanMax);
             panLimits.rightMin = Math.min(_num(panLimits.rightMin,0), rightPanMin);
+            panLimits.rightMax = Math.max(_num(panLimits.rightMax,0), rightPanMax);
 
             const placed = [
                 ...placedLeft.map(p=>Object.assign({}, p, { x: p.x + panState.left })),
@@ -7894,7 +7898,7 @@ ${top3.join(', ')}${more}`;
 
     // Keep track references so we can re-render ALL rows when the scale changes.
     const rowRefs = [];
-    const panLimits = { leftMax: 0, rightMin: 0 };
+    const panLimits = { leftMin: 0, leftMax: 0, rightMin: 0, rightMax: 0 };
 
     function ensureGlobalPanControls(){
         if (!divergingEnabled){
@@ -7906,27 +7910,49 @@ ${top3.join(', ')}${more}`;
         if (!controls){
             controls = document.createElement('div');
             controls.className = 'stockout-pan-global';
-            controls.innerHTML = '<button type="button" class="stockout-pan-btn left" aria-label="Scroll stock-out side">‹</button><button type="button" class="stockout-pan-btn right" aria-label="Scroll overstock side">›</button>';
+            controls.innerHTML = '' +
+                '<button type="button" class="stockout-pan-btn left-back" aria-label="Scroll left side left">‹</button>' +
+                '<button type="button" class="stockout-pan-btn left-forward" aria-label="Scroll left side right">›</button>' +
+                '<button type="button" class="stockout-pan-btn right-back" aria-label="Scroll right side left">‹</button>' +
+                '<button type="button" class="stockout-pan-btn right-forward" aria-label="Scroll right side right">›</button>';
             wrap.appendChild(controls);
-            const leftBtn = controls.querySelector('.stockout-pan-btn.left');
-            const rightBtn = controls.querySelector('.stockout-pan-btn.right');
-            leftBtn.addEventListener('click', (e)=>{
+            const leftBack = controls.querySelector('.stockout-pan-btn.left-back');
+            const leftForward = controls.querySelector('.stockout-pan-btn.left-forward');
+            const rightBack = controls.querySelector('.stockout-pan-btn.right-back');
+            const rightForward = controls.querySelector('.stockout-pan-btn.right-forward');
+            leftBack.addEventListener('click', (e)=>{
                 e.stopPropagation();
                 const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
-                pan.left = _clamp(_num(pan.left,0) + 80, 0, _num(panLimits.leftMax,0));
+                pan.left = _clamp(_num(pan.left,0) - 80, _num(panLimits.leftMin,0), _num(panLimits.leftMax,0));
                 renderAll();
             });
-            rightBtn.addEventListener('click', (e)=>{
+            leftForward.addEventListener('click', (e)=>{
                 e.stopPropagation();
                 const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
-                pan.right = _clamp(_num(pan.right,0) - 80, _num(panLimits.rightMin,0), 0);
+                pan.left = _clamp(_num(pan.left,0) + 80, _num(panLimits.leftMin,0), _num(panLimits.leftMax,0));
+                renderAll();
+            });
+            rightBack.addEventListener('click', (e)=>{
+                e.stopPropagation();
+                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+                pan.right = _clamp(_num(pan.right,0) - 80, _num(panLimits.rightMin,0), _num(panLimits.rightMax,0));
+                renderAll();
+            });
+            rightForward.addEventListener('click', (e)=>{
+                e.stopPropagation();
+                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+                pan.right = _clamp(_num(pan.right,0) + 80, _num(panLimits.rightMin,0), _num(panLimits.rightMax,0));
                 renderAll();
             });
         }
-        const leftBtn = controls.querySelector('.stockout-pan-btn.left');
-        const rightBtn = controls.querySelector('.stockout-pan-btn.right');
-        if (leftBtn) leftBtn.style.display = panLimits.leftMax > 0 ? 'flex' : 'none';
-        if (rightBtn) rightBtn.style.display = panLimits.rightMin < 0 ? 'flex' : 'none';
+        const leftBack = controls.querySelector('.stockout-pan-btn.left-back');
+        const leftForward = controls.querySelector('.stockout-pan-btn.left-forward');
+        const rightBack = controls.querySelector('.stockout-pan-btn.right-back');
+        const rightForward = controls.querySelector('.stockout-pan-btn.right-forward');
+        if (leftBack) leftBack.style.display = panLimits.leftMin < 0 ? 'flex' : 'none';
+        if (leftForward) leftForward.style.display = panLimits.leftMax > 0 ? 'flex' : 'none';
+        if (rightBack) rightBack.style.display = panLimits.rightMin < 0 ? 'flex' : 'none';
+        if (rightForward) rightForward.style.display = panLimits.rightMax > 0 ? 'flex' : 'none';
 
         if (!wrap.__panWheelWired){
             wrap.__panWheelWired = true;
@@ -7938,11 +7964,11 @@ ${top3.join(', ')}${more}`;
                 const d = _num(ev.deltaY || ev.deltaX, 0);
                 const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
                 if (x < mid){
-                    if (panLimits.leftMax <= 0) return;
-                    pan.left = _clamp(_num(pan.left,0) + (d > 0 ? 30 : -30), 0, _num(panLimits.leftMax,0));
+                    if (panLimits.leftMin >= 0 && panLimits.leftMax <= 0) return;
+                    pan.left = _clamp(_num(pan.left,0) + (d > 0 ? -30 : 30), _num(panLimits.leftMin,0), _num(panLimits.leftMax,0));
                 } else {
-                    if (panLimits.rightMin >= 0) return;
-                    pan.right = _clamp(_num(pan.right,0) + (d > 0 ? -30 : 30), _num(panLimits.rightMin,0), 0);
+                    if (panLimits.rightMin >= 0 && panLimits.rightMax <= 0) return;
+                    pan.right = _clamp(_num(pan.right,0) + (d > 0 ? -30 : 30), _num(panLimits.rightMin,0), _num(panLimits.rightMax,0));
                 }
                 ev.preventDefault();
                 renderAll();
@@ -7951,8 +7977,10 @@ ${top3.join(', ')}${more}`;
     }
 
     function renderAll(){
+        panLimits.leftMin = 0;
         panLimits.leftMax = 0;
         panLimits.rightMin = 0;
+        panLimits.rightMax = 0;
         for (const ref of rowRefs){
             const it = ref.item;
             const track = ref.track;

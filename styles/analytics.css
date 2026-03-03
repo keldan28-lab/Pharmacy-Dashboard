@@ -3058,6 +3058,7 @@
         .legend-pill.risk-med{ background: rgba(255,132,0,0.14); border-color: rgba(255,132,0,0.30); }
         .legend-pill.risk-low{ background: rgba(102,126,234,0.14); border-color: rgba(102,126,234,0.30); }
         .legend-note{ color: var(--text-primary); opacity:0.75; font-size:0.8em; }
+        .legend-spacer{ flex:1 1 120px; }
 
         .stockout-timeline{
             display:flex;
@@ -3455,8 +3456,10 @@
             padding:0;
             opacity:0.95;
         }
-        .stockout-pan-btn.left{ left:8px; }
-        .stockout-pan-btn.right{ right:8px; }
+        .stockout-pan-btn.left-back{ left:8px; }
+        .stockout-pan-btn.left-forward{ left:34px; }
+        .stockout-pan-btn.right-back{ right:34px; }
+        .stockout-pan-btn.right-forward{ right:8px; }
 
         body.dark-mode .stockout-gantt-axis-track{ opacity:0.92; }
         body.dark-mode .stockout-gantt-title{ color: rgba(255,255,255,0.90); }
