@@ -6,6 +6,26 @@ let __optSearchTerm = '';
 let __optSearchTimeout = null;
 
 function _num(n,d){ n=Number(n); return Number.isFinite(n)?n:(d||0); }
+
+function _datasetEndISO(){
+  try {
+    const md = (window.MOCK_DATA && typeof window.MOCK_DATA === 'object') ? window.MOCK_DATA : null;
+    const iso = String((md && md.meta && md.meta.datasetEndISO) || '').slice(0,10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  } catch(_){}
+  return new Date().toISOString().slice(0,10);
+}
+
+function _trendMultFor(dateISO, locationKey, itemCode){
+  try {
+    const md = (window.MOCK_DATA && typeof window.MOCK_DATA === 'object') ? window.MOCK_DATA : null;
+    const tl = md && md.trendTimeline;
+    const row = tl && tl.byLocation && tl.byLocation[String(locationKey||'')] && tl.byLocation[String(locationKey||'')][String(itemCode||'')] && tl.byLocation[String(locationKey||'')][String(itemCode||'')][String(dateISO||'')];
+    const v = _num(row && row.trendMult, NaN);
+    if (Number.isFinite(v) && v > 0) return v;
+  } catch(_){}
+  return 1;
+}
 function _str(x){ return String(x||'').trim(); }
 function _esc(s){
   return String(s==null?'':s)
@@ -1904,7 +1924,8 @@ const rows = [];
         if (Number.isFinite(maxQ) && maxQ > maxQty) maxQty = maxQ;
 
         const du = _num(dailyUsageByPocket[pk], 0);
-        const demand = du * surge;
+        const trendMult = _trendMultFor(_datasetEndISO(), String(it.sublocation || ''), String(it.itemCode || ''));
+    const demand = du * surge * trendMult;
         const lt = _leadTimeDaysForSubloc(sub, ref);
         const cover = lt + reviewDays;
 
@@ -2042,7 +2063,8 @@ const rows = [];
           }
         } catch (_) { spike = 1.0; }
 
-        const demand = duWorst * surge * spike;
+        const trendMult = _trendMultFor(_datasetEndISO(), sub, code);
+        const demand = duWorst * surge * spike * trendMult;
         const lt = _leadTimeDaysForSubloc(sub, ref);
         const cover = lt + reviewDays;
 
@@ -2089,6 +2111,7 @@ const meta = metaByCode[code] || {};
           leadTimeDays: lt,
           demand,
           spikeMultiplier: spike,
+          trendMultiplier: trendMult,
           sigma,
           coverDays: cover,
           safetyStock,
@@ -2752,7 +2775,8 @@ if (metric === 'min'){
       const duWorst = _num(dailyUsageByPocket && dailyUsageByPocket[pk], 0);
       const sigma = _num(dailySigmaByPocket && dailySigmaByPocket[pk], 0);
       // Apply what-if surge multiplier (and optional spike cache multiplier is handled downstream in SpikeFactors module).
-      const demand = duWorst * surge;
+      const trendMult = _trendMultFor(_datasetEndISO(), sub, code);
+      const demand = duWorst * surge * trendMult;
       const lt = _leadTimeDaysForSubloc(sub, ref);
       const cover = lt + reviewDays;
       const safetyStock = (sigma > 0 && cover > 0) ? (z * sigma * Math.sqrt(cover)) : 0;
@@ -4002,7 +4026,8 @@ function _openMinSuggestionReport(){
 
     const du = _num(duWorst && duWorst[pk], 0);
     const sigma = _num(duSigma[pk], 0);
-    const demand = du * surge;
+    const trendMult = _trendMultFor(_datasetEndISO(), String(it.sublocation || ''), String(it.itemCode || ''));
+    const demand = du * surge * trendMult;
     const lt = _leadTimeDaysForSubloc(sub, ref);
     const cover = lt + reviewDays;
     const safetyStock = (sigma > 0 && cover > 0) ? (z * sigma * Math.sqrt(cover)) : 0;

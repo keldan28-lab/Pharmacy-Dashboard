@@ -2628,6 +2628,12 @@
 	            background: rgba(255, 193, 7, 0.14);
 	        }
 
+	        .pyxis-badge.nonstandard {
+	            border-color: rgba(170, 170, 170, 0.5);
+	            color: rgba(118, 126, 138, 0.95);
+	            background: rgba(170, 170, 170, 0.16);
+	        }
+
 	        .pyxis-sort-select {
 	            border: 2px solid rgba(15, 160, 140, 0.65);
 	            background: rgba(255, 255, 255, 0.75);
