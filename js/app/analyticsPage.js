@@ -7567,7 +7567,8 @@ wrap.innerHTML = '';
             track.style.position = 'relative';
             const origin = document.createElement('div');
             origin.style.position = 'absolute';
-            origin.style.left = '50%';
+            const originPct = 45; // one grid line left of center
+            origin.style.left = originPct + '%';
             origin.style.top = '0';
             origin.style.bottom = '0';
             origin.style.width = '1px';
@@ -7576,7 +7577,7 @@ wrap.innerHTML = '';
 
             const sorted = [...segs].sort((a,b)=>_num(b.usageRate,0)-_num(a.usageRate,0));
             const trackW = Math.max(1, track.clientWidth || 1);
-            const originX = trackW * 0.5;
+            const originX = trackW * (originPct / 100);
             const halfW = segWpx / 2;
             const pad = 4;
             const leftBound = halfW + pad;
@@ -7603,18 +7604,18 @@ wrap.innerHTML = '';
                 if (!points.length) return [];
                 const out = [];
                 const arr = [...points].sort((a,b)=>_num(b.risk,0)-_num(a.risk,0));
+                const extra = Math.max(0, (arr.length - 1) * gap - Math.max(0, sideSpan));
                 let prev = null;
                 for (const p of arr){
                     const risk = Math.max(1, _num(p.risk, 1));
                     const norm = (risk - 1) / Math.max(1e-9, maxRisk - 1);
                     const desired = isLeft
-                        ? (leftBound + norm * sideSpan)
-                        : (rightBound - norm * sideSpan);
+                        ? (leftBound + norm * sideSpan - extra)
+                        : (rightBound - norm * sideSpan + extra);
                     let x = desired;
                     if (prev != null){
                         x = isLeft ? Math.min(x, prev - gap) : Math.max(x, prev + gap);
                     }
-                    x = isLeft ? _clamp(x, leftBound, leftNearOrigin) : _clamp(x, rightNearOrigin, rightBound);
                     prev = x;
                     out.push(Object.assign({}, p, { x }));
                 }
@@ -7626,9 +7627,11 @@ wrap.innerHTML = '';
 
             const panState = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
             const minXLeft = placedLeft.length ? Math.min(...placedLeft.map(p=>p.x)) : leftBound;
+            const maxXLeft = placedLeft.length ? Math.max(...placedLeft.map(p=>p.x)) : leftNearOrigin;
+            const minXRight = placedRight.length ? Math.min(...placedRight.map(p=>p.x)) : rightNearOrigin;
             const maxXRight = placedRight.length ? Math.max(...placedRight.map(p=>p.x)) : rightBound;
-            const leftPanMax = Math.max(0, leftBound - minXLeft);
-            const rightPanMin = Math.min(0, rightBound - maxXRight);
+            const leftPanMax = Math.max(0, leftNearOrigin - maxXLeft);
+            const rightPanMin = Math.min(0, rightNearOrigin - minXRight);
             panState.left = _clamp(_num(panState.left,0), 0, leftPanMax);
             panState.right = _clamp(_num(panState.right,0), rightPanMin, 0);
             panLimits.leftMax = Math.max(_num(panLimits.leftMax,0), leftPanMax);
@@ -7645,7 +7648,7 @@ wrap.innerHTML = '';
                 const seg = document.createElement('div');
                 seg.className = 'stockout-gantt-seg ' + (pt.side === 'stockout' ? 'seg-stockout' : 'seg-overstock') + ' ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
                 applyGanttSegmentTone(seg, isStd);
-                seg.style.left = _clamp(pt.x - halfW, 0, trackW - segWpx) + 'px';
+                seg.style.left = (pt.x - halfW) + 'px';
                 seg.style.width = segWpx + 'px';
                 seg.title = `${rr.sublocation || ''}${rr.mainLocation ? ' • ' + rr.mainLocation : ''}
 Stock-out risk: ${_num(pt.stockRisk,0).toFixed(2)}
@@ -7931,7 +7934,7 @@ ${top3.join(', ')}${more}`;
                 if (!divergingEnabled) return;
                 const rect = wrap.getBoundingClientRect();
                 const x = ev.clientX - rect.left;
-                const mid = rect.width * 0.5;
+                const mid = rect.width * 0.45;
                 const d = _num(ev.deltaY || ev.deltaX, 0);
                 const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
                 if (x < mid){

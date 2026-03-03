@@ -3440,10 +3440,12 @@
             transform: translateY(-50%);
             width:20px;
             height:20px;
-            border:none;
-            background:transparent;
-            color: var(--teal-primary);
-            font-size:16px;
+            border:1px solid rgba(17,153,142,0.75);
+            border-radius:999px;
+            background: rgba(0,0,0,0.16);
+            color: #1ac7b7;
+            font-size:14px;
+            font-weight:700;
             line-height:1;
             display:flex;
             align-items:center;
@@ -3451,7 +3453,7 @@
             cursor:pointer;
             pointer-events:auto;
             padding:0;
-            opacity:0.9;
+            opacity:0.95;
         }
         .stockout-pan-btn.left{ left:8px; }
         .stockout-pan-btn.right{ right:8px; }
