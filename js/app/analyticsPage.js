@@ -7571,7 +7571,7 @@ wrap.innerHTML = '';
             origin.style.left = originPct + '%';
             origin.style.top = '0';
             origin.style.bottom = '0';
-            origin.style.width = '1px';
+            origin.style.width = '3px';
             origin.style.background = 'rgba(180,180,180,0.45)';
             track.appendChild(origin);
 
@@ -7584,7 +7584,8 @@ wrap.innerHTML = '';
             const leftNearOrigin = originX - halfW - pad;
             const rightNearOrigin = originX + halfW + pad;
             const rightBound = trackW - halfW - pad;
-            const sideSpan = Math.max(20, leftNearOrigin - leftBound);
+            const leftSpan = Math.max(20, leftNearOrigin - leftBound);
+            const rightSpan = Math.max(20, rightBound - rightNearOrigin);
 
             const leftPts = [];
             const rightPts = [];
@@ -7600,18 +7601,17 @@ wrap.innerHTML = '';
             const maxRight = Math.max(1, ...rightPts.map(p=>_num(p.risk,0)));
             const gap = segWpx + 6;
 
-            function placeSide(points, isLeft, maxRisk){
+            function placeSide(points, isLeft, maxRisk, sideSpan){
                 if (!points.length) return [];
                 const out = [];
                 const arr = [...points].sort((a,b)=>_num(b.risk,0)-_num(a.risk,0));
-                const extra = Math.max(0, (arr.length - 1) * gap - Math.max(0, sideSpan));
                 let prev = null;
                 for (const p of arr){
                     const risk = Math.max(1, _num(p.risk, 1));
                     const norm = (risk - 1) / Math.max(1e-9, maxRisk - 1);
                     const desired = isLeft
-                        ? (leftBound + norm * sideSpan - extra)
-                        : (rightBound - norm * sideSpan + extra);
+                        ? (leftBound + norm * sideSpan)
+                        : (rightBound - norm * sideSpan);
                     let x = desired;
                     if (prev != null){
                         x = isLeft ? Math.min(x, prev - gap) : Math.max(x, prev + gap);
@@ -7622,8 +7622,8 @@ wrap.innerHTML = '';
                 return out;
             }
 
-            const placedLeft = placeSide(leftPts, true, maxLeft);
-            const placedRight = placeSide(rightPts, false, maxRight);
+            const placedLeft = placeSide(leftPts, true, maxLeft, leftSpan);
+            const placedRight = placeSide(rightPts, false, maxRight, rightSpan);
 
             const panState = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
             const minXLeft = placedLeft.length ? Math.min(...placedLeft.map(p=>p.x)) : leftBound;
@@ -7664,20 +7664,6 @@ Overstock risk: ${_num(pt.overRisk,0).toFixed(2)}`;
                 seg.appendChild(lbl);
                 track.appendChild(seg);
             }
-
-            const setShadow = (cls, on)=>{
-                let el = track.querySelector('.' + cls);
-                if (!el){
-                    el = document.createElement('div');
-                    el.className = 'stockout-pan-shadow ' + cls;
-                    track.appendChild(el);
-                }
-                el.style.opacity = on ? '1' : '0';
-            };
-            setShadow('left-outer', panState.left > leftPanMin + 0.5);
-            setShadow('left-inner', panState.left < leftPanMax - 0.5);
-            setShadow('right-inner', panState.right > rightPanMin + 0.5);
-            setShadow('right-outer', panState.right < rightPanMax - 0.5);
 
             return;
         }
@@ -7918,7 +7904,7 @@ ${top3.join(', ')}${more}`;
         if (!wrap.__panWheelWired){
             wrap.__panWheelWired = true;
             wrap.addEventListener('wheel', (ev)=>{
-                if (!divergingEnabled) return;
+                if ((()=>{ try { return localStorage.getItem('gantt_diverging') === '1'; } catch(_) { return false; } })() !== true) return;
                 const rect = wrap.getBoundingClientRect();
                 const x = ev.clientX - rect.left;
                 const mid = rect.width * 0.45;
@@ -7973,6 +7959,29 @@ ${top3.join(', ')}${more}`;
                 if (shouldZoom) track.classList.add('zoomed');
                 else track.classList.remove('zoomed');
                 renderRow(track, it, curMinV, curMaxV, shouldZoom ? st.cluster : null);
+            }
+        }
+        if (divergingEnabled){
+            const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+            const showLeftOuter = _num(pan.left,0) > _num(panLimits.leftMin,0) + 0.5;
+            const showLeftInner = _num(pan.left,0) < _num(panLimits.leftMax,0) - 0.5;
+            const showRightInner = _num(pan.right,0) > _num(panLimits.rightMin,0) + 0.5;
+            const showRightOuter = _num(pan.right,0) < _num(panLimits.rightMax,0) - 0.5;
+            for (const ref of rowRefs){
+                const track = ref.track;
+                const setShadow = (cls, on)=>{
+                    let el = track.querySelector('.' + cls);
+                    if (!el){
+                        el = document.createElement('div');
+                        el.className = 'stockout-pan-shadow ' + cls;
+                        track.appendChild(el);
+                    }
+                    el.style.opacity = on ? '1' : '0';
+                };
+                setShadow('left-outer', showLeftOuter);
+                setShadow('left-inner', showLeftInner);
+                setShadow('right-inner', showRightInner);
+                setShadow('right-outer', showRightOuter);
             }
         }
         ensurePanWheelOnly();

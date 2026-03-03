@@ -3389,7 +3389,7 @@
             inset:0;
             pointer-events:none;
             background:
-                linear-gradient(to right, rgba(255,255,255,0.18), rgba(255,255,255,0.18)) 45% 0/1px 100% no-repeat,
+                linear-gradient(to right, rgba(255,255,255,0.24), rgba(255,255,255,0.24)) 45% 0/3px 100% no-repeat,
                 linear-gradient(to right, rgba(255,255,255,0.14), rgba(255,255,255,0.14)) 100% 0/1px 100% no-repeat;
             opacity:0.75;
         }
@@ -3446,10 +3446,10 @@
             opacity:0;
             transition: opacity 120ms ease;
         }
-        .stockout-pan-shadow.left-outer{ left:0; background: linear-gradient(to right, rgba(0,0,0,0.30), rgba(0,0,0,0)); }
-        .stockout-pan-shadow.left-inner{ left: calc(45% - 18px); background: linear-gradient(to left, rgba(0,0,0,0.28), rgba(0,0,0,0)); }
-        .stockout-pan-shadow.right-inner{ left: 45%; background: linear-gradient(to right, rgba(0,0,0,0.28), rgba(0,0,0,0)); }
-        .stockout-pan-shadow.right-outer{ right:0; background: linear-gradient(to left, rgba(0,0,0,0.30), rgba(0,0,0,0)); }
+        .stockout-pan-shadow.left-outer{ left:0; background: linear-gradient(to right, rgba(0,0,0,0.16), rgba(0,0,0,0)); }
+        .stockout-pan-shadow.left-inner{ left: calc(45% - 18px); background: linear-gradient(to left, rgba(0,0,0,0.14), rgba(0,0,0,0)); }
+        .stockout-pan-shadow.right-inner{ left: 45%; background: linear-gradient(to right, rgba(0,0,0,0.14), rgba(0,0,0,0)); }
+        .stockout-pan-shadow.right-outer{ right:0; background: linear-gradient(to left, rgba(0,0,0,0.16), rgba(0,0,0,0)); }
 
         body.dark-mode .stockout-gantt-axis-track{ opacity:0.92; }
         body.dark-mode .stockout-gantt-title{ color: rgba(255,255,255,0.90); }
