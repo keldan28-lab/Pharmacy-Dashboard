@@ -7313,8 +7313,8 @@
 
                     // Stock-out score = Daily Usage / Min Qty (higher means worse)
 					const stockoutScore = (minQty > 0) ? (subUsageRate / minQty) : 0;
-					// Do not show segments at or below 1.0 (per requirements)
-					if (stockoutScore <= 1) continue;
+					// In classic mode, keep legacy >1 threshold; diverging mode plots all location values.
+					if (!divergingEnabled && stockoutScore <= 1) continue;
 
                     const locInfo = (map && map[sublocCode]) ? map[sublocCode] : { mainLocation: sublocCode, department:'Unknown' };
                     // Filter out PHARMACY department (explicit request)
@@ -7443,10 +7443,8 @@ function renderStockOutRiskTimeline(md){
         const segs = Array.isArray(it && it.sublocations) ? it.sublocations : [];
         if (divergingEnabled){
             return segs.some((r)=>{
-                const minQty = Math.max(1, _num(r && r.minQty, 0));
-                const maxQty = Math.max(1, _num(r && r.maxQty, 0));
-                const onHand = Math.max(0, _num(r && r.curQty, 0));
-                return onHand < minQty || onHand > maxQty;
+                const comps = getRiskComponents(r);
+                return _num(comps.stockoutRisk, 0) > 0 || _num(comps.overstockRisk, 0) > 0;
             });
         }
         const maxSc = segs.reduce((m, r) => Math.max(m, _num(r.stockoutScore, 0)), 0);
@@ -7561,7 +7559,7 @@ wrap.innerHTML = '';
 
         const segWpx = 110; // fixed width
         const segs = Array.isArray(item && item.sublocations) ? item.sublocations : [];
-        const filtered = segs.filter(r => _num(r.stockoutScore, 0) > 1);
+        const filtered = divergingEnabled ? segs : segs.filter(r => _num(r.stockoutScore, 0) > 1);
         if (!filtered.length) return;
 
         if (divergingEnabled){
@@ -7580,60 +7578,61 @@ wrap.innerHTML = '';
             const originX = trackW * 0.5;
             const halfW = segWpx / 2;
             const pad = 4;
+            const leftBound = halfW + pad;
+            const leftNearOrigin = originX - halfW - pad;
+            const rightNearOrigin = originX + halfW + pad;
+            const rightBound = trackW - halfW - pad;
+            const sideSpan = Math.max(20, leftNearOrigin - leftBound);
+
             const leftPts = [];
             const rightPts = [];
-
             for (const rr of sorted){
                 const comps = getRiskComponents(rr);
                 const stockRisk = _num(comps.stockoutRisk, 0);
                 const overRisk = _num(comps.overstockRisk, 0);
-                if (stockRisk > 0){
-                    leftPts.push({ rr, risk: stockRisk, side: 'stockout', stockRisk, overRisk });
-                } else if (overRisk > 0){
-                    rightPts.push({ rr, risk: overRisk, side: 'overstock', stockRisk, overRisk });
-                }
+                if (stockRisk > 0) leftPts.push({ rr, risk: stockRisk, side:'stockout', stockRisk, overRisk });
+                if (overRisk > 0) rightPts.push({ rr, risk: overRisk, side:'overstock', stockRisk, overRisk });
             }
 
-            function assignTargets(points, isLeft){
+            const maxLeft = Math.max(1, ...leftPts.map(p=>_num(p.risk,0)));
+            const maxRight = Math.max(1, ...rightPts.map(p=>_num(p.risk,0)));
+            const gap = segWpx + 6;
+
+            function placeSide(points, isLeft, maxRisk){
                 if (!points.length) return [];
-                const risks = points.map(p=>_num(p.risk,0)).filter(v=>v>0);
-                const minR = risks.length ? Math.min(...risks) : 0;
-                const maxR = risks.length ? Math.max(...risks) : 1;
-                const den = Math.max(1e-9, maxR - minR);
-                const sideMin = isLeft ? (halfW + pad) : (originX + halfW + pad);
-                const sideMax = isLeft ? (originX - halfW - pad) : (trackW - halfW - pad);
-                const withTarget = points.map(p=>{
-                    const n = _clamp((_num(p.risk,0) - minR) / den, 0, 1);
-                    const target = isLeft
-                        ? (sideMin + n * (sideMax - sideMin))
-                        : (sideMax - n * (sideMax - sideMin));
-                    return Object.assign({}, p, { target, x: target });
-                });
-
-                const gap = segWpx + 6;
-                if (isLeft){
-                    withTarget.sort((a,b)=>b.target-a.target);
-                    let prev = sideMax + gap;
-                    for (const p of withTarget){
-                        p.x = Math.min(p.target, prev - gap);
-                        p.x = Math.max(sideMin, p.x);
-                        prev = p.x;
+                const out = [];
+                const arr = [...points].sort((a,b)=>_num(b.risk,0)-_num(a.risk,0));
+                let prev = null;
+                for (const p of arr){
+                    const risk = Math.max(1, _num(p.risk, 1));
+                    const norm = (risk - 1) / Math.max(1e-9, maxRisk - 1);
+                    const desired = isLeft
+                        ? (leftBound + norm * sideSpan)
+                        : (rightBound - norm * sideSpan);
+                    let x = desired;
+                    if (prev != null){
+                        x = isLeft ? Math.min(x, prev - gap) : Math.max(x, prev + gap);
                     }
-                } else {
-                    withTarget.sort((a,b)=>a.target-b.target);
-                    let prev = sideMin - gap;
-                    for (const p of withTarget){
-                        p.x = Math.max(p.target, prev + gap);
-                        p.x = Math.min(sideMax, p.x);
-                        prev = p.x;
-                    }
+                    prev = x;
+                    out.push(Object.assign({}, p, { x }));
                 }
-                return withTarget;
+                return out;
             }
+
+            const placedLeft = placeSide(leftPts, true, maxLeft);
+            const placedRight = placeSide(rightPts, false, maxRight);
+
+            const panState = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+            const minXLeft = placedLeft.length ? Math.min(...placedLeft.map(p=>p.x)) : leftBound;
+            const maxXRight = placedRight.length ? Math.max(...placedRight.map(p=>p.x)) : rightBound;
+            const leftPanMax = Math.max(0, leftBound - minXLeft);
+            const rightPanMin = Math.min(0, rightBound - maxXRight);
+            panState.left = _clamp(_num(panState.left,0), 0, leftPanMax);
+            panState.right = _clamp(_num(panState.right,0), rightPanMin, 0);
 
             const placed = [
-                ...assignTargets(leftPts, true),
-                ...assignTargets(rightPts, false)
+                ...placedLeft.map(p=>Object.assign({}, p, { x: p.x + panState.left })),
+                ...placedRight.map(p=>Object.assign({}, p, { x: p.x + panState.right }))
             ];
 
             for (const pt of placed){
@@ -7653,6 +7652,41 @@ Overstock risk: ${_num(pt.overRisk,0).toFixed(2)}`;
                 lbl.textContent = (rr.sublocation || '').toUpperCase();
                 seg.appendChild(lbl);
                 track.appendChild(seg);
+            }
+
+            function mkArrow(symbol, leftPx, onClick, show){
+                const el = document.createElement('button');
+                el.type = 'button';
+                el.className = 'stockout-pan-arrow';
+                el.textContent = symbol;
+                el.style.left = leftPx + 'px';
+                el.style.top = '50%';
+                el.style.transform = 'translate(-50%, -50%)';
+                el.style.display = show ? 'flex' : 'none';
+                el.addEventListener('click', (e)=>{ e.stopPropagation(); onClick(); renderAll(); });
+                track.appendChild(el);
+            }
+
+            mkArrow('◀', leftBound + 10, ()=>{ panState.left = _clamp(panState.left + 60, 0, leftPanMax); }, leftPanMax > 0);
+            mkArrow('▶', rightBound - 10, ()=>{ panState.right = _clamp(panState.right - 60, rightPanMin, 0); }, rightPanMin < 0);
+
+            if (!track.__panWheelWired){
+                track.__panWheelWired = true;
+                track.addEventListener('wheel', (ev)=>{
+                    if (!divergingEnabled) return;
+                    const rect = track.getBoundingClientRect();
+                    const x = ev.clientX - rect.left;
+                    const d = _num(ev.deltaY || ev.deltaX, 0);
+                    if (x < originX){
+                        if (leftPanMax <= 0) return;
+                        panState.left = _clamp(panState.left + (d > 0 ? 30 : -30), 0, leftPanMax);
+                    } else {
+                        if (rightPanMin >= 0) return;
+                        panState.right = _clamp(panState.right + (d > 0 ? -30 : 30), rightPanMin, 0);
+                    }
+                    ev.preventDefault();
+                    renderAll();
+                }, { passive:false });
             }
             return;
         }

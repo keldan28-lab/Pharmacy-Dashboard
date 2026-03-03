@@ -3425,6 +3425,23 @@
             pointer-events:none;
         }
 
+        .stockout-pan-arrow{
+            position:absolute;
+            z-index:4;
+            width:18px;
+            height:18px;
+            border-radius:50%;
+            border:1px solid rgba(255,255,255,0.22);
+            background: rgba(20,32,38,0.75);
+            color: rgba(225,235,245,0.92);
+            font-size:10px;
+            line-height:1;
+            align-items:center;
+            justify-content:center;
+            cursor:pointer;
+            padding:0;
+        }
+
         body.dark-mode .stockout-gantt-axis-track{ opacity:0.92; }
         body.dark-mode .stockout-gantt-title{ color: rgba(255,255,255,0.90); }
 
