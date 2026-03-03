@@ -7396,7 +7396,12 @@ function renderStockOutRiskTimeline(md){
     const rawItems = (data && Array.isArray(data.items)) ? data.items : [];
     const sMinRaw = _num(data && data.scoreRange && data.scoreRange.min, 0);
     const sMaxRaw = _num(data && data.scoreRange && data.scoreRange.max, 0);
-    const divergingEnabled = (()=>{ try { return localStorage.getItem('gantt_diverging') === '1'; } catch(_) { return false; } })();
+    const divergingEnabled = (()=>{
+        try {
+            const v = localStorage.getItem('gantt_diverging');
+            return v == null ? true : v === '1';
+        } catch(_) { return true; }
+    })();
 
     function getRowSignedScore(r){
         if (!divergingEnabled) return _num(r && r.stockoutScore, 0);
@@ -7449,12 +7454,43 @@ function renderStockOutRiskTimeline(md){
         if (kpi) kpi.textContent = String(items.length);
     }catch(_){ }
 
+    try {
+        const toggleBtn = document.getElementById('ganttDivergingToggle');
+        if (toggleBtn){
+            toggleBtn.classList.toggle('active', !!divergingEnabled);
+            toggleBtn.textContent = 'Diverging: ' + (divergingEnabled ? 'On' : 'Off');
+            if (!toggleBtn.__wired){
+                toggleBtn.__wired = true;
+                toggleBtn.addEventListener('click', (ev)=>{
+                    ev.stopPropagation();
+                    let next = true;
+                    try {
+                        const cur = localStorage.getItem('gantt_diverging');
+                        next = !(cur == null ? true : cur === '1');
+                        localStorage.setItem('gantt_diverging', next ? '1' : '0');
+                    } catch(_) {}
+                    const mdNext = window.__latestComputedMockData || window.mockData || md || {};
+                    renderStockOutRiskTimeline(mdNext);
+                });
+            }
+        }
+        const legend = document.getElementById('stockoutTimelineLegend');
+        if (legend){
+            const note = legend.querySelector('.legend-note');
+            if (note){
+                note.textContent = divergingEnabled
+                    ? 'Position = Signed pressure (Stock-out minus Overstock)'
+                    : 'Position = Stock-out score (Daily Usage / Min Qty)';
+            }
+        }
+    } catch(_){ }
+
 wrap.innerHTML = '';
 
     if (!items.length){
         const empty = document.createElement('div');
         empty.className = 'pyxis-metrics-empty';
-        empty.textContent = 'No items with Stock-out Score above 1.';
+        empty.textContent = divergingEnabled ? 'No items outside Min/Max range.' : 'No items with Stock-out Score above 1.';
         wrap.appendChild(empty);
         return;
     }

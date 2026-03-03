@@ -1300,10 +1300,12 @@ function _render(){
   const viewBy = window.__optViewBy || 'location';
   const metric = window.__optMetric || 'min';
 
-  // Report button (Min Suggestions)
+  // Report button (metric-aware)
   const rptBtn = document.getElementById('optPrintMinReportBtn');
   if (rptBtn){
-    rptBtn.style.display = (metric === 'min') ? 'inline-flex' : 'none';
+    const show = (metric === 'min' || metric === 'tx_waste');
+    rptBtn.style.display = show ? 'inline-flex' : 'none';
+    rptBtn.title = (metric === 'tx_waste') ? 'Print Waste Optimization Report' : 'Print Min Suggestions';
   }
 
   // ---- Search + context chips (Charts-style) ----
@@ -3970,6 +3972,115 @@ function _requestMock(){
 }
 
 
+
+function _openWasteOptimizationReport(){
+  const raw = window.__optLastRaw;
+  const computed = window.__optLastComputed;
+  const inv = _getInventory(raw, computed);
+  const tx = _getTransactions(raw, computed);
+  const ref = window.__optSubMap || (window.__optSubMap = _getSublocationMap());
+  const metaByCode = window.__optMetaByCode || (window.__optMetaByCode = _buildItemMetaByCode());
+  const invRecs = _iterInventoryRecords(inv);
+  const wasteByPocket = _buildQtyByPocket(tx, 'waste').qty || {};
+
+  const norm = (s)=>String(s||'').trim().toUpperCase();
+  const scope = window.__optDrillScope || null;
+  const scopeLoc = (scope && scope.type === 'location') ? norm(scope.key||'') : '';
+  const scopeSubloc = (scope && scope.type === 'sublocation') ? norm(scope.key||'') : '';
+  const bySubloc = Object.create(null);
+
+  for (const it of invRecs){
+    const code = String(it.itemCode||'').trim();
+    if (!code) continue;
+    const subRaw = String(it.sublocation||'UNKNOWN');
+    const sub = norm(subRaw);
+    const loc = norm(_locationLabelForSubloc(subRaw, ref) || '');
+    if (scopeLoc && loc !== scopeLoc) continue;
+    if (scopeSubloc && sub !== scopeSubloc) continue;
+
+    const pk = code + '|' + sub;
+    const wasteQty = _num(wasteByPocket[pk], 0);
+    const curQty = _num(it.curQty, _num(it.qty, 0));
+    if (!(wasteQty > 0) && !(curQty > 0)) continue;
+
+    const meta = metaByCode[code] || {};
+    const unit = _unitCostFromMeta(meta);
+    const estWasteCost = wasteQty * unit;
+
+    const row = {
+      itemCode: code,
+      itemName: String(meta.description || meta.drugName || meta.name || code),
+      sublocation: sub,
+      location: loc,
+      onHand: curQty,
+      wasteQty,
+      unitCost: unit,
+      estWasteCost
+    };
+
+    const arr = bySubloc[sub] || (bySubloc[sub] = []);
+    arr.push(row);
+  }
+
+  const sublocKeys = Object.keys(bySubloc).sort((a,b)=>a.localeCompare(b));
+  const title = scopeSubloc
+    ? `Waste Optimization Report — ${scopeSubloc}`
+    : (scopeLoc ? `Waste Optimization Report — ${scopeLoc}` : 'Waste Optimization Report — All Locations');
+
+  const w = window.open('', '_blank');
+  if (!w) return;
+
+  const css = `
+    body{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; color:#111; padding:18px; }
+    h1{ font-size:18px; margin:0 0 10px 0; }
+    h2{ font-size:14px; margin:18px 0 8px 0; }
+    .meta{ color:#444; font-size:12px; margin-bottom:12px; }
+    table{ width:100%; border-collapse:collapse; font-size:12px; }
+    th,td{ padding:6px 8px; border-bottom:1px solid #ddd; text-align:left; vertical-align:top; }
+    th{ background:#f6f6f6; position:sticky; top:0; }
+    .num{ text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
+    .item-col{ width: 320px; max-width: 320px; }
+    .item-wrap{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient: vertical; overflow:hidden; line-height:1.25; }
+    @media print{ button{ display:none; } h2{ page-break-after: avoid; } }
+  `;
+
+  const esc = (s)=>_esc(String(s==null?'':s));
+  const now = new Date();
+  let html = `<!doctype html><html><head><title>${esc(title)}</title><style>${css}</style></head><body>`;
+  html += `<h1>${esc(title)}</h1>`;
+  html += `<div class="meta">Generated: ${esc(now.toLocaleString())} • Metric: Waste Transactions</div>`;
+  html += `<button onclick="window.print()" style="padding:8px 10px; border-radius:10px; border:1px solid #ccc; background:#fff; cursor:pointer; margin-bottom:10px;">Print</button>`;
+
+  if (!sublocKeys.length){
+    html += `<div class="meta">No waste candidates found for the current scope.</div>`;
+  } else {
+    for (const sub of sublocKeys){
+      const rows = bySubloc[sub] || [];
+      rows.sort((a,b)=>_num(b.estWasteCost,0)-_num(a.estWasteCost,0) || _num(b.wasteQty,0)-_num(a.wasteQty,0));
+      const totalWasteQty = rows.reduce((s,r)=>s + _num(r.wasteQty,0), 0);
+      const totalWasteCost = rows.reduce((s,r)=>s + _num(r.estWasteCost,0), 0);
+      html += `<h2>${esc(sub)} ${scopeLoc ? '' : (rows[0] && rows[0].location ? '— '+esc(rows[0].location) : '')}</h2>`;
+      html += `<div class="meta">Waste Qty: ${esc(String(Math.round(totalWasteQty)))} • Est Cost: ${esc('$'+Math.round(totalWasteCost).toLocaleString())}</div>`;
+      html += `<table><thead><tr><th class="item-col">Items</th><th class="num">On Hand</th><th class="num">Waste Qty</th><th class="num">Unit Cost</th><th class="num">Est Waste Cost</th></tr></thead><tbody>`;
+      for (const r of rows){
+        html += `<tr>`+
+                `<td class="item-col"><div class="item-wrap">${esc(r.itemName)}<br><span style="opacity:.72">${esc(r.itemCode)}</span></div></td>`+
+                `<td class="num">${esc(String(Math.round(_num(r.onHand,0))))}</td>`+
+                `<td class="num">${esc(String(Math.round(_num(r.wasteQty,0))))}</td>`+
+                `<td class="num">${esc(_currency(_num(r.unitCost,0), 2))}</td>`+
+                `<td class="num">${esc(_currency(_num(r.estWasteCost,0), 0))}</td>`+
+                `</tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+  }
+
+  html += `</body></html>`;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
 function _openMinSuggestionReport(){
   const raw = window.__optLastRaw;
   const computed = window.__optLastComputed;
@@ -4355,7 +4466,9 @@ function _init(){
   if (rptBtn){
     rptBtn.addEventListener('click', (e)=>{
       e.stopPropagation();
-      _openMinSuggestionReport();
+      const metric = window.__optMetric || 'min';
+      if (metric === 'tx_waste') _openWasteOptimizationReport();
+      else _openMinSuggestionReport();
     });
   }
 

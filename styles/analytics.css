@@ -3547,6 +3547,12 @@
     opacity:0.72;
 }
 
+.stockout-mode-toggle{
+    font-size:0.72em;
+    padding:5px 8px;
+    margin-bottom:4px;
+}
+
 
 /* Unified SVG sprite icon styling */
 .ui-icon{
