@@ -7406,9 +7406,9 @@ function renderStockOutRiskTimeline(md){
     function getRiskComponents(r){
         const minQty = Math.max(1, _num(r && r.minQty, 0));
         const maxQty = Math.max(1, _num(r && r.maxQty, 0));
-        const usageRate = Math.max(0, _num(r && r.usageRate, 0));
         const curQty = Math.max(0, _num(r && r.curQty, 0));
-        const stockoutRisk = usageRate / minQty;
+        // Keep risk components separate and state-based so each pocket maps to one side.
+        const stockoutRisk = curQty < minQty ? ((minQty - curQty) / minQty) : 0;
         const overstockRisk = curQty > maxQty ? ((curQty - maxQty) / maxQty) : 0;
         return { stockoutRisk, overstockRisk };
     }
@@ -7576,30 +7576,38 @@ wrap.innerHTML = '';
             const trackW = Math.max(1, track.clientWidth || 1);
             for (const rr of sorted){
                 const comps = getRiskComponents(rr);
-                const points = [];
-                if (_num(comps.stockoutRisk, 0) > 0) points.push({ side: 'stockout', score: -_num(comps.stockoutRisk, 0) });
-                if (_num(comps.overstockRisk, 0) > 0) points.push({ side: 'overstock', score: _num(comps.overstockRisk, 0) });
-                if (!points.length) continue;
+                const stockRisk = _num(comps.stockoutRisk, 0);
+                const overRisk = _num(comps.overstockRisk, 0);
+                let point = null;
+                if (stockRisk > 0 && overRisk > 0){
+                    // Defensive fallback for malformed min/max ranges: keep one badge only.
+                    point = (stockRisk >= overRisk)
+                        ? { side: 'stockout', score: -stockRisk }
+                        : { side: 'overstock', score: overRisk };
+                } else if (stockRisk > 0){
+                    point = { side: 'stockout', score: -stockRisk };
+                } else if (overRisk > 0){
+                    point = { side: 'overstock', score: overRisk };
+                }
+                if (!point) continue;
 
                 const isStd = !!(rr && rr.standard);
-                for (const pt of points){
-                    const pct = scoreToPct(pt.score, minV, maxV);
-                    const xPx = (pct / 100) * trackW;
-                    const seg = document.createElement('div');
-                    seg.className = 'stockout-gantt-seg ' + (pt.side === 'stockout' ? 'seg-stockout' : 'seg-overstock') + ' ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
-                    applyGanttSegmentTone(seg, isStd);
-                    seg.style.left = _clamp(xPx - (segWpx/2), 0, trackW - segWpx) + 'px';
-                    seg.style.width = segWpx + 'px';
-                    seg.title = `${rr.sublocation || ''}${rr.mainLocation ? ' • ' + rr.mainLocation : ''}
-Stock-out risk: ${_num(comps.stockoutRisk,0).toFixed(2)}
-Overstock risk: ${_num(comps.overstockRisk,0).toFixed(2)}`;
+                const pct = scoreToPct(point.score, minV, maxV);
+                const xPx = (pct / 100) * trackW;
+                const seg = document.createElement('div');
+                seg.className = 'stockout-gantt-seg ' + (point.side === 'stockout' ? 'seg-stockout' : 'seg-overstock') + ' ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
+                applyGanttSegmentTone(seg, isStd);
+                seg.style.left = _clamp(xPx - (segWpx/2), 0, trackW - segWpx) + 'px';
+                seg.style.width = segWpx + 'px';
+                seg.title = `${rr.sublocation || ''}${rr.mainLocation ? ' • ' + rr.mainLocation : ''}
+Stock-out risk: ${stockRisk.toFixed(2)}
+Overstock risk: ${overRisk.toFixed(2)}`;
 
-                    const lbl = document.createElement('div');
-                    lbl.className = 'stockout-gantt-seg-label';
-                    lbl.textContent = (rr.sublocation || '').toUpperCase();
-                    seg.appendChild(lbl);
-                    track.appendChild(seg);
-                }
+                const lbl = document.createElement('div');
+                lbl.className = 'stockout-gantt-seg-label';
+                lbl.textContent = (rr.sublocation || '').toUpperCase();
+                seg.appendChild(lbl);
+                track.appendChild(seg);
             }
             return;
         }
