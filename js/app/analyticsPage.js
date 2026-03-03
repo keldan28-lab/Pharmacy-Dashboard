@@ -6886,7 +6886,8 @@
                 const hist = Array.isArray(rec && rec.history) ? rec.history : [];
                 for (const tx of hist){
                     if (!tx || typeof tx !== 'object') continue;
-                    const txLoc = String(tx.sublocation ?? tx.location ?? tx.pyxisLocation ?? tx.sendToLocation ?? '').trim().toUpperCase();
+                    const sublocation = String(tx.sublocation ?? '').trim();
+                    const txLoc = String(sublocation || tx.location || tx.pyxisLocation || tx.sendToLocation || '').trim().toUpperCase();
                     if (locNeedle && txLoc && txLoc !== locNeedle) continue;
                     const dt = new Date(String(tx.transDate ?? tx.date ?? tx.txDate ?? tx.dispenseDate ?? tx.timestamp ?? ''));
                     if (!Number.isFinite(dt.getTime())) continue;

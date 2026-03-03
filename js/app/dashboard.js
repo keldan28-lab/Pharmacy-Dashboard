@@ -2188,8 +2188,9 @@ Subloc: ${counts.subloc}`);
         function __buildTrendTimelineFromTransactions(transactions){
             const rows = __extractTxRows(transactions);
             const todayISO = new Date().toISOString().slice(0,10);
-            let datasetEndISO = todayISO;
+            let datasetEndISO = '';
             for (const r of rows) if (r.dateISO > datasetEndISO) datasetEndISO = r.dateISO;
+            if (!datasetEndISO) datasetEndISO = todayISO;
             const byKey = Object.create(null);
             for (const r of rows){
                 const k = `${r.locationKey}|${r.itemCode}`;
@@ -6578,4 +6579,3 @@ async function adminLoadSpikeFactors() {
 
 
 ;
-
