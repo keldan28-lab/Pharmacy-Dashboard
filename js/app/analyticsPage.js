@@ -7405,12 +7405,15 @@ function renderStockOutRiskTimeline(md){
 
     function getRiskComponents(r){
         const minQty = Math.max(1, _num(r && r.minQty, 0));
-        const maxQty = Math.max(1, _num(r && r.maxQty, 0));
-        const curQty = Math.max(0, _num(r && r.curQty, 0));
-        // Keep risk components separate and state-based so each pocket maps to one side.
-        const stockoutRisk = curQty < minQty ? ((minQty - curQty) / minQty) : 0;
-        const overstockRisk = curQty > maxQty ? ((curQty - maxQty) / maxQty) : 0;
-        return { stockoutRisk, overstockRisk };
+        const usageRate = Math.max(0, _num(r && r.usageRate, 0));
+        // Risk derived from min-based pressure only (no curQty dependency).
+        // ratio > 1 => stock-out pressure; ratio < 1 => overstock pressure.
+        const ratio = usageRate / minQty;
+        if (ratio >= 1){
+            return { stockoutRisk: ratio, overstockRisk: 0 };
+        }
+        const overstockRisk = 1 / Math.max(ratio, 1e-6);
+        return { stockoutRisk: 0, overstockRisk };
     }
 
     function getRowSignedScore(r){
@@ -7482,7 +7485,7 @@ function renderStockOutRiskTimeline(md){
             const note = legend.querySelector('.legend-note');
             if (note){
                 note.textContent = divergingEnabled
-                    ? 'Origin = 0 • Stock-out risk on negative side • Overstock risk on positive side'
+                    ? 'Origin = split point • max risk near origin • lower risk farther out'
                     : 'Position = Stock-out score (Daily Usage / Min Qty)';
             }
         }
@@ -7574,34 +7577,76 @@ wrap.innerHTML = '';
 
             const sorted = [...segs].sort((a,b)=>_num(b.usageRate,0)-_num(a.usageRate,0));
             const trackW = Math.max(1, track.clientWidth || 1);
+            const originX = trackW * 0.5;
+            const halfW = segWpx / 2;
+            const pad = 4;
+            const leftPts = [];
+            const rightPts = [];
+
             for (const rr of sorted){
                 const comps = getRiskComponents(rr);
                 const stockRisk = _num(comps.stockoutRisk, 0);
                 const overRisk = _num(comps.overstockRisk, 0);
-                let point = null;
-                if (stockRisk > 0 && overRisk > 0){
-                    // Defensive fallback for malformed min/max ranges: keep one badge only.
-                    point = (stockRisk >= overRisk)
-                        ? { side: 'stockout', score: -stockRisk }
-                        : { side: 'overstock', score: overRisk };
-                } else if (stockRisk > 0){
-                    point = { side: 'stockout', score: -stockRisk };
+                if (stockRisk > 0){
+                    leftPts.push({ rr, risk: stockRisk, side: 'stockout', stockRisk, overRisk });
                 } else if (overRisk > 0){
-                    point = { side: 'overstock', score: overRisk };
+                    rightPts.push({ rr, risk: overRisk, side: 'overstock', stockRisk, overRisk });
                 }
-                if (!point) continue;
+            }
 
+            function assignTargets(points, isLeft){
+                if (!points.length) return [];
+                const risks = points.map(p=>_num(p.risk,0)).filter(v=>v>0);
+                const minR = risks.length ? Math.min(...risks) : 0;
+                const maxR = risks.length ? Math.max(...risks) : 1;
+                const den = Math.max(1e-9, maxR - minR);
+                const sideMin = isLeft ? (halfW + pad) : (originX + halfW + pad);
+                const sideMax = isLeft ? (originX - halfW - pad) : (trackW - halfW - pad);
+                const withTarget = points.map(p=>{
+                    const n = _clamp((_num(p.risk,0) - minR) / den, 0, 1);
+                    const target = isLeft
+                        ? (sideMin + n * (sideMax - sideMin))
+                        : (sideMax - n * (sideMax - sideMin));
+                    return Object.assign({}, p, { target, x: target });
+                });
+
+                const gap = segWpx + 6;
+                if (isLeft){
+                    withTarget.sort((a,b)=>b.target-a.target);
+                    let prev = sideMax + gap;
+                    for (const p of withTarget){
+                        p.x = Math.min(p.target, prev - gap);
+                        p.x = Math.max(sideMin, p.x);
+                        prev = p.x;
+                    }
+                } else {
+                    withTarget.sort((a,b)=>a.target-b.target);
+                    let prev = sideMin - gap;
+                    for (const p of withTarget){
+                        p.x = Math.max(p.target, prev + gap);
+                        p.x = Math.min(sideMax, p.x);
+                        prev = p.x;
+                    }
+                }
+                return withTarget;
+            }
+
+            const placed = [
+                ...assignTargets(leftPts, true),
+                ...assignTargets(rightPts, false)
+            ];
+
+            for (const pt of placed){
+                const rr = pt.rr;
                 const isStd = !!(rr && rr.standard);
-                const pct = scoreToPct(point.score, minV, maxV);
-                const xPx = (pct / 100) * trackW;
                 const seg = document.createElement('div');
-                seg.className = 'stockout-gantt-seg ' + (point.side === 'stockout' ? 'seg-stockout' : 'seg-overstock') + ' ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
+                seg.className = 'stockout-gantt-seg ' + (pt.side === 'stockout' ? 'seg-stockout' : 'seg-overstock') + ' ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
                 applyGanttSegmentTone(seg, isStd);
-                seg.style.left = _clamp(xPx - (segWpx/2), 0, trackW - segWpx) + 'px';
+                seg.style.left = _clamp(pt.x - halfW, 0, trackW - segWpx) + 'px';
                 seg.style.width = segWpx + 'px';
                 seg.title = `${rr.sublocation || ''}${rr.mainLocation ? ' • ' + rr.mainLocation : ''}
-Stock-out risk: ${stockRisk.toFixed(2)}
-Overstock risk: ${overRisk.toFixed(2)}`;
+Stock-out risk: ${_num(pt.stockRisk,0).toFixed(2)}
+Overstock risk: ${_num(pt.overRisk,0).toFixed(2)}`;
 
                 const lbl = document.createElement('div');
                 lbl.className = 'stockout-gantt-seg-label';
