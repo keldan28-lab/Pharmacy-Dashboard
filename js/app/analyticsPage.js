@@ -7266,13 +7266,14 @@
 
         
                 function buildStockOutTimeline(md, bufferDays=14, horizonDays=56, limit=5){
+            const divergingEnabled = (()=>{ try { return localStorage.getItem('gantt_diverging') === '1'; } catch(_) { return false; } })();
             
     // Defensive: ensure description lookup is in-scope (prevents ReferenceError)
     const descByCode = (window.InventoryApp && window.InventoryApp.Computed && window.InventoryApp.Computed.descByCode)
         || (window.InventoryApp && window.InventoryApp.Lookups && window.InventoryApp.Lookups.descByCode)
         || {};
 // bufferDays/horizonDays kept for compatibility with existing UI controls, but ranking is now score-based.
-            const key = _stockoutKey(md, bufferDays, horizonDays) + '|score_v2|limit=' + String(limit);
+            const key = _stockoutKey(md, bufferDays, horizonDays) + '|score_v2|limit=' + String(limit) + '|div=' + (divergingEnabled ? '1' : '0');
             if (__forecastCache.stockoutKey === key && __forecastCache.stockout) return __forecastCache.stockout;
 
             const inventoryByCode = (md && md.inventory && typeof md.inventory==='object') ? md.inventory : {};
