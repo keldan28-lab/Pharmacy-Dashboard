@@ -7665,6 +7665,20 @@ Overstock risk: ${_num(pt.overRisk,0).toFixed(2)}`;
                 track.appendChild(seg);
             }
 
+            const setShadow = (cls, on)=>{
+                let el = track.querySelector('.' + cls);
+                if (!el){
+                    el = document.createElement('div');
+                    el.className = 'stockout-pan-shadow ' + cls;
+                    track.appendChild(el);
+                }
+                el.style.opacity = on ? '1' : '0';
+            };
+            setShadow('left-outer', panState.left > leftPanMin + 0.5);
+            setShadow('left-inner', panState.left < leftPanMax - 0.5);
+            setShadow('right-inner', panState.right > rightPanMin + 0.5);
+            setShadow('right-outer', panState.right < rightPanMax - 0.5);
+
             return;
         }
 
@@ -7900,60 +7914,7 @@ ${top3.join(', ')}${more}`;
     const rowRefs = [];
     const panLimits = { leftMin: 0, leftMax: 0, rightMin: 0, rightMax: 0 };
 
-    function ensureGlobalPanControls(){
-        if (!divergingEnabled){
-            const old = wrap.querySelector('.stockout-pan-global');
-            if (old) old.remove();
-            return;
-        }
-        let controls = wrap.querySelector('.stockout-pan-global');
-        if (!controls){
-            controls = document.createElement('div');
-            controls.className = 'stockout-pan-global';
-            controls.innerHTML = '' +
-                '<button type="button" class="stockout-pan-btn left-back" aria-label="Scroll left side left">‹</button>' +
-                '<button type="button" class="stockout-pan-btn left-forward" aria-label="Scroll left side right">›</button>' +
-                '<button type="button" class="stockout-pan-btn right-back" aria-label="Scroll right side left">‹</button>' +
-                '<button type="button" class="stockout-pan-btn right-forward" aria-label="Scroll right side right">›</button>';
-            wrap.appendChild(controls);
-            const leftBack = controls.querySelector('.stockout-pan-btn.left-back');
-            const leftForward = controls.querySelector('.stockout-pan-btn.left-forward');
-            const rightBack = controls.querySelector('.stockout-pan-btn.right-back');
-            const rightForward = controls.querySelector('.stockout-pan-btn.right-forward');
-            leftBack.addEventListener('click', (e)=>{
-                e.stopPropagation();
-                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
-                pan.left = _clamp(_num(pan.left,0) - 80, _num(panLimits.leftMin,0), _num(panLimits.leftMax,0));
-                renderAll();
-            });
-            leftForward.addEventListener('click', (e)=>{
-                e.stopPropagation();
-                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
-                pan.left = _clamp(_num(pan.left,0) + 80, _num(panLimits.leftMin,0), _num(panLimits.leftMax,0));
-                renderAll();
-            });
-            rightBack.addEventListener('click', (e)=>{
-                e.stopPropagation();
-                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
-                pan.right = _clamp(_num(pan.right,0) - 80, _num(panLimits.rightMin,0), _num(panLimits.rightMax,0));
-                renderAll();
-            });
-            rightForward.addEventListener('click', (e)=>{
-                e.stopPropagation();
-                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
-                pan.right = _clamp(_num(pan.right,0) + 80, _num(panLimits.rightMin,0), _num(panLimits.rightMax,0));
-                renderAll();
-            });
-        }
-        const leftBack = controls.querySelector('.stockout-pan-btn.left-back');
-        const leftForward = controls.querySelector('.stockout-pan-btn.left-forward');
-        const rightBack = controls.querySelector('.stockout-pan-btn.right-back');
-        const rightForward = controls.querySelector('.stockout-pan-btn.right-forward');
-        if (leftBack) leftBack.style.display = panLimits.leftMin < 0 ? 'flex' : 'none';
-        if (leftForward) leftForward.style.display = panLimits.leftMax > 0 ? 'flex' : 'none';
-        if (rightBack) rightBack.style.display = panLimits.rightMin < 0 ? 'flex' : 'none';
-        if (rightForward) rightForward.style.display = panLimits.rightMax > 0 ? 'flex' : 'none';
-
+    function ensurePanWheelOnly(){
         if (!wrap.__panWheelWired){
             wrap.__panWheelWired = true;
             wrap.addEventListener('wheel', (ev)=>{
@@ -7961,14 +7922,16 @@ ${top3.join(', ')}${more}`;
                 const rect = wrap.getBoundingClientRect();
                 const x = ev.clientX - rect.left;
                 const mid = rect.width * 0.45;
-                const d = _num(ev.deltaY || ev.deltaX, 0);
+                const delta = _num(ev.deltaX, 0) || _num(ev.deltaY, 0);
+                const step = (Math.abs(delta) > 0) ? (delta > 0 ? 30 : -30) : 0;
+                if (!step) return;
                 const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
                 if (x < mid){
                     if (panLimits.leftMin >= 0 && panLimits.leftMax <= 0) return;
-                    pan.left = _clamp(_num(pan.left,0) + (d > 0 ? -30 : 30), _num(panLimits.leftMin,0), _num(panLimits.leftMax,0));
+                    pan.left = _clamp(_num(pan.left,0) + step, _num(panLimits.leftMin,0), _num(panLimits.leftMax,0));
                 } else {
                     if (panLimits.rightMin >= 0 && panLimits.rightMax <= 0) return;
-                    pan.right = _clamp(_num(pan.right,0) + (d > 0 ? -30 : 30), _num(panLimits.rightMin,0), _num(panLimits.rightMax,0));
+                    pan.right = _clamp(_num(pan.right,0) + step, _num(panLimits.rightMin,0), _num(panLimits.rightMax,0));
                 }
                 ev.preventDefault();
                 renderAll();
@@ -7977,6 +7940,7 @@ ${top3.join(', ')}${more}`;
     }
 
     function renderAll(){
+
         panLimits.leftMin = 0;
         panLimits.leftMax = 0;
         panLimits.rightMin = 0;
@@ -8011,7 +7975,7 @@ ${top3.join(', ')}${more}`;
                 renderRow(track, it, curMinV, curMaxV, shouldZoom ? st.cluster : null);
             }
         }
-        ensureGlobalPanControls();
+        ensurePanWheelOnly();
     }
 
     function resetZoom(){
