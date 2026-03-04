@@ -7268,8 +7268,8 @@
                 function buildStockOutTimeline(md, bufferDays=14, horizonDays=56, limit=5){
             const divergingEnabled = (()=>{ try { return localStorage.getItem('gantt_diverging') === '1'; } catch(_) { return false; } })();
             
-    // Defensive: ensure description lookup is in-scope (prevents ReferenceError)
-    const descByCode = (window.InventoryApp && window.InventoryApp.Computed && window.InventoryApp.Computed.descByCode)
+    // Prefer item descriptions from analytics payload; keep app-level map as fallback.
+    const descByCodeFromApp = (window.InventoryApp && window.InventoryApp.Computed && window.InventoryApp.Computed.descByCode)
         || (window.InventoryApp && window.InventoryApp.Lookups && window.InventoryApp.Lookups.descByCode)
         || {};
 // bufferDays/horizonDays kept for compatibility with existing UI controls, but ranking is now score-based.
@@ -7279,6 +7279,8 @@
             const inventoryByCode = (md && md.inventory && typeof md.inventory==='object') ? md.inventory : {};
             const dailyUsageByCode = _getDailyUsageByCode(md);
             const nameByCode = _getItemNameByCode(md);
+            const descByCodeFromMd = _getItemDescriptionByCode(md);
+            const descByCode = Object.assign({}, descByCodeFromApp, descByCodeFromMd);
             const map = getSublocationMap ? getSublocationMap() : (window.SUBLOCATION_MAP || {});
 
             const items = [];
