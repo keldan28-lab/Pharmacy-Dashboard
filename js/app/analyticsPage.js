@@ -7266,7 +7266,7 @@
 
         
                 function buildStockOutTimeline(md, bufferDays=14, horizonDays=56, limit=5){
-            const divergingEnabled = (()=>{ try { return localStorage.getItem('gantt_diverging') === '1'; } catch(_) { return false; } })();
+            const divergingEnabled = true;
             
     // Prefer item descriptions from analytics payload; keep app-level map as fallback.
     const descByCodeFromApp = (window.InventoryApp && window.InventoryApp.Computed && window.InventoryApp.Computed.descByCode)
@@ -7399,12 +7399,7 @@ function renderStockOutRiskTimeline(md){
     const rawItems = (data && Array.isArray(data.items)) ? data.items : [];
     const sMinRaw = _num(data && data.scoreRange && data.scoreRange.min, 0);
     const sMaxRaw = _num(data && data.scoreRange && data.scoreRange.max, 0);
-    const divergingEnabled = (()=>{
-        try {
-            const v = localStorage.getItem('gantt_diverging');
-            return v == null ? true : v === '1';
-        } catch(_) { return true; }
-    })();
+    const divergingEnabled = true;
 
     function getRiskComponents(r){
         const minQty = Math.max(1, _num(r && r.minQty, 0));
@@ -7463,24 +7458,7 @@ function renderStockOutRiskTimeline(md){
 
     try {
         const toggleBtn = document.getElementById('ganttDivergingToggle');
-        if (toggleBtn){
-            toggleBtn.classList.toggle('active', !!divergingEnabled);
-            toggleBtn.textContent = 'Diverging: ' + (divergingEnabled ? 'On' : 'Off');
-            if (!toggleBtn.__wired){
-                toggleBtn.__wired = true;
-                toggleBtn.addEventListener('click', (ev)=>{
-                    ev.stopPropagation();
-                    let next = true;
-                    try {
-                        const cur = localStorage.getItem('gantt_diverging');
-                        next = !(cur == null ? true : cur === '1');
-                        localStorage.setItem('gantt_diverging', next ? '1' : '0');
-                    } catch(_) {}
-                    const mdNext = window.__latestComputedMockData || window.mockData || md || {};
-                    renderStockOutRiskTimeline(mdNext);
-                });
-            }
-        }
+        if (toggleBtn) toggleBtn.style.display = 'none';
         const legend = document.getElementById('stockoutTimelineLegend');
         if (legend){
             const note = legend.querySelector('.legend-note');
@@ -7572,21 +7550,22 @@ wrap.innerHTML = '';
             const originPct = 50;
             origin.style.left = originPct + '%';
             origin.style.transform = 'translateX(-50%)';
-            origin.style.top = '0';
-            origin.style.bottom = '0';
-            origin.style.width = '2px';
+            origin.style.top = '6px';
+            origin.style.bottom = '6px';
+            origin.style.width = '1px';
             origin.style.background = 'rgba(180,180,180,0.45)';
             track.appendChild(origin);
 
             const sorted = [...segs].sort((a,b)=>_num(b.usageRate,0)-_num(a.usageRate,0));
             const trackW = Math.max(1, track.clientWidth || 1);
             const originX = trackW * (originPct / 100);
+            const placementOriginX = originX + 12;
             const halfW = segWpx / 2;
             const leftPad = 0;
             const rightPad = 10;
             const leftBound = halfW + leftPad;
-            const leftNearOrigin = originX - halfW - leftPad;
-            const rightNearOrigin = originX + halfW + rightPad;
+            const leftNearOrigin = placementOriginX - halfW - leftPad;
+            const rightNearOrigin = placementOriginX + halfW + rightPad;
             const rightBound = trackW - halfW - rightPad;
             const leftSpan = Math.max(20, leftNearOrigin - leftBound);
             const rightSpan = Math.max(20, rightBound - rightNearOrigin);
@@ -7908,7 +7887,7 @@ ${top3.join(', ')}${more}`;
         if (!wrap.__panWheelWired){
             wrap.__panWheelWired = true;
             wrap.addEventListener('wheel', (ev)=>{
-                if ((()=>{ try { return localStorage.getItem('gantt_diverging') === '1'; } catch(_) { return false; } })() !== true) return;
+                if (divergingEnabled !== true) return;
                 const rect = wrap.getBoundingClientRect();
                 const x = ev.clientX - rect.left;
                 const mid = rect.width * 0.45;
