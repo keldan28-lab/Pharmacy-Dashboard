@@ -267,15 +267,16 @@
                             </div>
                         </div>
                     
-                        <div class="stockout-kpi-right">
-                            <div class="stockout-kpi-total" id="stockOutItemsCount">0</div>
-                            <div class="stockout-kpi-caption">Items</div>
-                        </div>
 </div>
-                    <div class="stockout-timeline-legend">
-                        <span class="legend-pill risk-standard">Standard</span>
-                        <span class="legend-pill risk-nonstandard">Non-standard</span>
-                        <span class="legend-note">Position = Stock-out score (Daily Usage / Min Qty)</span>
+                    <div class="stockout-timeline-legend" id="stockoutTimelineLegend">
+                        <div class="stockout-timeline-legend-left">
+                            <span class="legend-pill risk-standard">Standard</span>
+                            <span class="legend-pill risk-nonstandard">Non-standard</span>
+                        </div>
+                        <div class="stockout-timeline-legend-right">
+                            <span class="legend-pill risk-stockout">Stock-out risk</span>
+                            <span class="legend-pill risk-overstock">Overstock risk</span>
+                        </div>
                     </div>
                     <div id="stockOutTimeline" class="stockout-timeline"></div>
                 </div>

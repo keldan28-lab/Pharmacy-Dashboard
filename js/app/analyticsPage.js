@@ -2428,58 +2428,59 @@
                 console.warn('⚠️ Forecast/correlation render failed', e);
             }
 
-            // Restock Cost Chart - Use restock costs from Dashboard
-            if (window.restockCostsByWeek && window.restockCostsByWeek.length > 0) {
+            // Restock Cost Chart - prefer timeline-aware restock projection, fallback to Dashboard aggregate
+            const projectedBars = buildProjectedRestockBars(cachedMockData || window.mockData || getMockData(), 14);
+            const projectedValues = Array.isArray(projectedBars.dailyRestockCost) ? projectedBars.dailyRestockCost.slice() : [];
+            const hasProjected = projectedValues.some(v => _num(v, 0) > 0);
+            let restockBarValues = projectedValues;
+
+            if (!hasProjected && window.restockCostsByWeek && window.restockCostsByWeek.length > 0) {
                 const restockCostsByWeek = window.restockCostsByWeek;
-                
-                // Group into bars of 4 weeks each
                 const barCount = Math.ceil(restockCostsByWeek.length / 4);
-                const restockBarValues = [];
+                restockBarValues = [];
                 for (let i = 0; i < barCount; i++) {
                     const startIdx = i * 4;
                     const endIdx = Math.min(startIdx + 4, restockCostsByWeek.length);
                     let barSum = 0;
-                    for (let j = startIdx; j < endIdx; j++) {
-                        barSum += restockCostsByWeek[j];
-                    }
+                    for (let j = startIdx; j < endIdx; j++) barSum += restockCostsByWeek[j];
                     restockBarValues.push(barSum);
                 }
-                
-                // Find max value for scaling
+            }
+
+            if (restockBarValues.length > 0) {
                 const maxRestockBarValue = Math.max(...restockBarValues, 1);
-                
-                // Create bars
                 const restockChartContainer = document.getElementById('restockMiniChart');
                 if (restockChartContainer) {
-                    restockChartContainer.innerHTML = ''; // Clear existing
-                    
+                    restockChartContainer.innerHTML = '';
                     restockBarValues.forEach((value, index) => {
                         const bar = document.createElement('div');
                         bar.className = 'cost-bar';
-                        if (index === restockBarValues.length - 1) {
-                            bar.classList.add('current'); // Last bar is current
-                        }
+                        if (index === restockBarValues.length - 1) bar.classList.add('current');
                         const heightPercent = (value / maxRestockBarValue) * 100;
-                        bar.style.height = Math.max(heightPercent, 3) + '%'; // Minimum 3% for visibility
+                        bar.style.height = Math.max(heightPercent, 3) + '%';
+                        const locLabel = projectedBars.topLocationByDay && projectedBars.topLocationByDay[index] ? projectedBars.topLocationByDay[index] : '';
+                        bar.title = locLabel ? `${locLabel} • ${formatCurrency(value)}` : formatCurrency(value);
+                        if (locLabel) {
+                            const badge = document.createElement('span');
+                            badge.className = 'sublocation-badge';
+                            badge.textContent = locLabel;
+                            badge.style.position = 'absolute';
+                            badge.style.bottom = '100%';
+                            badge.style.left = '50%';
+                            badge.style.transform = 'translate(-50%, -4px)';
+                            bar.style.position = 'relative';
+                            bar.appendChild(badge);
+                        }
                         restockChartContainer.appendChild(bar);
                     });
-                    
-                    // Update current restock cost (last bar value)
+
                     const currentRestock = restockBarValues[restockBarValues.length - 1] || 0;
                     const currentRestockEl = document.getElementById('currentRestockCost');
-                    if (currentRestockEl) {
-                        currentRestockEl.textContent = '$' + currentRestock.toLocaleString('en-US', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                        });
-                    }
+                    if (currentRestockEl) currentRestockEl.textContent = formatCurrency(currentRestock);
                 }
             } else {
-                // Fallback if no data
                 const currentRestockEl = document.getElementById('currentRestockCost');
-                if (currentRestockEl) {
-                    currentRestockEl.textContent = '$0.00';
-                }
+                if (currentRestockEl) currentRestockEl.textContent = '$0.00';
             }
             
             // Total Inventory Cost Metrics
@@ -3876,6 +3877,8 @@
                 rightWrap.style.gap = '8px';
                 if (opts && opts.standard) {
                     rightWrap.appendChild(makeBadge('Standard', 'standard'));
+                } else if (opts && opts.standard === false) {
+                    rightWrap.appendChild(makeBadge('Non-standard', 'nonstandard'));
                 }
                 rightWrap.appendChild(makeBadge(badgeText, badgeVariant));
                 row.appendChild(left);
@@ -3902,6 +3905,8 @@
                 // Standard badge (derived from items_inventory_mockdata standard=true in Pyxis locations)
                 if (g.standard) {
                     badges.appendChild(makeBadge('Standard', 'standard'));
+                } else {
+                    badges.appendChild(makeBadge('Non-standard', 'nonstandard'));
                 }
 
                 // A subtle summary badge on the right (keeps UI informative but matches request)
@@ -6847,6 +6852,156 @@
         function _num(v, fb=0){ const n = (typeof v==='number')?v:parseFloat(v); return Number.isFinite(n)?n:fb; }
         function _clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
 
+        function _getForecastNS(){
+            return (window.InventoryApp && window.InventoryApp.Forecast) ? window.InventoryApp.Forecast : null;
+        }
+
+        function getTrendMultFor(md, dateISO, locationKey, itemCode){
+            try {
+                const tl = md && md.trendTimeline;
+                const byLoc = tl && tl.byLocation && tl.byLocation[String(locationKey || '')];
+                const byItem = byLoc && byLoc[String(itemCode || '')];
+                const row = byItem && byItem[String(dateISO || '')];
+                const n = _num(row && row.trendMult, NaN);
+                if (Number.isFinite(n) && n > 0) return n;
+            } catch (_) {}
+            return 1;
+        }
+
+        function buildDailySeriesForItem(md, itemCode, locationKey, lookbackDays=56){
+            const days = Math.max(14, Math.floor(_num(lookbackDays, 56)));
+            const txRoot = (md && md.transactions && typeof md.transactions === 'object') ? md.transactions : {};
+            const sparse = Object.create(null);
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const start = new Date(today);
+            start.setDate(start.getDate() - (days - 1));
+            const codeNeedle = String(itemCode || '').trim();
+            const locNeedle = String(locationKey || '').trim().toUpperCase();
+            let foundTx = false;
+
+            for (const [codeRaw, rec] of Object.entries(txRoot)){
+                const code = String(codeRaw || '').trim();
+                if (!codeNeedle || code !== codeNeedle) continue;
+                const hist = Array.isArray(rec && rec.history) ? rec.history : [];
+                for (const tx of hist){
+                    if (!tx || typeof tx !== 'object') continue;
+                    const sublocation = String(tx.sublocation ?? '').trim();
+                    const txLoc = String(sublocation || tx.location || tx.pyxisLocation || tx.sendToLocation || '').trim().toUpperCase();
+                    if (locNeedle && txLoc !== locNeedle) continue;
+                    const dt = new Date(String(tx.transDate ?? tx.date ?? tx.txDate ?? tx.dispenseDate ?? tx.timestamp ?? ''));
+                    if (!Number.isFinite(dt.getTime())) continue;
+                    dt.setHours(0,0,0,0);
+                    if (dt < start || dt > today) continue;
+                    const tType = String(tx.transactionType || '').toLowerCase();
+                    if (tType && !(tType.includes('dispense'))) continue;
+                    const key = dt.toISOString().slice(0,10);
+                    const q = Math.max(0, Math.abs(_num(tx.TransQty ?? tx.qty ?? tx.quantity ?? tx.dispensedQty ?? tx.units ?? 0, 0)));
+                    sparse[key] = (sparse[key] || 0) + q;
+                    foundTx = true;
+                }
+            }
+
+            const forecast = _getForecastNS();
+            if (foundTx && forecast && typeof forecast.materializeDailySeries === 'function'){
+                return {
+                    dailySeries: forecast.materializeDailySeries(sparse, start.toISOString().slice(0,10), today.toISOString().slice(0,10)),
+                    startISO: start.toISOString().slice(0,10),
+                    endISO: today.toISOString().slice(0,10)
+                };
+            }
+
+            const items = Array.isArray(md && md.items) ? md.items : [];
+            const hit = items.find((it)=>String(it && it.itemCode || '').trim() === codeNeedle);
+            const cachedDaily = _num(hit && (hit._cachedDailyUsage ?? ((hit._cachedWeeklyUsage!=null) ? (_num(hit._cachedWeeklyUsage,0)/7) : 0)), 0);
+            return {
+                dailySeries: Array.from({ length: days }, () => Math.max(0, cachedDaily)),
+                startISO: start.toISOString().slice(0,10),
+                endISO: today.toISOString().slice(0,10)
+            };
+        }
+
+        function buildProjectedRestockBars(md, horizonDays=14){
+            const forecast = _getForecastNS();
+            const H = Math.max(7, Math.floor(_num(horizonDays, 14)));
+            const out = { dailyRestockCost: Array.from({ length: H }, () => 0), dailyRestockQty: Array.from({ length: H }, () => 0), topLocationByDay: Array.from({ length: H }, () => ''), totalRestockQty:0 };
+            if (!forecast || typeof forecast.projectDailyUsageFromShape !== 'function' || typeof forecast.projectRestockNeed !== 'function') return out;
+
+            const inv = (md && md.inventory && typeof md.inventory === 'object') ? md.inventory : {};
+            const items = Array.isArray(md && md.items) ? md.items : [];
+            const itemByCode = new Map(items.map(it => [String(it && it.itemCode || '').trim(), it]));
+            const byDayLoc = Array.from({ length: H }, ()=>Object.create(null));
+
+            for (const [code, invEntry] of Object.entries(inv)){
+                const item = itemByCode.get(String(code).trim()) || null;
+                const unitCost = Math.max(0, _num(item && (item.unitPrice ?? item.unitCost ?? item.costPerUnit ?? item.gpoPrice ?? item.wacPrice), 0));
+                const slots = iterateInventorySublocations(invEntry);
+                for (const slot of slots){
+                    const subloc = String(slot && slot.sublocation || '').trim();
+                    if (!subloc) continue;
+                    const map = getSublocationMap ? getSublocationMap() : (window.SUBLOCATION_MAP || {});
+                    const locMeta = map[subloc] || {};
+                    if (String(locMeta.department || '').toUpperCase() === 'PHARMACY') continue;
+                    const seriesObj = buildDailySeriesForItem(md, code, subloc, 56);
+                    const usageProj = forecast.projectDailyUsageFromShape(seriesObj.dailySeries, H, {
+                        shapeOpts: { method: 'dow', lookbackDays: 56 },
+                        trendOpts: { maxPctPerDay: 0.05, minMult: 0.5, maxMult: 2.0 }
+                    });
+                    const projectedDailyUsageBase = Array.isArray(usageProj.projectedDailyUsage) ? usageProj.projectedDailyUsage : [];
+                    const anchorISO = String((md && md.meta && md.meta.datasetEndISO) || new Date().toISOString().slice(0,10));
+                    const trendMultNow = getTrendMultFor(md, anchorISO, String(locMeta.mainLocation || subloc), code);
+                    const projectedDailyUsage = projectedDailyUsageBase.map(v => Math.max(0, _num(v, 0) * trendMultNow));
+                    const sim = forecast.projectRestockNeed({
+                        onHandNow: _num(slot.curQty, 0),
+                        minQty: _num(slot.minQty, 0),
+                        maxQty: _num(slot.maxQty, 0),
+                        horizonDays: H,
+                        projectedDailyUsage,
+                        policy: {
+                            reviewCadenceDays: 1,
+                            reorderPoint: _num(slot.minQty, 0),
+                            restockTo: _num(slot.maxQty, 0) > 0 ? _num(slot.maxQty, 0) : _num(slot.minQty, 0),
+                            allowPartial: true,
+                            minRestockQty: 0,
+                            round: 'none'
+                        }
+                    });
+
+                    const dailyRestockQty = Array.isArray(sim.dailyRestockQty) ? sim.dailyRestockQty : [];
+                    for (let d=0; d<H; d++){
+                        const qty = Math.max(0, _num(dailyRestockQty[d], 0));
+                        if (!qty) continue;
+                        const cost = qty * unitCost;
+                        out.dailyRestockQty[d] += qty;
+                        out.dailyRestockCost[d] += cost;
+                        const key = String(locMeta.mainLocation || subloc).trim() || 'Unknown';
+                        byDayLoc[d][key] = (byDayLoc[d][key] || 0) + qty;
+                    }
+
+                    if (enabled()){
+                        console.log('[analytics forecast]', {
+                            itemCode: code,
+                            sublocation: subloc,
+                            seriesType: usageProj?.methodMeta?.seriesType,
+                            method: usageProj?.methodMeta?.method,
+                            baseDaily: _num(usageProj?.baseDaily, 0),
+                            trendPctPerDay: _num(usageProj?.methodMeta?.trendPctPerDay, 0),
+                            trendMultNow: _num(trendMultNow, 1),
+                            totalProjectedRestockQty: dailyRestockQty.reduce((s,v)=>s+_num(v,0),0)
+                        });
+                    }
+                }
+            }
+
+            for (let d=0; d<H; d++){
+                const locs = Object.entries(byDayLoc[d]);
+                locs.sort((a,b)=>b[1]-a[1]);
+                out.topLocationByDay[d] = locs.length ? locs[0][0] : '';
+                out.totalRestockQty += out.dailyRestockQty[d];
+            }
+            return out;
+        }
+
         function _getDailyUsageByCode(md){
             const out = Object.create(null);
             try{
@@ -7111,18 +7266,21 @@
 
         
                 function buildStockOutTimeline(md, bufferDays=14, horizonDays=56, limit=5){
+            const divergingEnabled = true;
             
-    // Defensive: ensure description lookup is in-scope (prevents ReferenceError)
-    const descByCode = (window.InventoryApp && window.InventoryApp.Computed && window.InventoryApp.Computed.descByCode)
+    // Prefer item descriptions from analytics payload; keep app-level map as fallback.
+    const descByCodeFromApp = (window.InventoryApp && window.InventoryApp.Computed && window.InventoryApp.Computed.descByCode)
         || (window.InventoryApp && window.InventoryApp.Lookups && window.InventoryApp.Lookups.descByCode)
         || {};
 // bufferDays/horizonDays kept for compatibility with existing UI controls, but ranking is now score-based.
-            const key = _stockoutKey(md, bufferDays, horizonDays) + '|score_v2|limit=' + String(limit);
+            const key = _stockoutKey(md, bufferDays, horizonDays) + '|score_v2|limit=' + String(limit) + '|div=' + (divergingEnabled ? '1' : '0');
             if (__forecastCache.stockoutKey === key && __forecastCache.stockout) return __forecastCache.stockout;
 
             const inventoryByCode = (md && md.inventory && typeof md.inventory==='object') ? md.inventory : {};
             const dailyUsageByCode = _getDailyUsageByCode(md);
             const nameByCode = _getItemNameByCode(md);
+            const descByCodeFromMd = _getItemDescriptionByCode(md);
+            const descByCode = Object.assign({}, descByCodeFromApp, descByCodeFromMd);
             const map = getSublocationMap ? getSublocationMap() : (window.SUBLOCATION_MAP || {});
 
             const items = [];
@@ -7158,8 +7316,8 @@
 
                     // Stock-out score = Daily Usage / Min Qty (higher means worse)
 					const stockoutScore = (minQty > 0) ? (subUsageRate / minQty) : 0;
-					// Do not show segments at or below 1.0 (per requirements)
-					if (stockoutScore <= 1) continue;
+					// In classic mode, keep legacy >1 threshold; diverging mode plots all location values.
+					if (!divergingEnabled && stockoutScore <= 1) continue;
 
                     const locInfo = (map && map[sublocCode]) ? map[sublocCode] : { mainLocation: sublocCode, department:'Unknown' };
                     // Filter out PHARMACY department (explicit request)
@@ -7176,6 +7334,7 @@
                         department: locInfo.department || 'Unknown',
                         curQty,
                         minQty,
+                        maxQty: _num(sub.maxQty ?? sub.max ?? sub.max_qty ?? 0, 0),
                         standard,
                         usageRate: subUsageRate,
                         stockoutScore
@@ -7240,14 +7399,52 @@ function renderStockOutRiskTimeline(md){
     const rawItems = (data && Array.isArray(data.items)) ? data.items : [];
     const sMinRaw = _num(data && data.scoreRange && data.scoreRange.min, 0);
     const sMaxRaw = _num(data && data.scoreRange && data.scoreRange.max, 0);
+    const divergingEnabled = true;
+
+    function getRiskComponents(r){
+        const minQty = Math.max(1, _num(r && r.minQty, 0));
+        const usageRate = Math.max(0, _num(r && r.usageRate, 0));
+        // Risk derived from min-based pressure only (no curQty dependency).
+        // ratio > 1 => stock-out pressure; ratio < 1 => overstock pressure.
+        const ratio = usageRate / minQty;
+        if (ratio >= 1){
+            return { stockoutRisk: ratio, overstockRisk: 0 };
+        }
+        const overstockRisk = 1 / Math.max(ratio, 1e-6);
+        return { stockoutRisk: 0, overstockRisk };
+    }
+
+    function getRowSignedScore(r){
+        return _num(r && r.stockoutScore, 0);
+    }
 
     // Global score axis: highest on the left, lowest on the right
-    const sMin = Math.min(0, Math.floor(sMinRaw));
-    const sMax = Math.max(1, Math.ceil(sMaxRaw));
+    let sMin = Math.min(0, Math.floor(sMinRaw));
+    let sMax = Math.max(1, Math.ceil(sMaxRaw));
+    if (divergingEnabled){
+        let leftMax = 0, rightMax = 0;
+        for (const it of rawItems){
+            const segs = Array.isArray(it && it.sublocations) ? it.sublocations : [];
+            for (const rr of segs){
+                const comps = getRiskComponents(rr);
+                if (Number.isFinite(comps.stockoutRisk)) leftMax = Math.max(leftMax, comps.stockoutRisk);
+                if (Number.isFinite(comps.overstockRisk)) rightMax = Math.max(rightMax, comps.overstockRisk);
+            }
+        }
+        const axisMax = Math.max(1, leftMax, rightMax);
+        sMin = -Math.ceil(axisMax);
+        sMax = Math.ceil(axisMax);
+    }
 
     // Filter: do not show items with max score <= 1 (explicit request)
     const items = rawItems.filter(it => {
         const segs = Array.isArray(it && it.sublocations) ? it.sublocations : [];
+        if (divergingEnabled){
+            return segs.some((r)=>{
+                const comps = getRiskComponents(r);
+                return _num(comps.stockoutRisk, 0) > 0 || _num(comps.overstockRisk, 0) > 0;
+            });
+        }
         const maxSc = segs.reduce((m, r) => Math.max(m, _num(r.stockoutScore, 0)), 0);
         return maxSc > 1;
     });
@@ -7259,12 +7456,26 @@ function renderStockOutRiskTimeline(md){
         if (kpi) kpi.textContent = String(items.length);
     }catch(_){ }
 
+    try {
+        const toggleBtn = document.getElementById('ganttDivergingToggle');
+        if (toggleBtn) toggleBtn.style.display = 'none';
+        const legend = document.getElementById('stockoutTimelineLegend');
+        if (legend){
+            const note = legend.querySelector('.legend-note');
+            if (note){
+                note.textContent = divergingEnabled
+                    ? 'Origin = split point • max risk near origin • lower risk farther out'
+                    : 'Position = Stock-out score (Daily Usage / Min Qty)';
+            }
+        }
+    } catch(_){ }
+
 wrap.innerHTML = '';
 
     if (!items.length){
         const empty = document.createElement('div');
         empty.className = 'pyxis-metrics-empty';
-        empty.textContent = 'No items with Stock-out Score above 1.';
+        empty.textContent = divergingEnabled ? 'No items outside Min/Max range.' : 'No items with Stock-out Score above 1.';
         wrap.appendChild(empty);
         return;
     }
@@ -7286,8 +7497,35 @@ wrap.innerHTML = '';
 
     function scoreToPct(sc, minV, maxV){
         const den = (maxV - minV) || 1;
-        const t = _clamp((maxV - sc) / den, 0, 1); // 0 = left (high score)
+        const t = divergingEnabled ? _clamp((sc - minV) / den, 0, 1) : _clamp((maxV - sc) / den, 0, 1); // diverging: low->left, high->right
         return t * 100;
+    }
+
+    function bindStockoutTooltip(el, text){
+        if (!el) return;
+        const tipText = String(text || '').trim();
+        if (!tipText) return;
+        const tip = document.getElementById('customTooltip');
+        if (!tip) {
+            el.title = tipText;
+            return;
+        }
+        el.removeAttribute('title');
+        const show = (ev)=>{
+            tip.textContent = tipText;
+            tip.style.left = ((ev.pageX || 0) + 10) + 'px';
+            tip.style.top = ((ev.pageY || 0) - 30) + 'px';
+            tip.classList.add('visible');
+        };
+        const move = (ev)=>{
+            if (!tip.classList.contains('visible')) return;
+            tip.style.left = ((ev.pageX || 0) + 10) + 'px';
+            tip.style.top = ((ev.pageY || 0) - 30) + 'px';
+        };
+        const hide = ()=> tip.classList.remove('visible');
+        el.addEventListener('mouseenter', show);
+        el.addEventListener('mousemove', move);
+        el.addEventListener('mouseleave', hide);
     }
 
     // JS can't use Python syntax; build clusters in plain JS style:
@@ -7316,21 +7554,125 @@ wrap.innerHTML = '';
         return clusters;
     }
 
+    function applyGanttSegmentTone(seg, isStd){
+        if (isStd) return;
+        seg.style.background = 'rgba(160,160,160,0.25)';
+        seg.style.border = '1px solid rgba(180,180,180,0.35)';
+        seg.style.color = '#cfcfcf';
+    }
+
     // Render a single row. If forceCluster is provided, we are in the expanded view.
     function renderRow(track, item, minV, maxV, forceCluster=null){
         track.innerHTML = '';
 
         const segWpx = 110; // fixed width
         const segs = Array.isArray(item && item.sublocations) ? item.sublocations : [];
-        const filtered = segs.filter(r => _num(r.stockoutScore, 0) > 1);
+        const filtered = divergingEnabled ? segs : segs.filter(r => _num(r.stockoutScore, 0) > 1);
         if (!filtered.length) return;
+
+        if (divergingEnabled){
+            track.style.position = 'relative';
+            const originPct = 50;
+            const sorted = [...segs].sort((a,b)=>_num(b.usageRate,0)-_num(a.usageRate,0));
+            const trackW = Math.max(1, track.clientWidth || 1);
+            const originX = trackW * (originPct / 100);
+            const convergeX = originX + 50;
+            const halfW = segWpx / 2;
+            const edgeGap = 2;
+            const leftBound = halfW;
+            const leftNearOrigin = convergeX - halfW - edgeGap;
+            const rightNearOrigin = convergeX + halfW + edgeGap + 12;
+            const rightBound = trackW - halfW;
+            const leftSpan = Math.max(20, leftNearOrigin - leftBound);
+            const rightSpan = Math.max(20, rightBound - rightNearOrigin);
+
+            const leftPts = [];
+            const rightPts = [];
+            for (const rr of sorted){
+                const comps = getRiskComponents(rr);
+                const stockRisk = _num(comps.stockoutRisk, 0);
+                const overRisk = _num(comps.overstockRisk, 0);
+                if (stockRisk > 0) leftPts.push({ rr, risk: stockRisk, side:'stockout', stockRisk, overRisk });
+                if (overRisk > 0) rightPts.push({ rr, risk: overRisk, side:'overstock', stockRisk, overRisk });
+            }
+
+            const maxLeft = Math.max(1, ...leftPts.map(p=>_num(p.risk,0)));
+            const maxRight = Math.max(1, ...rightPts.map(p=>_num(p.risk,0)));
+            const gap = segWpx + 6;
+
+            function placeSide(points, isLeft, maxRisk, sideSpan){
+                if (!points.length) return [];
+                const out = [];
+                const arr = [...points].sort((a,b)=>_num(b.risk,0)-_num(a.risk,0));
+                let prev = null;
+                for (const p of arr){
+                    const risk = Math.max(1, _num(p.risk, 1));
+                    const norm = (risk - 1) / Math.max(1e-9, maxRisk - 1);
+                    const desired = isLeft
+                        ? (leftBound + norm * sideSpan)
+                        : (rightBound - norm * sideSpan);
+                    let x = desired;
+                    if (prev != null){
+                        x = isLeft ? Math.min(x, prev - gap) : Math.max(x, prev + gap);
+                    }
+                    prev = x;
+                    out.push(Object.assign({}, p, { x }));
+                }
+                return out;
+            }
+
+            const placedLeft = placeSide(leftPts, true, maxLeft, leftSpan);
+            const placedRight = placeSide(rightPts, false, maxRight, rightSpan);
+
+            const panState = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+            const minXLeft = placedLeft.length ? Math.min(...placedLeft.map(p=>p.x)) : leftBound;
+            const maxXLeft = placedLeft.length ? Math.max(...placedLeft.map(p=>p.x)) : leftNearOrigin;
+            const minXRight = placedRight.length ? Math.min(...placedRight.map(p=>p.x)) : rightNearOrigin;
+            const maxXRight = placedRight.length ? Math.max(...placedRight.map(p=>p.x)) : rightBound;
+            const leftPanMin = Math.min(0, leftBound - minXLeft);
+            const leftPanMax = Math.max(0, leftNearOrigin - maxXLeft);
+            const rightPanMin = Math.min(0, rightNearOrigin - minXRight);
+            const rightPanMax = Math.max(0, rightBound - maxXRight);
+            panState.left = _clamp(_num(panState.left,0), leftPanMin, leftPanMax);
+            panState.right = _clamp(_num(panState.right,0), rightPanMin, rightPanMax);
+            panLimits.leftMin = Math.min(_num(panLimits.leftMin,0), leftPanMin);
+            panLimits.leftMax = Math.max(_num(panLimits.leftMax,0), leftPanMax);
+            panLimits.rightMin = Math.min(_num(panLimits.rightMin,0), rightPanMin);
+            panLimits.rightMax = Math.max(_num(panLimits.rightMax,0), rightPanMax);
+
+            const placed = [
+                ...placedLeft.map(p=>Object.assign({}, p, { x: p.x + panState.left })),
+                ...placedRight.map(p=>Object.assign({}, p, { x: p.x + panState.right }))
+            ];
+
+            for (const pt of placed){
+                const rr = pt.rr;
+                const isStd = !!(rr && rr.standard);
+                const seg = document.createElement('div');
+                seg.className = 'stockout-gantt-seg ' + (pt.side === 'stockout' ? 'seg-stockout' : 'seg-overstock') + ' ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
+                applyGanttSegmentTone(seg, isStd);
+                seg.style.left = (pt.x - halfW) + 'px';
+                seg.style.width = segWpx + 'px';
+                const riskValue = pt.side === 'stockout' ? _num(pt.stockRisk,0) : _num(pt.overRisk,0);
+                const riskLabel = pt.side === 'stockout' ? 'Stock-out risk' : 'Overstock risk';
+                bindStockoutTooltip(seg, `${riskLabel}: ${riskValue.toFixed(2)}`);
+
+                const lbl = document.createElement('div');
+                lbl.className = 'stockout-gantt-seg-label';
+                lbl.textContent = (rr.sublocation || '').toUpperCase();
+                seg.appendChild(lbl);
+                track.appendChild(seg);
+            }
+
+            return;
+        }
 
         // Sort by usage (most -> least)
         const segSorted = [...filtered].sort((a,b)=>_num(b.usageRate,0)-_num(a.usageRate,0));
 
         const trackW = Math.max(1, track.clientWidth || 1);
         const withPos = segSorted.map(r=>{
-            const sc = _num(r.stockoutScore, 0);
+            const sc = getRowSignedScore(r);
             const pct = scoreToPct(sc, minV, maxV);
             const xPx = (pct/100) * trackW;
             return { r, sc, pct, xPx };
@@ -7355,7 +7697,7 @@ wrap.innerHTML = '';
 
             const mutedPos = muted.map(rr => ({
                 r: rr,
-                x: toPx(scoreToPct(_num(rr.stockoutScore,0), minV, maxV))
+                x: toPx(scoreToPct(getRowSignedScore(rr), minV, maxV))
             })).sort((a,b)=>a.x-b.x);
 
             mutedPos.forEach(mp=>{
@@ -7363,6 +7705,7 @@ wrap.innerHTML = '';
                 const seg = document.createElement('div');
                 const isStd = !!(rr && rr.standard);
                 seg.className = 'stockout-gantt-seg seg-muted ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
+                applyGanttSegmentTone(seg, isStd);
                 seg.style.left = _clamp(mp.x - (segWpx/2), 0, trackW - segWpx) + 'px';
                 seg.style.width = segWpx + 'px';
                 const lbl = document.createElement('div');
@@ -7375,7 +7718,7 @@ wrap.innerHTML = '';
             // 2) Render expanded cluster, laid out side-by-side (no overlap)
             const pos = cs.map(rr => ({
                 r: rr,
-                x: toPx(scoreToPct(_num(rr.stockoutScore,0), minV, maxV))
+                x: toPx(scoreToPct(getRowSignedScore(rr), minV, maxV))
             })).sort((a,b)=>a.x-b.x);
 
             // Greedy de-overlap: left-anchored sweep
@@ -7415,6 +7758,7 @@ wrap.innerHTML = '';
                 const seg = document.createElement('div');
                 const isStd = !!(rr && rr.standard);
                 seg.className = 'stockout-gantt-seg seg-expanded ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
+                applyGanttSegmentTone(seg, isStd);
                 seg.style.left = pp.leftPx + 'px';
                 seg.style.width = segWpx + 'px';
 
@@ -7456,6 +7800,7 @@ Min Qty: ${_num(rr.minQty,0).toFixed(0)}`;
                 const seg = document.createElement('div');
                 const isStd = !!(rr && rr.standard);
                 seg.className = 'stockout-gantt-seg ' + (isStd ? 'seg-standard' : 'seg-nonstandard');
+                applyGanttSegmentTone(seg, isStd);
                 seg.style.left = one.pct + '%';
                 seg.style.width = segWpx + 'px';
                 seg.title = `${rr.sublocation || ''}${rr.mainLocation ? ' • ' + rr.mainLocation : ''}
@@ -7486,6 +7831,7 @@ Min Qty: ${_num(rr.minQty,0).toFixed(0)}`;
                 const anyStd = cl.some(x=>!!(x.r && x.r.standard));
                 const seg = document.createElement('div');
                 seg.className = 'stockout-gantt-seg ' + (anyStd ? 'seg-standard' : 'seg-nonstandard');
+                applyGanttSegmentTone(seg, anyStd);
                 seg.style.left = avgPct + '%';
                 seg.style.width = segWpx + 'px';
 
@@ -7511,7 +7857,7 @@ ${top3.join(', ')}${more}`;
                     rowState.set(item.itemCode, st);
 
                     // Compute the zoomed score window around this cluster.
-                    const scores = cl.map(x=>_num(x && x.r && x.r.stockoutScore,0)).filter(v=>v>0);
+                    const scores = cl.map(x=>getRowSignedScore(x && x.r)).filter(v=>Number.isFinite(v));
                     const scMin = scores.length ? Math.min(...scores) : 0;
                     const scMax = scores.length ? Math.max(...scores) : 0;
                     // Start with a reasonable window, then tighten further if overlap remains.
@@ -7551,8 +7897,59 @@ ${top3.join(', ')}${more}`;
 
     // Keep track references so we can re-render ALL rows when the scale changes.
     const rowRefs = [];
+    const panLimits = { leftMin: 0, leftMax: 0, rightMin: 0, rightMax: 0 };
+
+    function syncOriginOverlay(){
+        if (!divergingEnabled) return;
+        const firstTrack = rowRefs.length ? rowRefs[0].track : null;
+        const lastTrack = rowRefs.length ? rowRefs[rowRefs.length - 1].track : null;
+        if (!firstTrack || !lastTrack) return;
+        let line = wrap.querySelector('.stockout-origin-overlay');
+        if (!line){
+            line = document.createElement('div');
+            line.className = 'stockout-origin-overlay';
+            wrap.appendChild(line);
+        }
+        const wrapRect = wrap.getBoundingClientRect();
+        const firstRect = firstTrack.getBoundingClientRect();
+        const lastRect = lastTrack.getBoundingClientRect();
+        const left = (firstRect.left - wrapRect.left) + (firstRect.width * 0.5);
+        line.style.left = left + 'px';
+        line.style.top = (firstRect.top - wrapRect.top) + 'px';
+        line.style.height = Math.max(0, (lastRect.bottom - firstRect.top)) + 'px';
+    }
+
+    function ensurePanWheelOnly(){
+        if (!wrap.__panWheelWired){
+            wrap.__panWheelWired = true;
+            wrap.addEventListener('wheel', (ev)=>{
+                if (divergingEnabled !== true) return;
+                const rect = wrap.getBoundingClientRect();
+                const x = ev.clientX - rect.left;
+                const mid = rect.width * 0.45;
+                const delta = _num(ev.deltaX, 0) || _num(ev.deltaY, 0);
+                const step = (Math.abs(delta) > 0) ? (delta > 0 ? 30 : -30) : 0;
+                if (!step) return;
+                const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
+                if (x < mid){
+                    if (panLimits.leftMin >= 0 && panLimits.leftMax <= 0) return;
+                    pan.left = _clamp(_num(pan.left,0) + step, _num(panLimits.leftMin,0), _num(panLimits.leftMax,0));
+                } else {
+                    if (panLimits.rightMin >= 0 && panLimits.rightMax <= 0) return;
+                    pan.right = _clamp(_num(pan.right,0) + step, _num(panLimits.rightMin,0), _num(panLimits.rightMax,0));
+                }
+                ev.preventDefault();
+                renderAll();
+            }, { passive:false });
+        }
+    }
 
     function renderAll(){
+
+        panLimits.leftMin = 0;
+        panLimits.leftMax = 0;
+        panLimits.rightMin = 0;
+        panLimits.rightMax = 0;
         for (const ref of rowRefs){
             const it = ref.item;
             const track = ref.track;
@@ -7583,6 +7980,8 @@ ${top3.join(', ')}${more}`;
                 renderRow(track, it, curMinV, curMaxV, shouldZoom ? st.cluster : null);
             }
         }
+        syncOriginOverlay();
+        ensurePanWheelOnly();
     }
 
     function resetZoom(){
@@ -7657,7 +8056,7 @@ ${top3.join(', ')}${more}`;
 
         const title = document.createElement('div');
         title.className = 'stockout-gantt-title';
-        title.textContent = it.drugName || it.itemCode;
+        title.textContent = it.description || it.itemDescription || it.drugName || it.itemCode;
         left.appendChild(title);
 
         const track = document.createElement('div');

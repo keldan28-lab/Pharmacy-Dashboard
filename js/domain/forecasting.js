@@ -236,12 +236,142 @@
     return forecastExpectedDailyUsage(series, opts);
   }
 
+  function buildNormalizedCurveFromHistory(dailySeries, horizonDays, opts) {
+    const cfg = opts || {};
+    const method = String(cfg.method || 'dow').toLowerCase();
+    const lookbackDays = Math.max(1, Math.floor(safeNumber(cfg.lookbackDays, 56)));
+    const epsilon = Math.max(0, safeNumber(cfg.epsilon, 1e-9));
+    const H = Math.max(1, Math.floor(safeNumber(horizonDays, 0)));
+    const src = Array.isArray(dailySeries) ? dailySeries : [];
+    if (!src.length) return Array.from({ length: H }, () => 1 / H);
+
+    const tail = src.slice(Math.max(0, src.length - lookbackDays));
+    const overall = mean(tail);
+    const fallback = overall > 0 ? overall : 0;
+
+    let curve;
+    if (method === 'dow') {
+      const sums = new Array(7).fill(0);
+      const counts = new Array(7).fill(0);
+      const today = new Date();
+      const endDow = today.getDay();
+      for (let i = 0; i < tail.length; i++) {
+        const v = Math.max(0, safeNumber(tail[i], 0));
+        const dow = (endDow - (tail.length - 1 - i) + 7000) % 7;
+        sums[dow] += v;
+        counts[dow] += 1;
+      }
+      const weights = sums.map((s, idx) => (counts[idx] > 0 ? s / counts[idx] : fallback));
+      const startDow = (endDow + 1) % 7;
+      curve = Array.from({ length: H }, (_, t) => Math.max(0, safeNumber(weights[(startDow + t) % 7], 0)));
+    } else {
+      curve = Array.from({ length: H }, () => 1);
+    }
+
+    const total = curve.reduce((s, v) => s + v, 0);
+    if (total <= epsilon) return Array.from({ length: H }, () => 1 / H);
+    return curve.map((v) => v / total);
+  }
+
+  function buildTrendMultiplierFn(dailySeries, opts) {
+    const cfg = opts || {};
+    const maxPctPerDay = Math.max(0, safeNumber(cfg.maxPctPerDay, 0.05));
+    const minMult = Math.max(0, safeNumber(cfg.minMult, 0.5));
+    const maxMult = Math.max(minMult, safeNumber(cfg.maxMult, 2.0));
+    const metrics = computeMetrics(Array.isArray(dailySeries) ? dailySeries : []);
+    const baseline = Math.max(safeNumber(metrics.meanAll, 0), 1e-9);
+    const perDayPct = clamp(safeNumber(metrics.slope, 0) / baseline, -maxPctPerDay, maxPctPerDay);
+
+    const fn = function (t) {
+      const tt = Math.max(0, safeNumber(t, 0));
+      return clamp(1 + perDayPct * tt, minMult, maxMult);
+    };
+    fn.perDayPct = perDayPct;
+    fn.metrics = metrics;
+    return fn;
+  }
+
+  function projectDailyUsageFromShape(dailySeries, horizonDays, opts) {
+    const cfg = opts || {};
+    const H = Math.max(1, Math.floor(safeNumber(horizonDays, 0)));
+    const src = Array.isArray(dailySeries) ? dailySeries : [];
+    const base = forecastExpectedDailyUsage(src, cfg.forecastOpts || {});
+    const baseDaily = Math.max(0, safeNumber(base && base.expectedDailyUsage, 0));
+    const curve = buildNormalizedCurveFromHistory(src, H, cfg.shapeOpts || {});
+    const trendMult = buildTrendMultiplierFn(src, cfg.trendOpts || {});
+    const expectedTotal = baseDaily * H;
+    const projectedDailyUsage = new Array(H).fill(0);
+    const trendClampUsed = [safeNumber((cfg.trendOpts || {}).minMult, 0.5), safeNumber((cfg.trendOpts || {}).maxMult, 2.0)];
+    for (let t = 0; t < H; t++) {
+      const u = expectedTotal * safeNumber(curve[t], 0);
+      projectedDailyUsage[t] = Math.max(0, u * trendMult(t));
+    }
+    return {
+      projectedDailyUsage,
+      baseDaily,
+      curve,
+      slopePerDayPct: trendMult.perDayPct,
+      trendClampUsed,
+      methodMeta: {
+        method: base && base.method,
+        seriesType: base && base.seriesType,
+        metrics: base && base.metrics,
+        trendPctPerDay: trendMult.perDayPct
+      }
+    };
+  }
+
+  function projectRestockNeed(params) {
+    const p = params || {};
+    const H = Math.max(1, Math.floor(safeNumber(p.horizonDays, (p.projectedDailyUsage || []).length || 14)));
+    const usage = Array.isArray(p.projectedDailyUsage) ? p.projectedDailyUsage : [];
+    const policy = p.policy || {};
+    const reviewCadenceDays = Math.max(1, Math.floor(safeNumber(policy.reviewCadenceDays, 1)));
+    const minQty = Math.max(0, safeNumber(p.minQty, 0));
+    const maxQty = Math.max(0, safeNumber(p.maxQty, 0));
+    const reorderPoint = Math.max(0, safeNumber(p.reorderPoint, safeNumber(policy.reorderPoint, minQty)));
+    const restockToDefault = maxQty > 0 ? maxQty : minQty;
+    const restockTo = Math.max(0, safeNumber(p.restockTo, safeNumber(policy.restockTo, restockToDefault)));
+    const allowPartial = policy.allowPartial !== false;
+    const minRestockQty = Math.max(0, safeNumber(policy.minRestockQty, 0));
+    const round = String(policy.round || 'none').toLowerCase();
+
+    let onHand = Math.max(0, safeNumber(p.onHandNow, 0));
+    const dailyOnHand = new Array(H).fill(0);
+    const dailyRestockQty = new Array(H).fill(0);
+    const restockEvents = [];
+
+    for (let t = 0; t < H; t++) {
+      const use = Math.max(0, safeNumber(usage[t], 0));
+      onHand = Math.max(0, onHand - use);
+
+      const isReviewDay = (t % reviewCadenceDays) === 0;
+      if (isReviewDay && reorderPoint > 0 && onHand < reorderPoint) {
+        let qty = Math.max(0, restockTo - onHand);
+        if (!allowPartial && qty > 0 && onHand + qty < restockTo) qty = 0;
+        if (round === 'ceil') qty = Math.ceil(qty);
+        if (qty > minRestockQty) {
+          restockEvents.push({ day: t, qty, reason: 'below_min' });
+          dailyRestockQty[t] += qty;
+          onHand += qty;
+        }
+      }
+      dailyOnHand[t] = onHand;
+    }
+
+    return { dailyOnHand, restockEvents, dailyRestockQty };
+  }
+
   ns.Forecast = {
     computeMetrics,
     classifySeries,
     forecastExpectedDailyUsage,
     crostonSBA,
     materializeDailySeries,
-    forecastFromDailySeries
+    forecastFromDailySeries,
+    buildNormalizedCurveFromHistory,
+    buildTrendMultiplierFn,
+    projectDailyUsageFromShape,
+    projectRestockNeed
   };
 })();

@@ -2035,6 +2035,7 @@ Subloc: ${counts.subloc}`);
 
                     __mockDataReady = true;
                     __flushPendingMockDataRequests();
+                    __refreshSheetTrendTimelineAsync();
                     __setAppLoading(false);
                 }
 
@@ -2158,6 +2159,155 @@ Subloc: ${counts.subloc}`);
         let cachedProcessedData = null;
         let cachedRawData = null;
 
+        function __dbgDashboard(){
+            try { return localStorage.getItem('debugDashboard') === '1'; } catch (_) { return false; }
+        }
+
+        function __clamp(n, lo, hi){ return Math.max(lo, Math.min(hi, n)); }
+
+        function __extractTxRows(transactions){
+            const out = [];
+            const txRoot = (transactions && typeof transactions === 'object') ? transactions : {};
+            for (const [itemCode, rec] of Object.entries(txRoot)){
+                const hist = Array.isArray(rec && rec.history) ? rec.history : [];
+                for (const row of hist){
+                    if (!row || typeof row !== 'object') continue;
+                    const iso = String(row.transDate || row.date || row.txDate || '').slice(0,10);
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+                    const qty = Math.abs(Number(row.TransQty ?? row.qty ?? row.quantity ?? 0)) || 0;
+                    const tType = String(row.transactionType || '').toLowerCase();
+                    if (!qty || (tType && !(tType.includes('dispense')))) continue;
+                    const loc = String(row.sublocation || row.location || row.sendToLocation || '').trim();
+                    if (!loc) continue;
+                    out.push({ itemCode: String(itemCode), dateISO: iso, locationKey: loc, qty });
+                }
+            }
+            return out;
+        }
+
+        function __buildTrendTimelineFromTransactions(transactions){
+            const rows = __extractTxRows(transactions);
+            const todayISO = new Date().toISOString().slice(0,10);
+            let datasetEndISO = '';
+            for (const r of rows) if (r.dateISO > datasetEndISO) datasetEndISO = r.dateISO;
+            if (!datasetEndISO) datasetEndISO = todayISO;
+            const byKey = Object.create(null);
+            for (const r of rows){
+                const k = `${r.locationKey}|${r.itemCode}`;
+                if (!byKey[k]) byKey[k] = Object.create(null);
+                byKey[k][r.dateISO] = (byKey[k][r.dateISO] || 0) + r.qty;
+            }
+            const trend = { byLocation: Object.create(null), meta: { windowRecentDays:14, windowPriorDays:42, minMult:0.6, maxMult:1.6, computedAtISO: new Date().toISOString(), source:'tx_fallback', datasetEndISO } };
+            const end = new Date(datasetEndISO + 'T00:00:00');
+            const dayMs = 86400000;
+            const dayISO = (d)=>new Date(d).toISOString().slice(0,10);
+            for (const key of Object.keys(byKey)){
+                const [locationKey, itemCode] = key.split('|');
+                const daily = byKey[key];
+                let recentSum = 0, priorSum = 0;
+                for (let i=0;i<14;i++){
+                    const d = dayISO(end.getTime() - i*dayMs);
+                    recentSum += Number(daily[d] || 0);
+                }
+                for (let i=14;i<56;i++){
+                    const d = dayISO(end.getTime() - i*dayMs);
+                    priorSum += Number(daily[d] || 0);
+                }
+                const recentAvg = recentSum / 14;
+                const priorAvg = priorSum / 42;
+                const ratio = recentAvg / Math.max(priorAvg, 1e-9);
+                const trendMult = __clamp(ratio, 0.6, 1.6);
+                const slopePerDayPct = __clamp((ratio - 1) / 14, -0.05, 0.05);
+                if (!trend.byLocation[locationKey]) trend.byLocation[locationKey] = Object.create(null);
+                if (!trend.byLocation[locationKey][itemCode]) trend.byLocation[locationKey][itemCode] = Object.create(null);
+                trend.byLocation[locationKey][itemCode][datasetEndISO] = { trendMult, baseDaily: recentAvg, slopePerDayPct, method: 'tx_ratio_14v42' };
+            }
+            return { trendTimeline: trend, datasetEndISO };
+        }
+
+        function __getCachedSheetTrendTimeline(){
+            try {
+                const raw = localStorage.getItem('trend_timeline_cache_v1');
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                const exp = Number(parsed && parsed.expiresAt || 0);
+                if (!exp || Date.now() > exp) return null;
+                return parsed.value || null;
+            } catch (_) { return null; }
+        }
+
+        function __refreshSheetTrendTimelineAsync(){
+            try {
+                const webAppUrl = String(localStorage.getItem('spike_webAppUrl') || '').trim();
+                const sheetId = String(localStorage.getItem('spike_sheetId') || '').trim();
+                if (!webAppUrl || !sheetId || !/^https?:\/\//i.test(webAppUrl)) return;
+                const now = Date.now();
+                const cacheRaw = localStorage.getItem('trend_timeline_cache_v1');
+                if (cacheRaw){
+                    const cache = JSON.parse(cacheRaw);
+                    if (Number(cache && cache.expiresAt || 0) > now) return;
+                }
+                const url = webAppUrl + (webAppUrl.includes('?') ? '&' : '?') + 'fn=trend&sheetId=' + encodeURIComponent(sheetId) + '&_ts=' + now;
+                fetch(url, { method: 'GET' })
+                    .then(r => r.ok ? r.json() : Promise.reject(new Error('trend fetch failed')))
+                    .then(payload => {
+                        if (!payload || !payload.byLocation) return;
+                        const val = { ...payload, meta: { ...(payload.meta || {}), source: 'sheets', computedAtISO: new Date().toISOString() } };
+                        localStorage.setItem('trend_timeline_cache_v1', JSON.stringify({ value: val, expiresAt: now + (30 * 60 * 1000) }));
+                        cachedProcessedData = null;
+                        cachedRawData = null;
+                        if (__dbgDashboard()) console.log('[dashboard] trend timeline refreshed from sheets');
+                    })
+                    .catch((e)=>{ if (__dbgDashboard()) console.warn('[dashboard] trend sheet refresh skipped', e); });
+            } catch (_){ }
+        }
+
+        function __attachProjectionMeta(target, datasetEndISO){
+            if (!target || typeof target !== 'object') return target;
+            target.meta = target.meta && typeof target.meta === 'object' ? target.meta : {};
+            target.meta.datasetEndISO = datasetEndISO || target.meta.datasetEndISO || new Date().toISOString().slice(0,10);
+            target.meta.projection = {
+                horizonDays: 14,
+                lookbackDays: 56,
+                curveMethod: 'dow',
+                trendClamp: [0.6, 1.6]
+            };
+            return target;
+        }
+
+        function __deriveTrendTimelineEndISO(timeline){
+            try {
+                const fromMeta = timeline && timeline.meta && String(timeline.meta.datasetEndISO || '').slice(0,10);
+                if (/^\d{4}-\d{2}-\d{2}$/.test(fromMeta)) return fromMeta;
+                let maxISO = '';
+                const byLoc = (timeline && timeline.byLocation && typeof timeline.byLocation === 'object') ? timeline.byLocation : {};
+                for (const byItem of Object.values(byLoc)){
+                    if (!byItem || typeof byItem !== 'object') continue;
+                    for (const byDate of Object.values(byItem)){
+                        if (!byDate || typeof byDate !== 'object') continue;
+                        for (const iso of Object.keys(byDate)) if (iso > maxISO) maxISO = iso;
+                    }
+                }
+                return /^\d{4}-\d{2}-\d{2}$/.test(maxISO) ? maxISO : '';
+            } catch (_) { return ''; }
+        }
+
+        function __ensureTrendTimelinePayload(target, transactions){
+            if (!target || typeof target !== 'object') return target;
+            const fromSheet = __getCachedSheetTrendTimeline();
+            if (fromSheet && fromSheet.byLocation){
+                target.trendTimeline = fromSheet;
+                const ds = __deriveTrendTimelineEndISO(fromSheet);
+                __attachProjectionMeta(target, ds);
+                return target;
+            }
+            const built = __buildTrendTimelineFromTransactions(transactions);
+            target.trendTimeline = built.trendTimeline;
+            __attachProjectionMeta(target, built.datasetEndISO);
+            if (__dbgDashboard()) console.log('[dashboard] trend timeline built from tx', built);
+            return target;
+        }
+
         function getRawMockData() {
             // Raw snapshot captured before processing/mutation for deterministic consumers.
             // Invalidate if new monthly transaction scripts were loaded.
@@ -2185,6 +2335,7 @@ Subloc: ${counts.subloc}`);
                 if (typeof mergeMonthlyTransactions === 'function') {
                     const mergedTx = mergeMonthlyTransactions();
                     cachedRawData = { transactions: mergedTx };
+                    __ensureTrendTimelinePayload(cachedRawData, mergedTx);
                     return cachedRawData;
                 }
             } catch (eTx) {
@@ -2194,6 +2345,8 @@ Subloc: ${counts.subloc}`);
                 if (window.InventoryApp && InventoryApp.Compute) {
                     const store = InventoryApp.Compute.getStore() || InventoryApp.Compute.buildStoreFromGlobals();
                     cachedRawData = store && store.rawLegacy ? store.rawLegacy : (window.MOCK_DATA || {});
+                    const tx = cachedRawData && cachedRawData.transactions ? cachedRawData.transactions : {};
+                    __ensureTrendTimelinePayload(cachedRawData, tx);
                     return cachedRawData;
                 }
             } catch (e) {
@@ -2202,6 +2355,7 @@ Subloc: ${counts.subloc}`);
 
             try {
                 cachedRawData = JSON.parse(JSON.stringify(MOCK_DATA));
+                __ensureTrendTimelinePayload(cachedRawData, cachedRawData.transactions || {});
             } catch (e2) {
                 console.warn('⚠️ Unable to snapshot raw MOCK_DATA; falling back to reference.', e2);
                 cachedRawData = MOCK_DATA;
@@ -2603,7 +2757,7 @@ Subloc: ${counts.subloc}`);
             // Safety check: Make sure MOCK_DATA is initialized
             if (!MOCK_DATA || !MOCK_DATA.items || MOCK_DATA.items.length === 0) {
                 console.warn('⚠️ MOCK_DATA not ready yet, returning empty structure');
-                return {
+                const empty = {
                     lastUpdated: "2026-01-13",
                     items: [],
                     inventory: {},
@@ -2611,6 +2765,8 @@ Subloc: ${counts.subloc}`);
                     stockFlow: { flows: [] },
                     stockOutsByArea: []
                 };
+                __ensureTrendTimelinePayload(empty, {});
+                return empty;
             }
             
             // Return cached version if already processed
@@ -2630,6 +2786,7 @@ Subloc: ${counts.subloc}`);
                     cachedRawData = store && store.rawLegacy ? store.rawLegacy : cachedRawData;
                     cachedProcessedData = store && store.computedLegacy ? store.computedLegacy : cachedProcessedData;
                     if (cachedProcessedData) {
+                        __ensureTrendTimelinePayload(cachedProcessedData, (store && store.rawLegacy && store.rawLegacy.transactions) ? store.rawLegacy.transactions : (MOCK_DATA.transactions || {}));
                         console.log('✓ Processed data built via InventoryApp.Compute');
                         return cachedProcessedData;
                     }
@@ -3159,6 +3316,7 @@ Subloc: ${counts.subloc}`);
                 });
             }
             
+            __ensureTrendTimelinePayload(MOCK_DATA, MOCK_DATA.transactions || {});
             // Cache reference to the now-processed data
             cachedProcessedData = MOCK_DATA;
             return MOCK_DATA;
@@ -6438,4 +6596,3 @@ async function adminLoadSpikeFactors() {
 
 
 ;
-
