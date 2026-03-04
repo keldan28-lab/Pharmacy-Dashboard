@@ -7569,6 +7569,7 @@ wrap.innerHTML = '';
             origin.style.position = 'absolute';
             const originPct = 45; // one grid line left of center
             origin.style.left = originPct + '%';
+            origin.style.transform = 'translateX(-50%)';
             origin.style.top = '0';
             origin.style.bottom = '0';
             origin.style.width = '3px';
