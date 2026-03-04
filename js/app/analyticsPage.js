@@ -7501,6 +7501,33 @@ wrap.innerHTML = '';
         return t * 100;
     }
 
+    function bindStockoutTooltip(el, text){
+        if (!el) return;
+        const tipText = String(text || '').trim();
+        if (!tipText) return;
+        const tip = document.getElementById('customTooltip');
+        if (!tip) {
+            el.title = tipText;
+            return;
+        }
+        el.removeAttribute('title');
+        const show = (ev)=>{
+            tip.textContent = tipText;
+            tip.style.left = ((ev.pageX || 0) + 10) + 'px';
+            tip.style.top = ((ev.pageY || 0) - 30) + 'px';
+            tip.classList.add('visible');
+        };
+        const move = (ev)=>{
+            if (!tip.classList.contains('visible')) return;
+            tip.style.left = ((ev.pageX || 0) + 10) + 'px';
+            tip.style.top = ((ev.pageY || 0) - 30) + 'px';
+        };
+        const hide = ()=> tip.classList.remove('visible');
+        el.addEventListener('mouseenter', show);
+        el.addEventListener('mousemove', move);
+        el.addEventListener('mouseleave', hide);
+    }
+
     // JS can't use Python syntax; build clusters in plain JS style:
     function buildClusters(sorted, segWpx){
         const clusters = [];
@@ -7626,9 +7653,9 @@ wrap.innerHTML = '';
                 applyGanttSegmentTone(seg, isStd);
                 seg.style.left = (pt.x - halfW) + 'px';
                 seg.style.width = segWpx + 'px';
-                seg.title = `${rr.sublocation || ''}${rr.mainLocation ? ' • ' + rr.mainLocation : ''}
-Stock-out risk: ${_num(pt.stockRisk,0).toFixed(2)}
-Overstock risk: ${_num(pt.overRisk,0).toFixed(2)}`;
+                const riskValue = pt.side === 'stockout' ? _num(pt.stockRisk,0) : _num(pt.overRisk,0);
+                const riskLabel = pt.side === 'stockout' ? 'Stock-out risk' : 'Overstock risk';
+                bindStockoutTooltip(seg, `${riskLabel}: ${riskValue.toFixed(2)}`);
 
                 const lbl = document.createElement('div');
                 lbl.className = 'stockout-gantt-seg-label';
