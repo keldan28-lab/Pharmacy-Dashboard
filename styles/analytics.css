@@ -3357,40 +3357,9 @@
         body.dark-mode .stockout-gantt-track{
             border-top: none;
         }
-        /* vertical grid lines */
-        .stockout-gantt-track::before{
-            content:'';
-            position:absolute;
-            inset:0;
-            background:
-                repeating-linear-gradient(
-                    to right,
-                    rgba(0,0,0,0.10),
-                    rgba(0,0,0,0.10) 1px,
-                    transparent 1px,
-                    transparent 5%
-                );
-            opacity:0.58;
-            pointer-events:none;
-        }
-        body.dark-mode .stockout-gantt-track::before{
-            background:
-                repeating-linear-gradient(
-                    to right,
-                    rgba(255,255,255,0.14),
-                    rgba(255,255,255,0.14) 1px,
-                    transparent 1px,
-                    transparent 5%
-                );
-        }
+        .stockout-gantt-track::before,
         .stockout-gantt-track::after{
-            content:'';
-            position:absolute;
-            inset:0;
-            pointer-events:none;
-            background:
-                linear-gradient(to right, rgba(255,255,255,0.14), rgba(255,255,255,0.14)) 100% 0/1px 100% no-repeat;
-            opacity:0.75;
+            content:none;
         }
 
         .stockout-gantt-seg{
@@ -3434,21 +3403,6 @@
             white-space:nowrap;
             pointer-events:none;
         }
-
-        .stockout-pan-shadow{
-            position:absolute;
-            top:0;
-            bottom:0;
-            width:18px;
-            pointer-events:none;
-            z-index:4;
-            opacity:0;
-            transition: opacity 120ms ease;
-        }
-        .stockout-pan-shadow.left-outer{ left:0; background: linear-gradient(to right, rgba(0,0,0,0.16), rgba(0,0,0,0)); }
-        .stockout-pan-shadow.left-inner{ left: calc(45% - 18px); background: linear-gradient(to left, rgba(0,0,0,0.14), rgba(0,0,0,0)); }
-        .stockout-pan-shadow.right-inner{ left: 45%; background: linear-gradient(to right, rgba(0,0,0,0.14), rgba(0,0,0,0)); }
-        .stockout-pan-shadow.right-outer{ right:0; background: linear-gradient(to left, rgba(0,0,0,0.16), rgba(0,0,0,0)); }
 
         body.dark-mode .stockout-gantt-axis-track{ opacity:0.92; }
         body.dark-mode .stockout-gantt-title{ color: rgba(255,255,255,0.90); }

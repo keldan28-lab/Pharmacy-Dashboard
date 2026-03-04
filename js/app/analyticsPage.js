@@ -7567,7 +7567,7 @@ wrap.innerHTML = '';
             track.style.position = 'relative';
             const origin = document.createElement('div');
             origin.style.position = 'absolute';
-            const originPct = 45; // one grid line left of center
+            const originPct = 50;
             origin.style.left = originPct + '%';
             origin.style.transform = 'translateX(-50%)';
             origin.style.top = '0';
@@ -7580,7 +7580,7 @@ wrap.innerHTML = '';
             const trackW = Math.max(1, track.clientWidth || 1);
             const originX = trackW * (originPct / 100);
             const halfW = segWpx / 2;
-            const pad = 4;
+            const pad = 0;
             const leftBound = halfW + pad;
             const leftNearOrigin = originX - halfW - pad;
             const rightNearOrigin = originX + halfW + pad;
@@ -7962,29 +7962,6 @@ ${top3.join(', ')}${more}`;
                 renderRow(track, it, curMinV, curMaxV, shouldZoom ? st.cluster : null);
             }
         }
-        if (divergingEnabled){
-            const pan = wrap._ganttPan || (wrap._ganttPan = { left:0, right:0 });
-            const showLeftOuter = _num(pan.left,0) > _num(panLimits.leftMin,0) + 0.5;
-            const showLeftInner = _num(pan.left,0) < _num(panLimits.leftMax,0) - 0.5;
-            const showRightInner = _num(pan.right,0) > _num(panLimits.rightMin,0) + 0.5;
-            const showRightOuter = _num(pan.right,0) < _num(panLimits.rightMax,0) - 0.5;
-            for (const ref of rowRefs){
-                const track = ref.track;
-                const setShadow = (cls, on)=>{
-                    let el = track.querySelector('.' + cls);
-                    if (!el){
-                        el = document.createElement('div');
-                        el.className = 'stockout-pan-shadow ' + cls;
-                        track.appendChild(el);
-                    }
-                    el.style.opacity = on ? '1' : '0';
-                };
-                setShadow('left-outer', showLeftOuter);
-                setShadow('left-inner', showLeftInner);
-                setShadow('right-inner', showRightInner);
-                setShadow('right-outer', showRightOuter);
-            }
-        }
         ensurePanWheelOnly();
     }
 
@@ -8060,7 +8037,7 @@ ${top3.join(', ')}${more}`;
 
         const title = document.createElement('div');
         title.className = 'stockout-gantt-title';
-        title.textContent = it.drugName || it.itemCode;
+        title.textContent = it.description || it.itemDescription || it.drugName || it.itemCode;
         left.appendChild(title);
 
         const track = document.createElement('div');
