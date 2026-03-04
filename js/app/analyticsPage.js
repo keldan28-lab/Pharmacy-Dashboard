@@ -7574,7 +7574,7 @@ wrap.innerHTML = '';
             origin.style.transform = 'translateX(-50%)';
             origin.style.top = '0';
             origin.style.bottom = '0';
-            origin.style.width = '3px';
+            origin.style.width = '2px';
             origin.style.background = 'rgba(180,180,180,0.45)';
             track.appendChild(origin);
 
@@ -7582,11 +7582,12 @@ wrap.innerHTML = '';
             const trackW = Math.max(1, track.clientWidth || 1);
             const originX = trackW * (originPct / 100);
             const halfW = segWpx / 2;
-            const pad = 0;
-            const leftBound = halfW + pad;
-            const leftNearOrigin = originX - halfW - pad;
-            const rightNearOrigin = originX + halfW + pad;
-            const rightBound = trackW - halfW - pad;
+            const leftPad = 0;
+            const rightPad = 10;
+            const leftBound = halfW + leftPad;
+            const leftNearOrigin = originX - halfW - leftPad;
+            const rightNearOrigin = originX + halfW + rightPad;
+            const rightBound = trackW - halfW - rightPad;
             const leftSpan = Math.max(20, leftNearOrigin - leftBound);
             const rightSpan = Math.max(20, rightBound - rightNearOrigin);
 
