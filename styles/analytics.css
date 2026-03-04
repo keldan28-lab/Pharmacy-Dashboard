@@ -3088,6 +3088,7 @@
             position:relative;
             display:flex;
             flex-direction:column;
+            margin-top:-5px;
             /* Gantt rows should touch so vertical grid lines appear continuous */
             gap:0;
         }
