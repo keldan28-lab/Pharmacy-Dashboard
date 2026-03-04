@@ -6862,7 +6862,7 @@
                 const byLoc = tl && tl.byLocation && tl.byLocation[String(locationKey || '')];
                 const byItem = byLoc && byLoc[String(itemCode || '')];
                 const row = byItem && byItem[String(dateISO || '')];
-                const n = _num(row && row.trendMult, NaN);
+                const n = _num((typeof row === 'number') ? row : (row && row.trendMult), NaN);
                 if (Number.isFinite(n) && n > 0) return n;
             } catch (_) {}
             return 1;

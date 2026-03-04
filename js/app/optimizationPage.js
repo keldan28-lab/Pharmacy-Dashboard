@@ -16,15 +16,91 @@ function _datasetEndISO(){
   return new Date().toISOString().slice(0,10);
 }
 
-function _trendMultFor(dateISO, locationKey, itemCode){
+function _trendValueFromRow(row){
+  if (row == null) return NaN;
+  if (typeof row === 'number') return _num(row, NaN);
+  return _num(row && row.trendMult, NaN);
+}
+
+function _fallbackTrendFromRecentUsage(locationKey, itemCode){
+  try {
+    const md = (window.MOCK_DATA && typeof window.MOCK_DATA === 'object') ? window.MOCK_DATA : null;
+    const txRoot = (md && md.transactions && typeof md.transactions === 'object') ? md.transactions : null;
+    if (!txRoot) return { trendMult: 1, trendSource: 'fallback_none', trendWindowDays: 56 };
+    const hist = txRoot[String(itemCode || '')] && Array.isArray(txRoot[String(itemCode || '')].history)
+      ? txRoot[String(itemCode || '')].history
+      : [];
+    if (!hist.length) return { trendMult: 1, trendSource: 'fallback_none', trendWindowDays: 56 };
+
+    const locNeedle = String(locationKey || '').trim().toUpperCase();
+    let maxTs = 0;
+    const byIso = Object.create(null);
+    for (const row of hist){
+      if (!row || typeof row !== 'object') continue;
+      const iso = String(row.transDate || row.TransDate || row.date || row.Date || row.txDate || '').slice(0,10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+      const dt = Date.parse(iso + 'T00:00:00');
+      if (!Number.isFinite(dt)) continue;
+      const tType = String(row.transactionType || row.TransactionType || '').toLowerCase();
+      if (tType && !(tType.includes('disp') || tType.includes('issue') || tType.includes('use') || tType.includes('consum'))) continue;
+      const loc = String(row.sublocation || row.Sublocation || row.subLocation || row.SubLocation || row.location || row.sendToLocation || '').trim().toUpperCase();
+      if (locNeedle && loc !== locNeedle) continue;
+      const q = Math.abs(_num(row.TransQty ?? row.qty ?? row.quantity ?? row.Qty ?? 0, 0));
+      if (!(q > 0)) continue;
+      byIso[iso] = _num(byIso[iso], 0) + q;
+      if (dt > maxTs) maxTs = dt;
+    }
+    if (!maxTs) return { trendMult: 1, trendSource: 'fallback_none', trendWindowDays: 56 };
+
+    const dayMs = 86400000;
+    let recentSum = 0;
+    let priorSum = 0;
+    for (let i=0;i<14;i++){
+      const d = new Date(maxTs - (i * dayMs)).toISOString().slice(0,10);
+      recentSum += _num(byIso[d], 0);
+    }
+    for (let i=14;i<56;i++){
+      const d = new Date(maxTs - (i * dayMs)).toISOString().slice(0,10);
+      priorSum += _num(byIso[d], 0);
+    }
+
+    const recentAvg = recentSum / 14;
+    const priorAvg = priorSum / 42;
+    const ratio = recentAvg / Math.max(priorAvg, 1e-9);
+    return { trendMult: _clamp(ratio, 0.6, 1.6), trendSource: 'tx_fallback_14v42', trendWindowDays: 56 };
+  } catch(_){
+    return { trendMult: 1, trendSource: 'fallback_error', trendWindowDays: 56 };
+  }
+}
+
+function _trendContextFor(dateISO, locationKey, itemCode){
   try {
     const md = (window.MOCK_DATA && typeof window.MOCK_DATA === 'object') ? window.MOCK_DATA : null;
     const tl = md && md.trendTimeline;
-    const row = tl && tl.byLocation && tl.byLocation[String(locationKey||'')] && tl.byLocation[String(locationKey||'')][String(itemCode||'')] && tl.byLocation[String(locationKey||'')][String(itemCode||'')][String(dateISO||'')];
-    const v = _num(row && row.trendMult, NaN);
-    if (Number.isFinite(v) && v > 0) return v;
+    const meta = (tl && tl.meta && typeof tl.meta === 'object') ? tl.meta : {};
+    const minMult = _num(meta.minMult, 0.6) || 0.6;
+    const maxMult = _num(meta.maxMult, 1.6) || 1.6;
+    const byDate = tl && tl.byLocation && tl.byLocation[String(locationKey||'')] && tl.byLocation[String(locationKey||'')][String(itemCode||'')];
+    const row = byDate && byDate[String(dateISO||'')];
+    const raw = _trendValueFromRow(row);
+    if (Number.isFinite(raw) && raw > 0){
+      return {
+        trendMult: _clamp(raw, minMult, maxMult),
+        trendSource: 'sheet',
+        trendWindowDays: _num(meta.windowRecentDays, 14) + _num(meta.windowPriorDays, 42)
+      };
+    }
   } catch(_){}
-  return 1;
+  const fb = _fallbackTrendFromRecentUsage(locationKey, itemCode);
+  return {
+    trendMult: _clamp(_num(fb.trendMult, 1), 0.6, 1.6),
+    trendSource: fb.trendSource,
+    trendWindowDays: _num(fb.trendWindowDays, 56)
+  };
+}
+
+function _trendMultFor(dateISO, locationKey, itemCode){
+  return _trendContextFor(dateISO, locationKey, itemCode).trendMult;
 }
 function _str(x){ return String(x||'').trim(); }
 function _esc(s){
@@ -1926,7 +2002,8 @@ const rows = [];
         if (Number.isFinite(maxQ) && maxQ > maxQty) maxQty = maxQ;
 
         const du = _num(dailyUsageByPocket[pk], 0);
-        const trendMult = _trendMultFor(_datasetEndISO(), String(it.sublocation || ''), String(it.itemCode || ''));
+        const trendCtx = _trendContextFor(_datasetEndISO(), String(it.sublocation || ''), String(it.itemCode || ''));
+        const trendMult = trendCtx.trendMult;
     const demand = du * surge * trendMult;
         const lt = _leadTimeDaysForSubloc(sub, ref);
         const cover = lt + reviewDays;
@@ -2065,7 +2142,8 @@ const rows = [];
           }
         } catch (_) { spike = 1.0; }
 
-        const trendMult = _trendMultFor(_datasetEndISO(), sub, code);
+        const trendCtx = _trendContextFor(_datasetEndISO(), sub, code);
+        const trendMult = trendCtx.trendMult;
         const demand = duWorst * surge * spike * trendMult;
         const lt = _leadTimeDaysForSubloc(sub, ref);
         const cover = lt + reviewDays;
@@ -2114,6 +2192,9 @@ const meta = metaByCode[code] || {};
           demand,
           spikeMultiplier: spike,
           trendMultiplier: trendMult,
+          trendMultUsed: trendMult,
+          trendSource: trendCtx.trendSource,
+          trendWindowDays: trendCtx.trendWindowDays,
           sigma,
           coverDays: cover,
           safetyStock,
@@ -2125,7 +2206,7 @@ const meta = metaByCode[code] || {};
             __hasSubloc.add(sub);
             __mmBySubloc[sub] = { min: curMin, max: maxQ };
             __duBySubloc[sub] = demand;
-            __minBySubloc[sub] = { curMin, max: maxQ, sugMin: sugMinInt, delta, standard, leadTimeDays: lt, demand, sigma, coverDays: cover, safetyStock, unitCost: unit, deltaCost };
+            __minBySubloc[sub] = { curMin, max: maxQ, sugMin: sugMinInt, delta, standard, leadTimeDays: lt, demand, trendMultUsed: trendMult, trendSource: trendCtx.trendSource, trendWindowDays: trendCtx.trendWindowDays, sigma, coverDays: cover, safetyStock, unitCost: unit, deltaCost };
           }
         }
       }
@@ -2683,10 +2764,12 @@ if (metric === 'min'){
 
     for (const it of byPocket.values()){
       const pk = it.pocketKey;
-      const demand = _num(dailyUsageByPocket[pk], 0) * surge;
+      const trendCtx = _trendContextFor(_datasetEndISO(), it.sublocation, it.itemCode);
+      const trendMult = trendCtx.trendMult;
+      const demand = _num(dailyUsageByPocket[pk], 0) * surge * trendMult;
       if (!(demand > 0)){
         gray++;
-        tierItems.gray.push({ itemCode: it.itemCode, sublocation: it.sublocation, pocketKey: pk, demand, recQty: 0, daysUntil: Number.POSITIVE_INFINITY });
+        tierItems.gray.push({ itemCode: it.itemCode, sublocation: it.sublocation, pocketKey: pk, demand, trendMultUsed: trendMult, trendSource: trendCtx.trendSource, trendWindowDays: trendCtx.trendWindowDays, recQty: 0, daysUntil: Number.POSITIVE_INFINITY });
         continue;
       }
       const lt = _leadTimeDaysForSubloc(it.sublocation, ref);
@@ -2709,7 +2792,7 @@ if (metric === 'min'){
       estQty += recQty;
       estCost += recQty * unit;
       if (Number.isFinite(daysUntil) && daysUntil < minDays) minDays = daysUntil;
-      tierItems[bucket].push({ itemCode: it.itemCode, sublocation: it.sublocation, pocketKey: pk, reorderPoint, leadTimeDays: lt, demand, recQty, daysUntil });
+      tierItems[bucket].push({ itemCode: it.itemCode, sublocation: it.sublocation, pocketKey: pk, reorderPoint, leadTimeDays: lt, demand, trendMultUsed: trendMult, trendSource: trendCtx.trendSource, trendWindowDays: trendCtx.trendWindowDays, recQty, daysUntil });
     }
 
     const total = Math.max(1, coral + orange + green + gray);
@@ -4137,7 +4220,8 @@ function _openMinSuggestionReport(){
 
     const du = _num(duWorst && duWorst[pk], 0);
     const sigma = _num(duSigma[pk], 0);
-    const trendMult = _trendMultFor(_datasetEndISO(), String(it.sublocation || ''), String(it.itemCode || ''));
+    const trendCtx = _trendContextFor(_datasetEndISO(), String(it.sublocation || ''), String(it.itemCode || ''));
+    const trendMult = trendCtx.trendMult;
     const demand = du * surge * trendMult;
     const lt = _leadTimeDaysForSubloc(sub, ref);
     const cover = lt + reviewDays;
@@ -4185,6 +4269,9 @@ function _openMinSuggestionReport(){
       delta,
       leadTimeDays: lt,
       demand,
+      trendMultUsed: trendMult,
+      trendSource: trendCtx.trendSource,
+      trendWindowDays: trendCtx.trendWindowDays,
       sigma,
       coverDays: cover,
       safetyStock,

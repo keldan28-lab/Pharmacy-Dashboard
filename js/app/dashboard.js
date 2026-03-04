@@ -2197,7 +2197,7 @@ Subloc: ${counts.subloc}`);
                 if (!byKey[k]) byKey[k] = Object.create(null);
                 byKey[k][r.dateISO] = (byKey[k][r.dateISO] || 0) + r.qty;
             }
-            const trend = { byLocation: Object.create(null), meta: { windowRecentDays:14, windowPriorDays:42, minMult:0.6, maxMult:1.6, computedAtISO: new Date().toISOString(), source:'tx_fallback', datasetEndISO } };
+            const trend = { byLocation: Object.create(null), meta: { windowRecentDays:14, windowPriorDays:42, minMult:0.6, maxMult:1.6, computedAtISO: new Date().toISOString(), source:'tx_fallback', datasetEndISO, shape:'trendTimeline_v2' } };
             const end = new Date(datasetEndISO + 'T00:00:00');
             const dayMs = 86400000;
             const dayISO = (d)=>new Date(d).toISOString().slice(0,10);
@@ -2220,7 +2220,7 @@ Subloc: ${counts.subloc}`);
                 const slopePerDayPct = __clamp((ratio - 1) / 14, -0.05, 0.05);
                 if (!trend.byLocation[locationKey]) trend.byLocation[locationKey] = Object.create(null);
                 if (!trend.byLocation[locationKey][itemCode]) trend.byLocation[locationKey][itemCode] = Object.create(null);
-                trend.byLocation[locationKey][itemCode][datasetEndISO] = { trendMult, baseDaily: recentAvg, slopePerDayPct, method: 'tx_ratio_14v42' };
+                trend.byLocation[locationKey][itemCode][datasetEndISO] = trendMult;
             }
             return { trendTimeline: trend, datasetEndISO };
         }
