@@ -7545,28 +7545,16 @@ wrap.innerHTML = '';
 
         if (divergingEnabled){
             track.style.position = 'relative';
-            const origin = document.createElement('div');
-            origin.style.position = 'absolute';
             const originPct = 50;
-            origin.style.left = originPct + '%';
-            origin.style.transform = 'translateX(-50%)';
-            origin.style.top = '6px';
-            origin.style.bottom = '6px';
-            origin.style.width = '1px';
-            origin.style.background = 'rgba(180,180,180,0.45)';
-            track.appendChild(origin);
-
             const sorted = [...segs].sort((a,b)=>_num(b.usageRate,0)-_num(a.usageRate,0));
             const trackW = Math.max(1, track.clientWidth || 1);
             const originX = trackW * (originPct / 100);
-            const placementOriginX = originX + 12;
             const halfW = segWpx / 2;
-            const leftPad = 0;
-            const rightPad = 10;
-            const leftBound = halfW + leftPad;
-            const leftNearOrigin = placementOriginX - halfW - leftPad;
-            const rightNearOrigin = placementOriginX + halfW + rightPad;
-            const rightBound = trackW - halfW - rightPad;
+            const edgeGap = 2;
+            const leftBound = halfW;
+            const leftNearOrigin = originX - halfW - edgeGap;
+            const rightNearOrigin = originX + halfW + edgeGap;
+            const rightBound = trackW - halfW;
             const leftSpan = Math.max(20, leftNearOrigin - leftBound);
             const rightSpan = Math.max(20, rightBound - rightNearOrigin);
 
@@ -7883,6 +7871,26 @@ ${top3.join(', ')}${more}`;
     const rowRefs = [];
     const panLimits = { leftMin: 0, leftMax: 0, rightMin: 0, rightMax: 0 };
 
+    function syncOriginOverlay(){
+        if (!divergingEnabled) return;
+        const firstTrack = rowRefs.length ? rowRefs[0].track : null;
+        const lastTrack = rowRefs.length ? rowRefs[rowRefs.length - 1].track : null;
+        if (!firstTrack || !lastTrack) return;
+        let line = wrap.querySelector('.stockout-origin-overlay');
+        if (!line){
+            line = document.createElement('div');
+            line.className = 'stockout-origin-overlay';
+            wrap.appendChild(line);
+        }
+        const wrapRect = wrap.getBoundingClientRect();
+        const firstRect = firstTrack.getBoundingClientRect();
+        const lastRect = lastTrack.getBoundingClientRect();
+        const left = (firstRect.left - wrapRect.left) + (firstRect.width * 0.5);
+        line.style.left = left + 'px';
+        line.style.top = (firstRect.top - wrapRect.top) + 'px';
+        line.style.height = Math.max(0, (lastRect.bottom - firstRect.top)) + 'px';
+    }
+
     function ensurePanWheelOnly(){
         if (!wrap.__panWheelWired){
             wrap.__panWheelWired = true;
@@ -7944,6 +7952,7 @@ ${top3.join(', ')}${more}`;
                 renderRow(track, it, curMinV, curMaxV, shouldZoom ? st.cluster : null);
             }
         }
+        syncOriginOverlay();
         ensurePanWheelOnly();
     }
 

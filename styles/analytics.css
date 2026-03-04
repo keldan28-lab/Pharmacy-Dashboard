@@ -3085,6 +3085,7 @@
             }
         }
         .stockout-timeline{
+            position:relative;
             display:flex;
             flex-direction:column;
             /* Gantt rows should touch so vertical grid lines appear continuous */
@@ -3362,6 +3363,15 @@
             overflow:hidden;
             text-overflow:ellipsis;
         }
+
+        .stockout-origin-overlay{
+            position:absolute;
+            width:1px;
+            background: rgba(180,180,180,0.45);
+            pointer-events:none;
+            z-index:1;
+        }
+
         .stockout-gantt-track{
             position:relative;
             /* Fill row height so grid lines are continuous with no vertical gaps */
