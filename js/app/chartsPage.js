@@ -23,6 +23,7 @@ function getTrendFactsState() {
 }
 
 const PROJECTION_DEBUG_FLAG = '__projectionDebug';
+const DEBUG_RESTOCK_PROJ = false;
 
 function _projectionClamp(value, min, max) {
     const n = Number(value);
@@ -130,7 +131,10 @@ function getWeightedWeeklyUsage(itemCode, baselineWeeklyUsage, ctx) {
         spikeFactor
     };
 }
-        
+
+
+
+
         // Listen for navigation messages that include referrer information
         window.addEventListener('message', (event) => {
             try {
@@ -9631,6 +9635,7 @@ try {
             }
 
             const weekly = new Map(); // weekEndISO -> {d:Date, usage, restock, waste}
+            const dailyUsageSparse = Object.create(null); // dateISO -> usage qty
 
             // IMPORTANT: transaction maps are keyed by whatever identifier the monthly mockdata files use.
             // Across datasets we've seen keys be itemCode, itemId, ndc, etc. Build a robust list of
@@ -9775,7 +9780,10 @@ try {
                     if (!weekly.has(wKey)) weekly.set(wKey, { d: new Date(wKey + 'T00:00:00'), usage: 0, restock: 0, waste: 0 });
                     const agg = weekly.get(wKey);
             
-                    if (e.u) agg.usage += e.u;
+                    if (e.u) {
+                        agg.usage += e.u;
+                        dailyUsageSparse[iso] = (Number(dailyUsageSparse[iso]) || 0) + Number(e.u || 0);
+                    }
                     if (e.r) agg.restock += e.r;
                     if (e.w) agg.waste += e.w;
                 }
@@ -9840,8 +9848,11 @@ try {
                         const wKey = toISODate(endOfWeek(d));
                         if (!weekly.has(wKey)) weekly.set(wKey, { d: new Date(wKey + "T00:00:00"), usage: 0, restock: 0, waste: 0 });
                         const agg = weekly.get(wKey);
-                        if (kind === "usage") agg.usage += mag;
-                        else if (kind === "restock") agg.restock += mag;
+                        if (kind === "usage") {
+                            agg.usage += mag;
+                            const dayKey = toISODate(d);
+                            dailyUsageSparse[dayKey] = (Number(dailyUsageSparse[dayKey]) || 0) + mag;
+                        } else if (kind === "restock") agg.restock += mag;
                         else agg.waste += mag;
                     }
                 }
@@ -9899,8 +9910,11 @@ try {
                             const wKey = toISODate(endOfWeek(d));
                             if (!weekly.has(wKey)) weekly.set(wKey, { d: new Date(wKey + 'T00:00:00'), usage: 0, restock: 0, waste: 0 });
                             const agg = weekly.get(wKey);
-                            if (kind === 'usage') agg.usage += mag;
-                            else if (kind === 'restock') agg.restock += mag;
+                            if (kind === 'usage') {
+                                agg.usage += mag;
+                                const dayKey = toISODate(d);
+                                dailyUsageSparse[dayKey] = (Number(dailyUsageSparse[dayKey]) || 0) + mag;
+                            } else if (kind === 'restock') agg.restock += mag;
                             else agg.waste += mag;
                         }
                     }
@@ -9978,7 +9992,7 @@ const lastRealWeekEndISO = lastRealWeekEnd ? toISODate(lastRealWeekEnd) : null;
 costChartState._lastRealWeekEndISO = lastRealWeekEndISO;
 
 // Generate future bins when Outlook is enabled. In 'all' view, projection applies to Usage/Waste bars.
-const shouldGenerateOutlook = (outlookDays > 0) && (view === 'usage' || view === 'waste' || view === 'all');
+const shouldGenerateOutlook = (outlookDays > 0) && (view === 'usage' || view === 'waste' || view === 'all' || view === 'restock');
 
 const originalWeekCount = weekEndDates.length;
 costChartState.verticalBarOriginalWeekCount = originalWeekCount;
@@ -10418,6 +10432,156 @@ if (view === 'usage' || view === 'all') {
         }
 
         aggregatedData.restock.push(0);
+    }
+
+    // Restock projection (shape-based daily usage -> on-hand/min/max restock policy)
+    try {
+        const fc = (window.InventoryApp && InventoryApp.Forecast) ? InventoryApp.Forecast : null;
+        const projectionStartIndex = originalWeekCount;
+        const projectedWeeksCount = Math.max(1, futureWeeks);
+        const horizonDays = Math.max(1, projectedWeeksCount * 7);
+        const itemCodeForProjection = String((costChartState && costChartState.itemSublocItemCode) ? costChartState.itemSublocItemCode : '').trim();
+        const locForProjection = String((costChartState && costChartState.itemLocFilter) ? costChartState.itemLocFilter : 'ALL').trim();
+        const sublocForProjection = String((costChartState && costChartState.itemSublocFilter) ? costChartState.itemSublocFilter : 'ALL').trim();
+        const hasSingleItemScope = !!itemCodeForProjection && locForProjection !== 'ALL';
+
+        if (!hasSingleItemScope) {
+            if (DEBUG_RESTOCK_PROJ) {
+                console.log('🧪 Restock projection skipped (select a single item + scope)', { itemCodeForProjection, locForProjection, sublocForProjection });
+            }
+        } else if (fc && typeof fc.projectDailyUsageFromShape === 'function' && typeof fc.projectRestockNeed === 'function') {
+            const materializeDaily = (typeof fc.materializeDailySeries === 'function')
+                ? fc.materializeDailySeries.bind(fc)
+                : function localMaterializeDailySeries(sparseMap, startISO, endISO) {
+                    const out = [];
+                    const cur = new Date(String(startISO).slice(0, 10) + 'T00:00:00');
+                    const end = new Date(String(endISO).slice(0, 10) + 'T00:00:00');
+                    while (cur <= end && Number.isFinite(cur.getTime()) && Number.isFinite(end.getTime())) {
+                        const iso = toISODate(cur);
+                        out.push(Math.max(0, Number((sparseMap && sparseMap[iso]) || 0)));
+                        cur.setDate(cur.getDate() + 1);
+                    }
+                    return out;
+                };
+
+            const usageDays = Object.keys(dailyUsageSparse).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort();
+            const shapeLookbackDays = 56;
+            const shapeEndISO = (toISO && /^\d{4}-\d{2}-\d{2}$/.test(toISO))
+                ? toISO
+                : (usageDays.length ? usageDays[usageDays.length - 1] : (lastRealWeekEndISO || toISODate(new Date())));
+            const shapeEndDate = new Date(shapeEndISO + 'T00:00:00');
+            shapeEndDate.setDate(shapeEndDate.getDate() - (shapeLookbackDays - 1));
+            const shapeStartISO = toISODate(shapeEndDate);
+            const dailySeries = materializeDaily(dailyUsageSparse, shapeStartISO, shapeEndISO);
+
+            const signalSum = dailySeries.reduce((sum, v) => sum + (Number(v) || 0), 0);
+            const recentDailyWindow = dailySeries.slice(Math.max(0, dailySeries.length - 14));
+            const avgDailyUsage = Math.max(0, recentDailyWindow.length
+                ? (recentDailyWindow.reduce((sum, v) => sum + (Number(v) || 0), 0) / recentDailyWindow.length)
+                : 0);
+
+            let baseDaily = avgDailyUsage;
+            let slopePerDayPct = 0;
+            let projectedDailyUsage = new Array(horizonDays).fill(avgDailyUsage);
+
+            if (signalSum > 0) {
+                const usageProj = fc.projectDailyUsageFromShape(dailySeries, horizonDays, {
+                    shapeOpts: { lookbackDays: shapeLookbackDays },
+                    trendOpts: { maxPctPerDay: 0.03, minMult: 0.6, maxMult: 1.6 }
+                }) || {};
+                baseDaily = Math.max(0, Number(usageProj.baseDaily ?? avgDailyUsage) || avgDailyUsage);
+                slopePerDayPct = Number(usageProj.slopePerDayPct || 0);
+                const projected = Array.isArray(usageProj.projectedDailyUsage) ? usageProj.projectedDailyUsage : [];
+                if (projected.length) {
+                    projectedDailyUsage = new Array(horizonDays).fill(0).map((_, idx) => Math.max(0, Number(projected[idx] ?? avgDailyUsage) || 0));
+                }
+            }
+
+            const invRoot = (costChartState.cachedMockData && costChartState.cachedMockData.inventory) ? costChartState.cachedMockData.inventory : null;
+            const invEntry = (invRoot && invRoot[itemCodeForProjection]) ? invRoot[itemCodeForProjection] : null;
+            let onHandNow = 0, minQty = 0, maxQty = 0;
+
+            if (invEntry) {
+                const rows = Array.isArray(invEntry.sublocations)
+                    ? invEntry.sublocations.map(r => ({
+                        sublocation: String(r.sublocation || r.location || r.loc || '').trim(),
+                        qty: Number(r.curQty ?? r.qty ?? 0) || 0,
+                        min: Number(r.minQty ?? r.min ?? 0) || 0,
+                        max: Number(r.maxQty ?? r.max ?? 0) || 0
+                    }))
+                    : (typeof invEntry === 'object' ? Object.keys(invEntry).map(k => {
+                        const v = invEntry[k] || {};
+                        return {
+                            sublocation: String(k),
+                            qty: Number(v.curQty ?? v.qty ?? 0) || 0,
+                            min: Number(v.minQty ?? v.min ?? 0) || 0,
+                            max: Number(v.maxQty ?? v.max ?? 0) || 0
+                        };
+                    }) : []);
+
+                const locCanon = String(locForProjection).trim().toUpperCase();
+                const subCanon = (sublocForProjection && sublocForProjection !== 'ALL') ? _canonSublocExact(sublocForProjection) : '';
+                for (let ri = 0; ri < rows.length; ri++) {
+                    const rr = rows[ri] || {};
+                    const tok = _canonSublocExact(rr.sublocation || '');
+                    if (!tok) continue;
+                    const ml = (_mainLocFromSublocToken(tok) || '');
+                    const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(tok);
+                    if (!(lk0 === locCanon || tok === locCanon || tok.startsWith(locCanon))) continue;
+                    if (subCanon && tok !== subCanon) continue;
+                    onHandNow += Number(rr.qty) || 0;
+                    minQty += Number(rr.min) || 0;
+                    maxQty += Number(rr.max) || 0;
+                }
+            }
+
+            if (!(maxQty > 0)) maxQty = Math.max(0, onHandNow);
+            const restockProj = fc.projectRestockNeed({
+                onHandNow: Math.max(0, onHandNow),
+                minQty: Math.max(0, minQty),
+                maxQty: Math.max(0, maxQty),
+                projectedDailyUsage,
+                horizonDays,
+                policy: { reviewCadenceDays: 1 }
+            }) || {};
+
+            const dailyRestockQty = Array.isArray(restockProj.dailyRestockQty)
+                ? restockProj.dailyRestockQty.map(v => Math.max(0, Number(v) || 0))
+                : new Array(horizonDays).fill(0);
+
+            for (let weekOffset = 0; weekOffset < projectedWeeksCount; weekOffset++) {
+                const weekIndex = projectionStartIndex + weekOffset;
+                if (weekIndex >= aggregatedData.restock.length) break;
+                let units = 0;
+                const dayStart = weekOffset * 7;
+                for (let t = dayStart; t < Math.min(dayStart + 7, dailyRestockQty.length); t++) units += dailyRestockQty[t];
+                aggregatedData.restock[weekIndex] = Math.max(0, units);
+            }
+
+            if (DEBUG_RESTOCK_PROJ) {
+                const projectedWeekly = [];
+                for (let weekOffset = 0; weekOffset < projectedWeeksCount; weekOffset++) {
+                    const dayStart = weekOffset * 7;
+                    let units = 0;
+                    for (let t = dayStart; t < Math.min(dayStart + 7, dailyRestockQty.length); t++) units += dailyRestockQty[t];
+                    projectedWeekly.push(Math.max(0, units));
+                }
+                console.log('🧪 Restock projection', {
+                    itemCode: itemCodeForProjection,
+                    scope: { location: locForProjection, sublocation: sublocForProjection },
+                    shapeLookbackDays,
+                    horizonDays,
+                    avgDailyUsage,
+                    baseDaily,
+                    slopePerDayPct,
+                    projectedDailyUsage7: projectedDailyUsage.slice(0, 7),
+                    dailyRestockQty7: dailyRestockQty.slice(0, 7),
+                    projectedWeekly
+                });
+            }
+        }
+    } catch (e) {
+        try { console.warn('⚠️ Restock outlook projection fallback:', e); } catch (_) {}
     }
 
     // Lightweight audit (opt-in) — shows what the projection is doing and why.
