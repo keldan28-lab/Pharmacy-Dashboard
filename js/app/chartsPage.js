@@ -10443,98 +10443,11 @@ if (view === 'usage' || view === 'all') {
         const itemCodeForProjection = String((costChartState && costChartState.itemSublocItemCode) ? costChartState.itemSublocItemCode : '').trim();
         const locForProjection = String((costChartState && costChartState.itemLocFilter) ? costChartState.itemLocFilter : 'ALL').trim();
         const sublocForProjection = String((costChartState && costChartState.itemSublocFilter) ? costChartState.itemSublocFilter : 'ALL').trim();
-        const isAllLocations = !locForProjection || locForProjection.toUpperCase() === 'ALL';
-        const isAllItems = !itemCodeForProjection || itemCodeForProjection.toUpperCase() === 'ALL';
-        const useAggregateMode = isAllLocations || isAllItems;
+        const hasSingleItemScope = !!itemCodeForProjection && locForProjection !== 'ALL';
 
-        const _normScopeToken = (v) => {
-            const t = String(v == null ? '' : v).trim();
-            return (!t || t.toUpperCase() === 'ALL' || t === '*') ? '' : t;
-        };
-        const _deriveSuggestedRows = (payload) => {
-            const md = payload || {};
-            const candidates = [
-                md.minSuggestionShownRows,
-                md.minSuggestionRows,
-                md.optimizationShownRows,
-                md.optimization && md.optimization.shownRows,
-                window.__minSuggestionShownRows,
-                window.__optimizationShownRows
-            ];
-            for (let i = 0; i < candidates.length; i++) {
-                if (Array.isArray(candidates[i])) return candidates[i];
-            }
-            return [];
-        };
-
-        if (useAggregateMode) {
-            const rows = _deriveSuggestedRows(costChartState && costChartState.cachedMockData);
-            const itemNeedle = _normScopeToken(itemCodeForProjection).toUpperCase();
-            const locNeedle = _normScopeToken(locForProjection).toUpperCase();
-            let totalSuggestedMin = 0;
-            let totalSafety = 0;
-            let matchedRows = 0;
-            for (let i = 0; i < rows.length; i++) {
-                const r = rows[i] || {};
-                const rowItem = String(r.itemCode ?? r.code ?? r.ndc ?? '').trim().toUpperCase();
-                const rowLoc = String(r.locationId ?? r.location ?? r.mainLocation ?? r.loc ?? '').trim().toUpperCase();
-                if (itemNeedle && rowItem !== itemNeedle) continue;
-                if (locNeedle && rowLoc !== locNeedle) continue;
-                const suggested = Math.max(0, Number(r.suggestedMinQty ?? r.sugMin ?? r.suggestedMin ?? r.minSuggestionQty ?? 0) || 0);
-                const safety = Math.max(0, Number(r.safetyStockQty ?? r.safetyStock ?? r.ss ?? 0) || 0);
-                totalSuggestedMin += suggested;
-                totalSafety += safety;
-                matchedRows++;
-            }
-            const _latestTrendForAggregate = (() => {
-                try {
-                    const md = costChartState && costChartState.cachedMockData ? costChartState.cachedMockData : null;
-                    const tl = md && md.trendTimeline;
-                    const byLoc = tl && tl.byLocation && typeof tl.byLocation === 'object' ? tl.byLocation : null;
-                    if (!byLoc) return 1;
-                    const locNeedleU = _normScopeToken(locForProjection).toUpperCase();
-                    const itemNeedleU = _normScopeToken(itemCodeForProjection).toUpperCase();
-                    let sum = 0, count = 0;
-                    for (let i = 0; i < rows.length; i++) {
-                        const r = rows[i] || {};
-                        const rowItem = String(r.itemCode ?? r.code ?? r.ndc ?? '').trim();
-                        const rowLoc = String(r.locationId ?? r.location ?? r.mainLocation ?? r.loc ?? '').trim();
-                        if (!rowItem || !rowLoc) continue;
-                        if (itemNeedleU && rowItem.toUpperCase() !== itemNeedleU) continue;
-                        if (locNeedleU && rowLoc.toUpperCase() !== locNeedleU) continue;
-                        const byItem = byLoc[rowLoc] || byLoc[rowLoc.toUpperCase()] || byLoc[rowLoc.toLowerCase()];
-                        if (!byItem || typeof byItem !== 'object') continue;
-                        const byDate = byItem[rowItem] || byItem[rowItem.toUpperCase()] || byItem[rowItem.toLowerCase()];
-                        if (!byDate || typeof byDate !== 'object') continue;
-                        let latestISO = '';
-                        for (const k of Object.keys(byDate)) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && k > latestISO) latestISO = k;
-                        const raw = latestISO ? byDate[latestISO] : null;
-                        const n = Number((typeof raw === 'number') ? raw : (raw && raw.trendMult));
-                        if (Number.isFinite(n) && n > 0) { sum += _projectionClamp(n, 0.5, 2.0); count++; }
-                    }
-                    return count ? (sum / count) : 1;
-                } catch (_) { return 1; }
-            })();
-            const trendFactor = _projectionClamp(_latestTrendForAggregate, 0.5, 2.0);
-            const aggregateTotal = Math.max(0, (totalSuggestedMin + totalSafety) * trendFactor);
-            for (let weekOffset = 0; weekOffset < projectedWeeksCount; weekOffset++) {
-                const weekIndex = projectionStartIndex + weekOffset;
-                if (weekIndex >= aggregatedData.restock.length) break;
-                aggregatedData.restock[weekIndex] = aggregateTotal;
-            }
+        if (!hasSingleItemScope) {
             if (DEBUG_RESTOCK_PROJ) {
-                console.log('🧪 Restock projection', {
-                    MODE: 'AGG_SUGGESTED_MIN_PLUS_SAFETY',
-                    isAllLocations,
-                    isAllItems,
-                    selectedFilters: { itemCode: itemCodeForProjection || 'ALL', location: locForProjection || 'ALL', sublocation: sublocForProjection || 'ALL' },
-                    numberOfRowsAggregated: matchedRows,
-                    totalSuggestedMin,
-                    totalSafety,
-                    trendFactor,
-                    grandTotal: aggregateTotal,
-                    projectedWeekly: new Array(projectedWeeksCount).fill(aggregateTotal)
-                });
+                console.log('🧪 Restock projection skipped (select a single item + scope)', { itemCodeForProjection, locForProjection, sublocForProjection });
             }
         } else if (fc && typeof fc.projectDailyUsageFromShape === 'function' && typeof fc.projectRestockNeed === 'function') {
             const materializeDaily = (typeof fc.materializeDailySeries === 'function')
@@ -10654,7 +10567,6 @@ if (view === 'usage' || view === 'all') {
                     projectedWeekly.push(Math.max(0, units));
                 }
                 console.log('🧪 Restock projection', {
-                    MODE: 'USAGE_SINGLE_ITEM_LOCATION',
                     itemCode: itemCodeForProjection,
                     scope: { location: locForProjection, sublocation: sublocForProjection },
                     shapeLookbackDays,
