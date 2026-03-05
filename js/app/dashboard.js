@@ -1983,9 +1983,11 @@ Subloc: ${counts.subloc}`);
             __setAppLoading(true, 'Loading inventory data…');
 
             const loader = window.InventoryApp && window.InventoryApp.DataLoader;
-            const ensureLoaded = loader && typeof loader.ensureTransactionsLoaded === 'function'
-                ? loader.ensureTransactionsLoaded()
-                : Promise.resolve({ loaded: true, count: 0 });
+            const ensureLoaded = loader && typeof loader.loadRecentMonths === 'function'
+                ? loader.loadRecentMonths({ count: 2 })
+                : (loader && typeof loader.ensureTransactionsLoaded === 'function'
+                    ? loader.ensureTransactionsLoaded({ initialMonths: 2 })
+                : Promise.resolve({ loaded: true, count: 0 }));
 
             ensureLoaded.then((info) => {
                 if (info && info.count) {
@@ -6279,7 +6281,9 @@ async function loadLatestTrendFactsFromSheet() {
                 if (!Array.isArray(txArr) || txArr.length === 0) {
                     try {
                         const loader = window.InventoryApp && window.InventoryApp.DataLoader;
-                        if (loader && typeof loader.ensureTransactionsLoaded === 'function') {
+                        if (loader && typeof loader.loadRecentMonths === 'function') {
+                            await loader.loadRecentMonths({ count: 2 });
+                        } else if (loader && typeof loader.ensureTransactionsLoaded === 'function') {
                             await loader.ensureTransactionsLoaded();
                         }
                         try { initializeMockData && initializeMockData(); } catch (_) {}

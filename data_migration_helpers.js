@@ -10,28 +10,25 @@
  * @returns {Object} Merged transactions object with all history combined
  */
 function mergeMonthlyTransactions() {
-    const merged = {};
-    
-    // Use globalThis which is more reliable than window in all contexts
-    const targetWindow = globalThis;
+    const app = window.InventoryApp || {};
+    const store = app.TransactionStore;
 
-    // Helper to read a "global" variable regardless of whether it was declared
-    // with `var` / `window.NAME = ...` (property on globalThis) or `const NAME = ...`
-    // (a global lexical binding, not an object property).
+    // Fast path: month loader keeps TransactionStore incrementally updated.
+    if (store && typeof store.toLegacyTransactions === 'function') {
+        const fromStore = store.toLegacyTransactions();
+        if (Object.keys(fromStore).length > 0) {
+            return fromStore;
+        }
+    }
+
+    // Fallback path: build from globals and feed the store once so downstream reads are deduped.
+    const merged = {};
+    const scripts = Array.isArray(window.TRANSACTION_SCRIPTS) ? window.TRANSACTION_SCRIPTS : [];
+
     function getGlobalByName(name) {
         if (!name || typeof name !== 'string') return undefined;
-
-        // Fast path: property-based globals.
-        if (Object.prototype.hasOwnProperty.call(targetWindow, name)) {
-            return targetWindow[name];
-        }
-
-        // Safe guard: only allow simple identifier-like names.
+        if (Object.prototype.hasOwnProperty.call(window, name)) return window[name];
         if (!/^[A-Z0-9_]+$/.test(name)) return undefined;
-
-        // Fallback: access global lexical bindings (e.g., `const TRANSACTION_2026_01 = ...`).
-        // Using Function() here avoids relying on eval() while still allowing access to
-        // non-property globals across separate script tags.
         try {
             // eslint-disable-next-line no-new-func
             return Function('try { return ' + name + '; } catch (e) { return undefined; }')();
@@ -39,109 +36,34 @@ function mergeMonthlyTransactions() {
             return undefined;
         }
     }
-    
-    console.log('📅 Merging monthly transaction files...');
-    console.log('🔍 Checking for transaction variables...');
-    console.log('   Using globalThis for variable lookup');
-    console.log('   Target window type:', typeof targetWindow);
-    console.log('   Total keys in target window:', Object.keys(targetWindow).length);
-    
-    // Test direct access
-    console.log('   TEST: Direct access to TRANSACTION_2026_01:', typeof TRANSACTION_2026_01);
-    console.log('   TEST: Direct access to ITEMS_DATA:', typeof ITEMS_DATA);
-    
-    // Debug: Check what's actually in target window
-    const foundVars = [];
-    const allKeys = Object.keys(targetWindow);
-    console.log('   Scanning', allKeys.length, 'properties...');
-    
-    for (const key of allKeys) {
-        if (key.includes('TRANSACTION')) {
-            foundVars.push(key);
-            console.log(`   🎯 Found: ${key} = ${typeof targetWindow[key]}`);
-        }
-    }
-    console.log(`   Found ${foundVars.length} TRANSACTION variables:`, foundVars);
-    
-    // Also check for specific variables directly
-    console.log('   Direct checks:');
-    console.log('     TRANSACTION_2026_01:', typeof targetWindow.TRANSACTION_2026_01, targetWindow.TRANSACTION_2026_01 ? '✅' : '❌');
-    console.log('     TRANSACTION_2025_12:', typeof targetWindow.TRANSACTION_2025_12, targetWindow.TRANSACTION_2025_12 ? '✅' : '❌');
-    console.log('     ITEMS_DATA:', typeof targetWindow.ITEMS_DATA, targetWindow.ITEMS_DATA ? '✅' : '❌');
-    // Discover transaction globals dynamically.
-    // Supported:
-    // - TRANSACTION_YYYY_MM (monthly)
-    // - TRANSACTION_YYYY_MM_DD (daily)
-    // - ITEM_TRANSACTION (legacy)
-    const discoveredFromWindow = Object.keys(targetWindow)
-        .filter(k => /^TRANSACTION_\d{4}_\d{2}(?:_\d{2})?$/.test(k) || k === 'ITEM_TRANSACTION');
 
-    // Also discover expected variable names from the manifest file list, so we can
-    // load const-declared globals that don't appear as properties on globalThis.
-    const discoveredFromManifest = [];
-    const scripts = Array.isArray(targetWindow.TRANSACTION_SCRIPTS) ? targetWindow.TRANSACTION_SCRIPTS : [];
     for (let i = 0; i < scripts.length; i++) {
         const file = String(scripts[i] || '');
-        // Matches: transaction_2026_01_mockdata.js or transaction_2026_01_19_mockdata.js
         const m = file.match(/transaction_(\d{4})_(\d{2})(?:_(\d{2}))?_mockdata\.js$/i);
-        if (m) {
-            const yyyy = m[1], mm = m[2], dd = m[3];
-            discoveredFromManifest.push(dd ? `TRANSACTION_${yyyy}_${mm}_${dd}` : `TRANSACTION_${yyyy}_${mm}`);
+        if (!m) continue;
+        const key = m[3] ? `TRANSACTION_${m[1]}_${m[2]}_${m[3]}` : `TRANSACTION_${m[1]}_${m[2]}`;
+        const monthData = getGlobalByName(key);
+        if (!monthData || typeof monthData !== 'object') continue;
+
+        for (const itemCode of Object.keys(monthData)) {
+            const h = monthData[itemCode] && Array.isArray(monthData[itemCode].history) ? monthData[itemCode].history : [];
+            if (!merged[itemCode]) merged[itemCode] = { history: [] };
+            merged[itemCode].history.push(...h);
+        }
+
+        if (store && typeof store.addLegacyHistoryMap === 'function') {
+            const monthKey = `${m[1]}-${m[2]}`;
+            store.addLegacyHistoryMap(monthKey, monthData);
         }
     }
 
-    // Combine + de-dupe, newest first.
-    const monthlyVars = Array.from(new Set([...discoveredFromWindow, ...discoveredFromManifest, 'ITEM_TRANSACTION']))
-        .filter(Boolean)
-        .filter(k => /^TRANSACTION_\d{4}_\d{2}(?:_\d{2})?$/.test(k) || k === 'ITEM_TRANSACTION')
-        .sort()
-        .reverse();
-
-    
-    let filesFound = 0;
-    let totalRecords = 0;
-    
-    monthlyVars.forEach(varName => {
-        const monthData = getGlobalByName(varName);
-        
-        if (typeof monthData !== 'undefined') {
-            filesFound++;
-            
-            // Merge each item's history
-            for (const [itemCode, data] of Object.entries(monthData)) {
-                if (!merged[itemCode]) {
-                    merged[itemCode] = { history: [] };
-                }
-                
-                if (data.history && Array.isArray(data.history)) {
-                    merged[itemCode].history.push(...data.history);
-                    totalRecords += data.history.length;
-                }
-            }
-            
-            console.log(`   ✓ Loaded ${varName}: ${Object.keys(monthData).length} items`);
-        }
-    });
-    
-    // Sort each item's history by date (oldest to newest)
     for (const itemCode of Object.keys(merged)) {
-        merged[itemCode].history.sort((a, b) => {
-            return new Date(a.transDate) - new Date(b.transDate);
-        });
+        merged[itemCode].history.sort((a, b) => new Date(a.transDate) - new Date(b.transDate));
     }
-    
-    console.log(`📅 Transaction merge complete:`);
-    console.log(`   - Monthly files found: ${filesFound}`);
-    console.log(`   - Items with transactions: ${Object.keys(merged).length}`);
-    console.log(`   - Total transaction records: ${totalRecords}`);
-    
-    if (filesFound === 0) {
-        console.warn('⚠️ No transaction files found. Looking for variables like TRANSACTION_2025_01');
-        console.warn('   Make sure each file exports as: const TRANSACTION_2025_01 = {...}');
-    }
-    
-    return merged;
+
+    return (store && typeof store.toLegacyTransactions === 'function') ? store.toLegacyTransactions() : merged;
 }
+
 
 /**
  * Generate stockOutsByArea from ITEMS_INVENTORY

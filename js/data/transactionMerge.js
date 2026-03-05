@@ -44,10 +44,21 @@
     return obj && typeof obj === 'object' ? obj : null;
   }
 
+  function txDedupeKey(itemCode, tx) {
+    if (!tx || typeof tx !== 'object') return null;
+    const id = tx.id || tx.txId || tx.transactionId || tx.uuid || '';
+    const date = tx.transDate || tx.transactionDate || tx.date || tx.trans_date || '';
+    const location = tx.location || tx.locationName || tx.area || '';
+    const qty = tx.quantity != null ? tx.quantity : (tx.qty != null ? tx.qty : '');
+    const type = tx.type || tx.transactionType || '';
+    return [itemCode || '', id, date, type, qty, location].join('|');
+  }
+
   function mergeTransactionsFromGlobals(root) {
     const r = root || window;
     const keys = listTransactionGlobals(r);
     const merged = {};
+    const seen = new Set();
 
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
@@ -58,7 +69,13 @@
         const container = src[itemCode];
         const h = container && Array.isArray(container.history) ? container.history : [];
         if (!merged[itemCode]) merged[itemCode] = { history: [] };
-        merged[itemCode].history = merged[itemCode].history.concat(h);
+        for (let j = 0; j < h.length; j++) {
+          const row = h[j];
+          const key2 = txDedupeKey(itemCode, row);
+          if (key2 && seen.has(key2)) continue;
+          if (key2) seen.add(key2);
+          merged[itemCode].history.push(row);
+        }
       });
     }
 
