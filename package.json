@@ -2,6 +2,7 @@
   "name": "pharmacy-dashboard",
   "private": true,
   "scripts": {
-    "check:parse": "node scripts/check-parse.js"
+    "check:parse": "node scripts/check-parse.js",
+    "test:tx-loader-months": "node scripts/test-transaction-loader-months.js"
   }
 }

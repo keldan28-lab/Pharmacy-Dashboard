@@ -2090,6 +2090,22 @@ function applyFlowOverrideFromVerticalBarSelection() {
         // IMPORTANT: this must be idempotent (charts redraws can call this repeatedly).
         const __ensureTxRangePending = {}; // reqId -> {resolve,reject,ts,key}
         const __ensureTxRangeByKey = {};   // key -> Promise
+        let __txRangeLoadingCount = 0;
+
+        function setTxRangeLoading(isLoading) {
+            try {
+                __txRangeLoadingCount = Math.max(0, __txRangeLoadingCount + (isLoading ? 1 : -1));
+                let el = document.getElementById('txRangeLoadingIndicator');
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = 'txRangeLoadingIndicator';
+                    el.style.cssText = 'display:none;position:fixed;top:12px;right:12px;z-index:99999;padding:6px 10px;border-radius:6px;background:rgba(0,0,0,0.75);color:#fff;font:12px system-ui;pointer-events:none;';
+                    el.textContent = 'Loading transactions…';
+                    document.body.appendChild(el);
+                }
+                el.style.display = __txRangeLoadingCount > 0 ? 'block' : 'none';
+            } catch (e) {}
+        }
         function ensureTxRangeFromParent(fromISO, toISO) {
             try {
                 if (!fromISO || !toISO) return Promise.resolve({ loaded: true, count: 0 });
@@ -2098,6 +2114,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
 
                 __ensureTxRangeByKey[key] = new Promise((resolve, reject) => {
                     try {
+                        setTxRangeLoading(true);
                         const reqId = 'txr_' + Math.random().toString(36).slice(2) + '_' + Date.now();
                         __ensureTxRangePending[reqId] = { resolve, reject, ts: Date.now(), key };
                         // Charts runs in an iframe (Dashboard_Tabbed.html) so parent is the dashboard.
@@ -2108,11 +2125,13 @@ function applyFlowOverrideFromVerticalBarSelection() {
                                 const k = __ensureTxRangePending[reqId].key;
                                 delete __ensureTxRangePending[reqId];
                                 if (k && __ensureTxRangeByKey[k]) delete __ensureTxRangeByKey[k];
+                                setTxRangeLoading(false);
                                 reject(new Error('ensureTxRange timeout'));
                             }
                         }, 20000);
                     } catch (e) {
                         if (__ensureTxRangeByKey[key]) delete __ensureTxRangeByKey[key];
+                        setTxRangeLoading(false);
                         reject(e);
                     }
                 });
@@ -2327,6 +2346,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
                     // Charts can redraw multiple times during tab switches / dark-mode sync.
                     // Keeping the resolved promise cached prevents spamming the dashboard
                     // with repeated ensureTxRange requests for the same (from,to) range.
+                    setTxRangeLoading(false);
                     if (event.data.ok) pending.resolve(event.data.info || { loaded: true, count: 0 });
                     else pending.reject(new Error(event.data.error || 'txRangeReady failed'));
                 }
@@ -2341,6 +2361,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
                             const p2 = __ensureTxRangePending[id];
                             if (p2 && p2.key === key2) {
                                 delete __ensureTxRangePending[id];
+                                setTxRangeLoading(false);
                                 if (event.data.ok) p2.resolve(event.data.info || { loaded: true, count: 0 });
                                 else p2.reject(new Error(event.data.error || 'txRangeReady failed'));
                             }
@@ -4867,8 +4888,26 @@ function ensureTransactionRatesForSelectedRange() {
         return true;
     };
 
-    // Recompute rates for items currently loaded
+    // Recompute rates for items currently loaded.
+    // Prefer parent TransactionStore's incremental item-day rollups when available.
     const items = Array.isArray(costChartState.items) ? costChartState.items : [];
+    const parentStore = (window.parent && window.parent.InventoryApp && window.parent.InventoryApp.TransactionStore)
+        ? window.parent.InventoryApp.TransactionStore
+        : null;
+    const itemDayRows = (parentStore && typeof parentStore.getAggregatesInRange === 'function')
+        ? parentStore.getAggregatesInRange(fromISO || '', anchorISO || '', 'itemDay')
+        : null;
+    const itemDayByCode = Object.create(null);
+    if (Array.isArray(itemDayRows)) {
+        for (let i = 0; i < itemDayRows.length; i++) {
+            const row = itemDayRows[i] || {};
+            const code = String(row.itemCode || '').trim();
+            if (!code) continue;
+            if (!itemDayByCode[code]) itemDayByCode[code] = [];
+            itemDayByCode[code].push(row);
+        }
+    }
+
     for (let ii = 0; ii < items.length; ii++) {
         const item = items[ii];
         const code = String(item.itemCode || item.ndc || '');
@@ -4879,24 +4918,43 @@ function ensureTransactionRatesForSelectedRange() {
         const wasteRate = new Array(weeks).fill(0);
         const restockRate = new Array(weeks).fill(0);
 
-        for (let j = 0; j < hist.length; j++) {
-            const r = hist[j] || {};
-            const iso = typeof r.transDate === 'string' ? r.transDate.slice(0, 10) : '';
-            if (range && !withinRange(iso)) continue;
+        const rollRows = itemDayByCode[code] || null;
+        if (rollRows && rollRows.length) {
+            for (let rix = 0; rix < rollRows.length; rix++) {
+                const row = rollRows[rix];
+                const iso = row.day || '';
+                if (range && !withinRange(iso)) continue;
+                const transDate = new Date(iso + 'T00:00:00');
+                for (let w = 0; w < weekBoundaries.length; w++) {
+                    const wk = weekBoundaries[w];
+                    if (transDate >= wk.start && transDate < wk.end) {
+                        usageRate[wk.index] += Number(row.usageQty || 0);
+                        wasteRate[wk.index] += Number(row.wasteQty || 0);
+                        restockRate[wk.index] += Number(row.restockQty || 0);
+                        break;
+                    }
+                }
+            }
+        } else {
+            for (let j = 0; j < hist.length; j++) {
+                const r = hist[j] || {};
+                const iso = typeof r.transDate === 'string' ? r.transDate.slice(0, 10) : '';
+                if (range && !withinRange(iso)) continue;
 
-            const transDate = new Date(iso + 'T00:00:00');
-            for (let w = 0; w < weekBoundaries.length; w++) {
-                const wk = weekBoundaries[w];
-                if (transDate >= wk.start && transDate < wk.end) {
-                    const rawQty = (r.transQty ?? r.TransQty ?? r.qty ?? r.Qty ?? r.TRANSQTY ?? 0);
-                    const absQty = Math.abs(parseFloat(rawQty) || 0);
-                    if (!absQty) break;
+                const transDate = new Date(iso + 'T00:00:00');
+                for (let w = 0; w < weekBoundaries.length; w++) {
+                    const wk = weekBoundaries[w];
+                    if (transDate >= wk.start && transDate < wk.end) {
+                        const rawQty = (r.transQty ?? r.TransQty ?? r.qty ?? r.Qty ?? r.TRANSQTY ?? 0);
+                        const absQty = Math.abs(parseFloat(rawQty) || 0);
+                        if (!absQty) break;
 
-                    const t = String(r.transactionType || '').toLowerCase();
-                    if (t.includes('dispense')) usageRate[wk.index] += absQty;
-                    else if (t.includes('waste')) wasteRate[wk.index] += absQty;
-                    else if (t.includes('restock')) restockRate[wk.index] += absQty;
-                    break;
+                        const t = String(r.transactionType || '').toLowerCase();
+                        if (t.includes('dispense')) usageRate[wk.index] += absQty;
+                        else if (t.includes('waste')) wasteRate[wk.index] += absQty;
+                        else if (t.includes('restock')) restockRate[wk.index] += absQty;
+                        break;
+                    }
                 }
             }
         }
