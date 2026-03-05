@@ -142,9 +142,157 @@ function spikeWrite_(sheetId, tabName, rows2d) {
   let sh = ss.getSheetByName(tabName);
   if (!sh) sh = ss.insertSheet(tabName);
 
-  sh.clearContents();
-  sh.getRange(1, 1, rows2d.length, rows2d[0].length).setValues(rows2d);
-  return { ok: true, written: rows2d.length, tabName, mode: "write", updatedRange: `A1:${toA1Col_(rows2d[0].length)}${rows2d.length}` };
+  const hasData = sh.getLastRow() > 0 && sh.getLastColumn() > 0;
+  const existingHeader = hasData
+    ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+    : [];
+
+  const incomingHasHeader = isHeaderRow_(rows2d[0], existingHeader);
+  let header = incomingHasHeader ? rows2d[0].slice() : (hasData ? existingHeader.slice() : []);
+  if (!header.length) {
+    header = incomingHasHeader ? rows2d[0].slice() : rows2d[0].map(function (_, i) { return 'col' + (i + 1); });
+  }
+
+  const rowsToWrite = incomingHasHeader ? rows2d.slice(1) : rows2d.slice();
+  const prep = prepareTrendUpsertRows_(header, rowsToWrite);
+  header = prep.header;
+  const bodyRows = prep.rows;
+
+  const keyIdx = getTrendKeyIndexes_(header);
+  const canUpsert = keyIdx.dateISO >= 0 && keyIdx.location >= 0 && keyIdx.itemCode >= 0;
+
+  if (!hasData) {
+    const allRows = [header].concat(bodyRows);
+    if (allRows.length) {
+      sh.getRange(1, 1, allRows.length, header.length).setValues(allRows);
+    }
+    return { ok: true, written: bodyRows.length, tabName, mode: canUpsert ? 'upsert' : 'append', inserted: bodyRows.length, updated: 0, headerWritten: true };
+  }
+
+  const existingHeaderNorm = existingHeader.map(function (v) { return String(v || '').trim().toLowerCase(); });
+  const incomingHeaderNorm = header.map(function (v) { return String(v || '').trim().toLowerCase(); });
+  let headerMatches = existingHeaderNorm.length === incomingHeaderNorm.length;
+  if (headerMatches) {
+    for (let i = 0; i < existingHeaderNorm.length; i++) {
+      if (existingHeaderNorm[i] !== incomingHeaderNorm[i]) { headerMatches = false; break; }
+    }
+  }
+
+  if (!headerMatches) {
+    sh.getRange(1, 1, 1, header.length).setValues([header]);
+  }
+
+  if (!bodyRows.length) {
+    return { ok: true, written: 0, tabName, mode: canUpsert ? 'upsert' : 'append', inserted: 0, updated: 0, headerWritten: !headerMatches };
+  }
+
+  if (!canUpsert) {
+    const startRow = sh.getLastRow() + 1;
+    sh.getRange(startRow, 1, bodyRows.length, header.length).setValues(bodyRows);
+    return { ok: true, written: bodyRows.length, tabName, mode: 'append', inserted: bodyRows.length, updated: 0, headerWritten: !headerMatches };
+  }
+
+  const lastRow = sh.getLastRow();
+  const existingRows = lastRow > 1 ? sh.getRange(2, 1, lastRow - 1, header.length).getValues() : [];
+  const rowByKey = {};
+  for (let i = 0; i < existingRows.length; i++) {
+    const key = trendKeyFromRow_(existingRows[i], keyIdx);
+    if (!key) continue;
+    rowByKey[key] = i + 2;
+  }
+
+  let updated = 0;
+  let inserted = 0;
+  const appendRows = [];
+  for (let i = 0; i < bodyRows.length; i++) {
+    const row = bodyRows[i];
+    const key = trendKeyFromRow_(row, keyIdx);
+    if (!key) continue;
+    const targetRow = rowByKey[key];
+    if (targetRow) {
+      sh.getRange(targetRow, 1, 1, header.length).setValues([row]);
+      updated++;
+    } else {
+      appendRows.push(row);
+      rowByKey[key] = -1;
+    }
+  }
+
+  if (appendRows.length) {
+    const startRow = sh.getLastRow() + 1;
+    sh.getRange(startRow, 1, appendRows.length, header.length).setValues(appendRows);
+    inserted = appendRows.length;
+  }
+
+  return { ok: true, written: updated + inserted, tabName, mode: 'upsert', inserted, updated, key: 'dateISO|location|itemCode', headerWritten: !headerMatches };
+}
+
+function prepareTrendUpsertRows_(header, rows) {
+  let outHeader = Array.isArray(header) ? header.slice() : [];
+  const headerMap = mapHeaderIndexes_(outHeader);
+  let dateIdx = headerMap.dateiso;
+  const tsIdx = (headerMap.calculatedat != null) ? headerMap.calculatedat : ((headerMap.timestamp != null) ? headerMap.timestamp : -1);
+
+  if (dateIdx == null || dateIdx < 0) {
+    outHeader.push('dateISO');
+    dateIdx = outHeader.length - 1;
+  }
+
+  const width = outHeader.length;
+  const outRows = [];
+  for (let i = 0; i < rows.length; i++) {
+    const src = Array.isArray(rows[i]) ? rows[i] : [];
+    const row = src.slice(0, width);
+    while (row.length < width) row.push('');
+
+    let dateISO = toDateISO_(row[dateIdx]);
+    if (!dateISO && tsIdx >= 0) dateISO = toDateISO_(row[tsIdx]);
+    if (dateISO) row[dateIdx] = dateISO;
+
+    outRows.push(row);
+  }
+
+  return { header: outHeader, rows: outRows };
+}
+
+function mapHeaderIndexes_(header) {
+  const map = {};
+  for (let i = 0; i < header.length; i++) {
+    const k = String(header[i] || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (k && map[k] == null) map[k] = i;
+  }
+  return map;
+}
+
+function getTrendKeyIndexes_(header) {
+  const map = mapHeaderIndexes_(header || []);
+  return {
+    dateISO: (map.dateiso != null) ? map.dateiso : ((map.date != null) ? map.date : -1),
+    location: (map.location != null) ? map.location : ((map.sublocation != null) ? map.sublocation : ((map.sendtolocation != null) ? map.sendtolocation : -1)),
+    itemCode: (map.itemcode != null) ? map.itemcode : ((map.code != null) ? map.code : -1)
+  };
+}
+
+function trendKeyFromRow_(row, idx) {
+  if (!row || !idx) return '';
+  const d = toDateISO_(row[idx.dateISO]);
+  const l = String(row[idx.location] || '').trim().toUpperCase();
+  const i = String(row[idx.itemCode] || '').trim().toUpperCase();
+  if (!d || !l || !i) return '';
+  return [d, l, i].join('|');
+}
+
+function toDateISO_(value) {
+  if (value == null || value === '') return '';
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const raw = String(value).trim();
+  const iso = raw.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return '';
 }
 
 function spikeAppend_(sheetId, tabName, rows2d) {
