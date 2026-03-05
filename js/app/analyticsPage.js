@@ -2459,7 +2459,10 @@
                         const heightPercent = (value / maxRestockBarValue) * 100;
                         bar.style.height = Math.max(heightPercent, 3) + '%';
                         const locLabel = projectedBars.topLocationByDay && projectedBars.topLocationByDay[index] ? projectedBars.topLocationByDay[index] : '';
-                        bar.title = locLabel ? `${locLabel} • ${formatCurrency(value)}` : formatCurrency(value);
+                        const projectionLabel = String(projectedBars.projectionLabel || '').trim();
+                        bar.title = locLabel
+                            ? `${locLabel} • ${projectionLabel ? projectionLabel + ' • ' : ''}${formatCurrency(value)}`
+                            : (projectionLabel ? `${projectionLabel} • ${formatCurrency(value)}` : formatCurrency(value));
                         if (locLabel) {
                             const badge = document.createElement('span');
                             badge.className = 'sublocation-badge';
@@ -6856,6 +6859,78 @@
             return (window.InventoryApp && window.InventoryApp.Forecast) ? window.InventoryApp.Forecast : null;
         }
 
+
+        function _normScopeToken(v){
+            const s = String(v == null ? '' : v).trim();
+            return (!s || s.toUpperCase() === 'ALL' || s === '*') ? '' : s;
+        }
+
+        function _deriveMinSuggestionShownRows(md){
+            const candidates = [
+                md && md.minSuggestionShownRows,
+                md && md.minSuggestionRows,
+                md && md.optimizationShownRows,
+                md && md.optimization && md.optimization.shownRows,
+                window.__minSuggestionShownRows,
+                window.__optimizationShownRows
+            ];
+            for (let i=0; i<candidates.length; i++){
+                if (Array.isArray(candidates[i])) return candidates[i];
+            }
+            return [];
+        }
+
+        function _deriveRestockProjectionScope(md){
+            const m = (md && md.meta && typeof md.meta === 'object') ? md.meta : {};
+            return {
+                itemCode: _normScopeToken(
+                    m.minSuggestionItemCode ?? m.selectedItemCode ?? md?.selectedItemCode ?? window.__minSuggestionSelectedItemCode ?? window.__optimizationSelectedItemCode ?? ''
+                ),
+                locationId: _normScopeToken(
+                    m.minSuggestionLocationId ?? m.selectedLocationId ?? m.selectedLocation ?? md?.selectedLocationId ?? window.__minSuggestionSelectedLocationId ?? window.__optimizationSelectedLocationId ?? ''
+                )
+            };
+        }
+
+        function computeSuggestedMinPlusSafetyAggregate({ rows, itemCode, locationId }){
+            const list = Array.isArray(rows) ? rows : [];
+            const itemNeedle = _normScopeToken(itemCode).toUpperCase();
+            const locNeedle = _normScopeToken(locationId).toUpperCase();
+            let total = 0;
+            for (let i=0; i<list.length; i++){
+                const r = list[i] || {};
+                const rowItem = String(r.itemCode ?? r.code ?? r.ndc ?? '').trim().toUpperCase();
+                const rowLoc = String(r.locationId ?? r.location ?? r.mainLocation ?? r.loc ?? '').trim().toUpperCase();
+                if (itemNeedle && rowItem !== itemNeedle) continue;
+                if (locNeedle && rowLoc !== locNeedle) continue;
+                const suggested = _num(r.suggestedMinQty ?? r.sugMin ?? r.suggestedMin ?? r.minSuggestionQty ?? 0, 0);
+                const safety = _num(r.safetyStockQty ?? r.safetyStock ?? r.ss ?? 0, 0);
+                total += Math.max(0, suggested) + Math.max(0, safety);
+            }
+            return total;
+        }
+
+        function _computeSuggestedMinPlusSafetyAggregateStats({ rows, itemCode, locationId }){
+            const list = Array.isArray(rows) ? rows : [];
+            const itemNeedle = _normScopeToken(itemCode).toUpperCase();
+            const locNeedle = _normScopeToken(locationId).toUpperCase();
+            let totalSuggestedMin = 0, totalSafety = 0, matchedRows = 0;
+            for (let i=0; i<list.length; i++){
+                const r = list[i] || {};
+                const rowItem = String(r.itemCode ?? r.code ?? r.ndc ?? '').trim().toUpperCase();
+                const rowLoc = String(r.locationId ?? r.location ?? r.mainLocation ?? r.loc ?? '').trim().toUpperCase();
+                if (itemNeedle && rowItem !== itemNeedle) continue;
+                if (locNeedle && rowLoc !== locNeedle) continue;
+                const suggested = Math.max(0, _num(r.suggestedMinQty ?? r.sugMin ?? r.suggestedMin ?? r.minSuggestionQty ?? 0, 0));
+                const safety = Math.max(0, _num(r.safetyStockQty ?? r.safetyStock ?? r.ss ?? 0, 0));
+                totalSuggestedMin += suggested;
+                totalSafety += safety;
+                matchedRows++;
+            }
+            const grandTotal = totalSuggestedMin + totalSafety;
+            return { matchedRows, totalSuggestedMin, totalSafety, grandTotal };
+        }
+
         function getTrendMultFor(md, dateISO, locationKey, itemCode){
             try {
                 const tl = md && md.trendTimeline;
@@ -6866,6 +6941,53 @@
                 if (Number.isFinite(n) && n > 0) return n;
             } catch (_) {}
             return 1;
+        }
+
+
+        function _getMostRecentTrendFactorForAggregate(md, rows, itemCode, locationId){
+            const tl = md && md.trendTimeline;
+            const byLoc = tl && tl.byLocation && typeof tl.byLocation === 'object' ? tl.byLocation : null;
+            if (!byLoc) return 1;
+            const itemNeedle = _normScopeToken(itemCode).toUpperCase();
+            const locNeedle = _normScopeToken(locationId).toUpperCase();
+            const rowList = Array.isArray(rows) ? rows : [];
+            const samplePairs = [];
+            if (rowList.length) {
+                for (let i=0; i<rowList.length; i++){
+                    const r = rowList[i] || {};
+                    const rowItem = String(r.itemCode ?? r.code ?? r.ndc ?? '').trim();
+                    const rowLoc = String(r.locationId ?? r.location ?? r.mainLocation ?? r.loc ?? '').trim();
+                    if (!rowItem || !rowLoc) continue;
+                    if (itemNeedle && rowItem.toUpperCase() != itemNeedle) continue;
+                    if (locNeedle && rowLoc.toUpperCase() != locNeedle) continue;
+                    samplePairs.push([rowLoc, rowItem]);
+                    if (samplePairs.length >= 200) break;
+                }
+            }
+            if (!samplePairs.length) {
+                if (itemNeedle && locNeedle) samplePairs.push([locNeedle, itemNeedle]);
+                else if (itemNeedle) {
+                    for (const lk of Object.keys(byLoc)) { samplePairs.push([lk, itemNeedle]); if (samplePairs.length>=50) break; }
+                }
+            }
+            let sum = 0, count = 0;
+            for (let i=0; i<samplePairs.length; i++){
+                const [locRaw, itemRaw] = samplePairs[i];
+                const locVariants = [String(locRaw||'').trim(), String(locRaw||'').trim().toUpperCase(), String(locRaw||'').trim().toLowerCase()].filter(Boolean);
+                let byItem = null;
+                for (let j=0; j<locVariants.length && !byItem; j++) byItem = byLoc[locVariants[j]];
+                if (!byItem || typeof byItem !== 'object') continue;
+                const itemVariants = [String(itemRaw||'').trim(), String(itemRaw||'').trim().toUpperCase(), String(itemRaw||'').trim().toLowerCase()].filter(Boolean);
+                let byDate = null;
+                for (let j=0; j<itemVariants.length && !byDate; j++) byDate = byItem[itemVariants[j]];
+                if (!byDate || typeof byDate !== 'object') continue;
+                let latestISO = '';
+                for (const k of Object.keys(byDate)) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && k > latestISO) latestISO = k;
+                const raw = latestISO ? byDate[latestISO] : null;
+                const n = _num((typeof raw === 'number') ? raw : (raw && raw.trendMult), NaN);
+                if (Number.isFinite(n) && n > 0) { sum += _clamp(n, 0.5, 2.0); count++; }
+            }
+            return count ? (sum / count) : 1;
         }
 
         function buildDailySeriesForItem(md, itemCode, locationKey, lookbackDays=56){
@@ -6924,7 +7046,53 @@
         function buildProjectedRestockBars(md, horizonDays=14){
             const forecast = _getForecastNS();
             const H = Math.max(7, Math.floor(_num(horizonDays, 14)));
-            const out = { dailyRestockCost: Array.from({ length: H }, () => 0), dailyRestockQty: Array.from({ length: H }, () => 0), topLocationByDay: Array.from({ length: H }, () => ''), totalRestockQty:0 };
+            const out = {
+                dailyRestockCost: Array.from({ length: H }, () => 0),
+                dailyRestockQty: Array.from({ length: H }, () => 0),
+                topLocationByDay: Array.from({ length: H }, () => ''),
+                totalRestockQty: 0,
+                projectionMode: '',
+                projectionLabel: ''
+            };
+
+            const scope = _deriveRestockProjectionScope(md);
+            const itemCode = _normScopeToken(scope.itemCode);
+            const locationId = _normScopeToken(scope.locationId);
+            const isAllLocations = !locationId;
+            const isAllItems = !itemCode;
+            const useAggregateMode = isAllLocations || isAllItems;
+
+            const rows = _deriveMinSuggestionShownRows(md);
+            if (useAggregateMode || (!isAllLocations && isAllItems)) {
+                const stats = _computeSuggestedMinPlusSafetyAggregateStats({ rows, itemCode, locationId });
+                const total = computeSuggestedMinPlusSafetyAggregate({ rows, itemCode, locationId });
+                const trendFactor = _getMostRecentTrendFactorForAggregate(md, rows, itemCode, locationId);
+                const adjustedTotal = Math.max(0, total * trendFactor);
+                for (let d=0; d<H; d++) {
+                    out.dailyRestockQty[d] = adjustedTotal;
+                    out.dailyRestockCost[d] = adjustedTotal;
+                    out.topLocationByDay[d] = 'Suggested Min + Safety (Aggregate)';
+                    out.totalRestockQty += out.dailyRestockQty[d];
+                }
+                out.projectionMode = 'AGG_SUGGESTED_MIN_PLUS_SAFETY';
+                out.projectionLabel = 'Suggested Min + Safety (Aggregate)';
+                if (typeof DEBUG_RESTOCK_PROJ !== 'undefined' && DEBUG_RESTOCK_PROJ) {
+                    console.log('[analytics restock projection]', {
+                        MODE: 'AGG_SUGGESTED_MIN_PLUS_SAFETY',
+                        isAllLocations,
+                        isAllItems,
+                        selectedFilters: { itemCode: itemCode || 'ALL', locationId: locationId || 'ALL' },
+                        numberOfRowsAggregated: stats.matchedRows,
+                        totalSuggestedMin: stats.totalSuggestedMin,
+                        totalSafety: stats.totalSafety,
+                        trendFactor,
+                        grandTotal: stats.grandTotal,
+                        adjustedTotal
+                    });
+                }
+                return out;
+            }
+
             if (!forecast || typeof forecast.projectDailyUsageFromShape !== 'function' || typeof forecast.projectRestockNeed !== 'function') return out;
 
             const inv = (md && md.inventory && typeof md.inventory === 'object') ? md.inventory : {};
@@ -6933,6 +7101,7 @@
             const byDayLoc = Array.from({ length: H }, ()=>Object.create(null));
 
             for (const [code, invEntry] of Object.entries(inv)){
+                if (itemCode && String(code).trim().toUpperCase() !== itemCode.toUpperCase()) continue;
                 const item = itemByCode.get(String(code).trim()) || null;
                 const unitCost = Math.max(0, _num(item && (item.unitPrice ?? item.unitCost ?? item.costPerUnit ?? item.gpoPrice ?? item.wacPrice), 0));
                 const slots = iterateInventorySublocations(invEntry);
@@ -6942,6 +7111,9 @@
                     const map = getSublocationMap ? getSublocationMap() : (window.SUBLOCATION_MAP || {});
                     const locMeta = map[subloc] || {};
                     if (String(locMeta.department || '').toUpperCase() === 'PHARMACY') continue;
+                    const thisLoc = String(locMeta.mainLocation || subloc).trim().toUpperCase();
+                    if (locationId && thisLoc !== String(locationId).trim().toUpperCase()) continue;
+
                     const seriesObj = buildDailySeriesForItem(md, code, subloc, 56);
                     const usageProj = forecast.projectDailyUsageFromShape(seriesObj.dailySeries, H, {
                         shapeOpts: { method: 'dow', lookbackDays: 56 },
@@ -6998,6 +7170,16 @@
                 locs.sort((a,b)=>b[1]-a[1]);
                 out.topLocationByDay[d] = locs.length ? locs[0][0] : '';
                 out.totalRestockQty += out.dailyRestockQty[d];
+            }
+            out.projectionMode = 'USAGE_SINGLE_ITEM_LOCATION';
+            out.projectionLabel = 'Usage-based Restock Projection';
+            if (typeof DEBUG_RESTOCK_PROJ !== 'undefined' && DEBUG_RESTOCK_PROJ) {
+                console.log('[analytics restock projection]', {
+                    MODE: 'USAGE_SINGLE_ITEM_LOCATION',
+                    isAllLocations,
+                    isAllItems,
+                    selectedFilters: { itemCode: itemCode || 'ALL', locationId: locationId || 'ALL' }
+                });
             }
             return out;
         }
