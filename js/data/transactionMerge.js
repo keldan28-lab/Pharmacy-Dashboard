@@ -48,8 +48,16 @@
     if (!tx || typeof tx !== 'object') return null;
     const id = tx.id || tx.txId || tx.transactionId || tx.uuid || '';
     const date = tx.transDate || tx.transactionDate || tx.date || tx.trans_date || '';
-    const location = tx.location || tx.locationName || tx.area || '';
-    const qty = tx.quantity != null ? tx.quantity : (tx.qty != null ? tx.qty : '');
+    const location = tx.location || tx.locationName || tx.sublocation || tx.subLocation || tx.sendToLocation || tx.send_to_location || tx.area || '';
+    const qty = tx.quantity != null
+      ? tx.quantity
+      : (tx.qty != null
+        ? tx.qty
+        : (tx.transQty != null
+          ? tx.transQty
+          : (tx.TransQty != null
+            ? tx.TransQty
+            : '')));
     const type = tx.type || tx.transactionType || '';
     return [itemCode || '', id, date, type, qty, location].join('|');
   }
