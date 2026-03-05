@@ -10486,7 +10486,37 @@ if (view === 'usage' || view === 'all') {
                 totalSafety += safety;
                 matchedRows++;
             }
-            const aggregateTotal = Math.max(0, totalSuggestedMin + totalSafety);
+            const _latestTrendForAggregate = (() => {
+                try {
+                    const md = costChartState && costChartState.cachedMockData ? costChartState.cachedMockData : null;
+                    const tl = md && md.trendTimeline;
+                    const byLoc = tl && tl.byLocation && typeof tl.byLocation === 'object' ? tl.byLocation : null;
+                    if (!byLoc) return 1;
+                    const locNeedleU = _normScopeToken(locForProjection).toUpperCase();
+                    const itemNeedleU = _normScopeToken(itemCodeForProjection).toUpperCase();
+                    let sum = 0, count = 0;
+                    for (let i = 0; i < rows.length; i++) {
+                        const r = rows[i] || {};
+                        const rowItem = String(r.itemCode ?? r.code ?? r.ndc ?? '').trim();
+                        const rowLoc = String(r.locationId ?? r.location ?? r.mainLocation ?? r.loc ?? '').trim();
+                        if (!rowItem || !rowLoc) continue;
+                        if (itemNeedleU && rowItem.toUpperCase() !== itemNeedleU) continue;
+                        if (locNeedleU && rowLoc.toUpperCase() !== locNeedleU) continue;
+                        const byItem = byLoc[rowLoc] || byLoc[rowLoc.toUpperCase()] || byLoc[rowLoc.toLowerCase()];
+                        if (!byItem || typeof byItem !== 'object') continue;
+                        const byDate = byItem[rowItem] || byItem[rowItem.toUpperCase()] || byItem[rowItem.toLowerCase()];
+                        if (!byDate || typeof byDate !== 'object') continue;
+                        let latestISO = '';
+                        for (const k of Object.keys(byDate)) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && k > latestISO) latestISO = k;
+                        const raw = latestISO ? byDate[latestISO] : null;
+                        const n = Number((typeof raw === 'number') ? raw : (raw && raw.trendMult));
+                        if (Number.isFinite(n) && n > 0) { sum += _projectionClamp(n, 0.5, 2.0); count++; }
+                    }
+                    return count ? (sum / count) : 1;
+                } catch (_) { return 1; }
+            })();
+            const trendFactor = _projectionClamp(_latestTrendForAggregate, 0.5, 2.0);
+            const aggregateTotal = Math.max(0, (totalSuggestedMin + totalSafety) * trendFactor);
             for (let weekOffset = 0; weekOffset < projectedWeeksCount; weekOffset++) {
                 const weekIndex = projectionStartIndex + weekOffset;
                 if (weekIndex >= aggregatedData.restock.length) break;
@@ -10501,6 +10531,7 @@ if (view === 'usage' || view === 'all') {
                     numberOfRowsAggregated: matchedRows,
                     totalSuggestedMin,
                     totalSafety,
+                    trendFactor,
                     grandTotal: aggregateTotal,
                     projectedWeekly: new Array(projectedWeeksCount).fill(aggregateTotal)
                 });

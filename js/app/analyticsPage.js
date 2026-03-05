@@ -6943,6 +6943,53 @@
             return 1;
         }
 
+
+        function _getMostRecentTrendFactorForAggregate(md, rows, itemCode, locationId){
+            const tl = md && md.trendTimeline;
+            const byLoc = tl && tl.byLocation && typeof tl.byLocation === 'object' ? tl.byLocation : null;
+            if (!byLoc) return 1;
+            const itemNeedle = _normScopeToken(itemCode).toUpperCase();
+            const locNeedle = _normScopeToken(locationId).toUpperCase();
+            const rowList = Array.isArray(rows) ? rows : [];
+            const samplePairs = [];
+            if (rowList.length) {
+                for (let i=0; i<rowList.length; i++){
+                    const r = rowList[i] || {};
+                    const rowItem = String(r.itemCode ?? r.code ?? r.ndc ?? '').trim();
+                    const rowLoc = String(r.locationId ?? r.location ?? r.mainLocation ?? r.loc ?? '').trim();
+                    if (!rowItem || !rowLoc) continue;
+                    if (itemNeedle && rowItem.toUpperCase() != itemNeedle) continue;
+                    if (locNeedle && rowLoc.toUpperCase() != locNeedle) continue;
+                    samplePairs.push([rowLoc, rowItem]);
+                    if (samplePairs.length >= 200) break;
+                }
+            }
+            if (!samplePairs.length) {
+                if (itemNeedle && locNeedle) samplePairs.push([locNeedle, itemNeedle]);
+                else if (itemNeedle) {
+                    for (const lk of Object.keys(byLoc)) { samplePairs.push([lk, itemNeedle]); if (samplePairs.length>=50) break; }
+                }
+            }
+            let sum = 0, count = 0;
+            for (let i=0; i<samplePairs.length; i++){
+                const [locRaw, itemRaw] = samplePairs[i];
+                const locVariants = [String(locRaw||'').trim(), String(locRaw||'').trim().toUpperCase(), String(locRaw||'').trim().toLowerCase()].filter(Boolean);
+                let byItem = null;
+                for (let j=0; j<locVariants.length && !byItem; j++) byItem = byLoc[locVariants[j]];
+                if (!byItem || typeof byItem !== 'object') continue;
+                const itemVariants = [String(itemRaw||'').trim(), String(itemRaw||'').trim().toUpperCase(), String(itemRaw||'').trim().toLowerCase()].filter(Boolean);
+                let byDate = null;
+                for (let j=0; j<itemVariants.length && !byDate; j++) byDate = byItem[itemVariants[j]];
+                if (!byDate || typeof byDate !== 'object') continue;
+                let latestISO = '';
+                for (const k of Object.keys(byDate)) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && k > latestISO) latestISO = k;
+                const raw = latestISO ? byDate[latestISO] : null;
+                const n = _num((typeof raw === 'number') ? raw : (raw && raw.trendMult), NaN);
+                if (Number.isFinite(n) && n > 0) { sum += _clamp(n, 0.5, 2.0); count++; }
+            }
+            return count ? (sum / count) : 1;
+        }
+
         function buildDailySeriesForItem(md, itemCode, locationKey, lookbackDays=56){
             const days = Math.max(14, Math.floor(_num(lookbackDays, 56)));
             const txRoot = (md && md.transactions && typeof md.transactions === 'object') ? md.transactions : {};
@@ -7019,9 +7066,11 @@
             if (useAggregateMode || (!isAllLocations && isAllItems)) {
                 const stats = _computeSuggestedMinPlusSafetyAggregateStats({ rows, itemCode, locationId });
                 const total = computeSuggestedMinPlusSafetyAggregate({ rows, itemCode, locationId });
+                const trendFactor = _getMostRecentTrendFactorForAggregate(md, rows, itemCode, locationId);
+                const adjustedTotal = Math.max(0, total * trendFactor);
                 for (let d=0; d<H; d++) {
-                    out.dailyRestockQty[d] = Math.max(0, total);
-                    out.dailyRestockCost[d] = Math.max(0, total);
+                    out.dailyRestockQty[d] = adjustedTotal;
+                    out.dailyRestockCost[d] = adjustedTotal;
                     out.topLocationByDay[d] = 'Suggested Min + Safety (Aggregate)';
                     out.totalRestockQty += out.dailyRestockQty[d];
                 }
@@ -7036,7 +7085,9 @@
                         numberOfRowsAggregated: stats.matchedRows,
                         totalSuggestedMin: stats.totalSuggestedMin,
                         totalSafety: stats.totalSafety,
-                        grandTotal: stats.grandTotal
+                        trendFactor,
+                        grandTotal: stats.grandTotal,
+                        adjustedTotal
                     });
                 }
                 return out;
