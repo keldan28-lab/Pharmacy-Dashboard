@@ -24,7 +24,11 @@
 
   // ✅ Edit this list: ONE filename per line (commas optional)
   const TRANSACTION_SCRIPTS_RAW = `
+transaction_2025_11_mockdata.js
+transaction_2025_12_mockdata.js
 transaction_2026_01_mockdata.js
+transaction_2026_02_mockdata.js
+transaction_2026_03_mockdata.js
 `;
 
   window.TRANSACTION_SCRIPTS = TRANSACTION_SCRIPTS_RAW
