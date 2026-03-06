@@ -1555,6 +1555,26 @@ Subloc: ${counts.subloc}`);
         let currentTab = 'overview'; // Default starting tab
         let sendReferrerOnSwitch = true; // Flag to control referrer sending
 
+        // Ensure recent transaction months are available.
+        // count=2 -> most recent 2 months; count=4 -> most recent 4 months, etc.
+        function ensureRecentTransactionMonths(count, reason) {
+            try {
+                const loader = window.InventoryApp && window.InventoryApp.DataLoader;
+                if (!loader || typeof loader.loadRecentMonths !== 'function') {
+                    return Promise.resolve({ loaded: true, count: 0, reason: reason || '' });
+                }
+                const c = Math.max(1, parseInt(count || 2, 10));
+                return loader.loadRecentMonths({ count: c, yieldEvery: 1, yieldMs: 0 }).then((info) => {
+                    // Invalidate cached payloads so next mockDataResponse can include newly loaded months.
+                    cachedRawData = null;
+                    cachedProcessedData = null;
+                    return info || { loaded: true, count: 0 };
+                });
+            } catch (e) {
+                return Promise.resolve({ loaded: false, count: 0, error: String(e && e.message ? e.message : e) });
+            }
+        }
+
         // Tab switching functionality
         function switchTab(tabName) {
             // Store previous tab before switching
@@ -1616,6 +1636,9 @@ Subloc: ${counts.subloc}`);
                             }, 100);
                         }
                     } else if (tabName === 'analytics') {
+                        // Step 3: entering Analytics container should proactively widen recent tx window.
+                        // Startup preloads 2 recent months; this ensures up to 4 recent months are ready.
+                        ensureRecentTransactionMonths(4, 'switch:analytics').catch(() => {});
                         const analyticsFrame = document.getElementById('analyticsFrame');
                         if (analyticsFrame && analyticsFrame.contentWindow) {
                             // Preserve iframe state when switching tabs (do not clear filters automatically).
@@ -1983,11 +2006,12 @@ Subloc: ${counts.subloc}`);
             __setAppLoading(true, 'Loading inventory data…');
 
             const loader = window.InventoryApp && window.InventoryApp.DataLoader;
-            const ensureLoaded = loader && typeof loader.loadRecentMonths === 'function'
-                ? loader.loadRecentMonths({ count: 2 })
-                : (loader && typeof loader.ensureTransactionsLoaded === 'function'
-                    ? loader.ensureTransactionsLoaded({ initialMonths: 2 })
-                : Promise.resolve({ loaded: true, count: 0 }));
+            const ensureLoaded = ensureRecentTransactionMonths(2, 'startup').then((info) => {
+                if (info && info.loaded === false && loader && typeof loader.ensureTransactionsLoaded === 'function') {
+                    return loader.ensureTransactionsLoaded({ initialMonths: 2 });
+                }
+                return info;
+            });
 
             ensureLoaded.then((info) => {
                 if (info && info.count) {
@@ -3385,6 +3409,37 @@ Subloc: ${counts.subloc}`);
                 }, '*');
 
                 console.log('✓ Mock data sent to iframe');
+            }
+
+            // Lazy-load additional recent months when requested by child pages (e.g., overview widgets).
+            if (event.data && (
+                event.data.type === 'preloadMoreTxMonths' ||
+                event.data.type === 'loadMoreRecentTxMonths' ||
+                event.data.type === 'overviewNeedsMoreTransactions'
+            )) {
+                const targetCount = Math.max(1, parseInt(event.data.count || 4, 10));
+                ensureRecentTransactionMonths(targetCount, String(event.data.type || 'preloadMoreTxMonths'))
+                    .then((info) => {
+                        try {
+                            event.source && event.source.postMessage({
+                                type: 'preloadMoreTxMonthsReady',
+                                ok: true,
+                                count: info && Number.isFinite(info.count) ? info.count : 0,
+                                requestedCount: targetCount
+                            }, '*');
+                        } catch (e) {}
+                    })
+                    .catch((err) => {
+                        try {
+                            event.source && event.source.postMessage({
+                                type: 'preloadMoreTxMonthsReady',
+                                ok: false,
+                                requestedCount: targetCount,
+                                error: String(err && err.message ? err.message : err)
+                            }, '*');
+                        } catch (e) {}
+                    });
+                return;
             }
 
             // Ensure a date range of monthly transaction scripts is loaded (Charts on-demand)
