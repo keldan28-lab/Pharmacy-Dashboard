@@ -9503,20 +9503,47 @@ try {
             // Instead, fire ensureTxRange in the background and redraw once it completes.
             try {
                 const r = getSelectedDateRangeISO && getSelectedDateRangeISO();
-                const rangeKey = (r && r.from && r.to) ? (r.from + '|' + r.to) : '';
+                let ensureFrom = (r && r.from) ? r.from : '';
+                let ensureTo = (r && r.to) ? r.to : '';
+
+                // In "All" mode there may be no explicit From/To values.
+                // Recover full available bounds from the parent DataLoader month manifest
+                // so the vertical bar chart is not limited to startup-preloaded months.
+                if ((!ensureFrom || !ensureTo) && !costChartState.__vbEnsuredAllRange) {
+                    try {
+                        const dl = window.parent && window.parent.InventoryApp && window.parent.InventoryApp.DataLoader;
+                        const months = (dl && typeof dl.listAvailableMonths === 'function') ? dl.listAvailableMonths() : [];
+                        if (Array.isArray(months) && months.length) {
+                            const first = String(months[0] || '');
+                            const last = String(months[months.length - 1] || '');
+                            const m1 = first.match(/^(\d{4})-(\d{2})$/);
+                            const m2 = last.match(/^(\d{4})-(\d{2})$/);
+                            if (m1 && m2) {
+                                ensureFrom = `${m1[1]}-${m1[2]}-01`;
+                                const y2 = Number(m2[1]);
+                                const mo2 = Number(m2[2]);
+                                const end = new Date(y2, mo2, 0);
+                                ensureTo = `${y2}-${String(mo2).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                const rangeKey = (ensureFrom && ensureTo) ? (ensureFrom + '|' + ensureTo) : '';
 
                 // If a direct navigation is in-flight, it will ensure the range itself.
                 // Avoid duplicating ensureTxRange calls here.
                 const alreadyEnsured = !!(rangeKey && costChartState.__vbEnsuredRangeKey === rangeKey);
-                if (r && r.from && r.to && rangeKey && !alreadyEnsured && !costChartState.__vbEnsuringRange && !costChartState.__directNavInProgress) {
+                if (ensureFrom && ensureTo && rangeKey && !alreadyEnsured && !costChartState.__vbEnsuringRange && !costChartState.__directNavInProgress) {
                     costChartState.__vbEnsuringRange = true;
                     costChartState.__vbEnsuringRangeKey = rangeKey;
 
-                    ensureTxRangeFromParent(r.from, r.to)
+                    ensureTxRangeFromParent(ensureFrom, ensureTo)
                         .then(() => requestMockDataFromParent())
                         .then(() => {
                             costChartState.__vbEnsuringRange = false;
                             costChartState.__vbEnsuredRangeKey = rangeKey;
+                            if (!r || (!r.from && !r.to)) costChartState.__vbEnsuredAllRange = true;
                             costChartState.__txDailyAggBuilt = false;
                             scheduleChartsRedraw('txRange');
                         })
