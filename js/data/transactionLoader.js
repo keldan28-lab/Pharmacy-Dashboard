@@ -90,9 +90,15 @@
   }
 
   function monthsForRange(startDateISO, endDateISO) {
-    const from = new Date(startDateISO);
-    const to = new Date(endDateISO);
-    if (!isFinite(from.getTime()) || !isFinite(to.getTime())) return [];
+    function parseISODate(iso) {
+      const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return null;
+      return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    }
+
+    const from = parseISODate(startDateISO);
+    const to = parseISODate(endDateISO);
+    if (!from || !to || !isFinite(from.getTime()) || !isFinite(to.getTime())) return [];
 
     const fromDate = from <= to ? from : to;
     const toDate = from <= to ? to : from;
