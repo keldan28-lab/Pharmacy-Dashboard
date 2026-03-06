@@ -23,7 +23,17 @@
     const tx = raw && typeof raw === 'object' ? raw : {};
     const day = normalizeDay(tx.date || tx.transDate || tx.transactionDate || tx.trans_date || tx.datetime);
     const itemCode = String(tx.itemCode || tx.item_code || tx.code || tx.ndc || tx.NDC || fallbackItemCode || '').trim();
-    const location = String(tx.location || tx.locationName || tx.area || tx.station || 'UNKNOWN').trim() || 'UNKNOWN';
+    const location = String(
+      tx.location ||
+      tx.locationName ||
+      tx.sublocation ||
+      tx.subLocation ||
+      tx.sendToLocation ||
+      tx.send_to_location ||
+      tx.area ||
+      tx.station ||
+      'UNKNOWN'
+    ).trim() || 'UNKNOWN';
     const qtyRaw = (tx.qty ?? tx.quantity ?? tx.transQty ?? tx.TransQty ?? tx.Qty ?? tx.TRANSQTY ?? tx.amount ?? tx.delta ?? null);
     const qty = Number(qtyRaw);
     if (!day || !itemCode || !isFinite(qty)) return null;
