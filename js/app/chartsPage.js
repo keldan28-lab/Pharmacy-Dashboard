@@ -4031,40 +4031,37 @@ const applyPreset = (preset) => {
                     }
                 } catch (e) {}
 
-	                // Date range affects multiple chart types (bar, cost-bar, line trend charts, and flow/Sankey).
-	                // Always redraw when the range changes so every view respects the same filter.
-	                const ct = costChartState.chartType;
-	                if (ct === 'bar-chart' || ct === 'cost-bar' || ct === 'line-chart' || ct === 'flow-chart') {
-	                    const range = (typeof getSelectedDateRangeISO === 'function') ? getSelectedDateRangeISO() : null;
-	                    const canEnsure = !!(range && range.from && range.to && typeof ensureTxRangeFromParent === 'function');
+	                // Date range affects all chart types that rely on transactions.
+	                // Always ensure selected months are loaded, then redraw.
+	                const range = (typeof getSelectedDateRangeISO === 'function') ? getSelectedDateRangeISO() : null;
+	                const canEnsure = !!(range && range.from && range.to && typeof ensureTxRangeFromParent === 'function');
 
-	                    if (canEnsure) {
-	                        const rangeKey = `${range.from}|${range.to}`;
-	                        if (costChartState.__datePickerEnsuringRangeKey === rangeKey && costChartState.__datePickerEnsuringRange) {
-	                            return;
-	                        }
-	                        costChartState.__datePickerEnsuringRangeKey = rangeKey;
-	                        costChartState.__datePickerEnsuringRange = true;
-
-	                        ensureTxRangeFromParent(range.from, range.to)
-	                            .then(() => (typeof requestMockDataFromParent === 'function' ? requestMockDataFromParent() : null))
-	                            .then(() => {
-	                                costChartState.__datePickerEnsuringRange = false;
-	                                costChartState.__txDailyAggBuilt = false;
-	                                if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
-	                                scheduleChartsRedraw('dateRangeTx');
-	                            })
-	                            .catch(() => {
-	                                costChartState.__datePickerEnsuringRange = false;
-	                                if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
-	                                scheduleChartsRedraw('dateRange');
-	                            });
+	                if (canEnsure) {
+	                    const rangeKey = `${range.from}|${range.to}`;
+	                    if (costChartState.__datePickerEnsuringRangeKey === rangeKey && costChartState.__datePickerEnsuringRange) {
 	                        return;
 	                    }
+	                    costChartState.__datePickerEnsuringRangeKey = rangeKey;
+	                    costChartState.__datePickerEnsuringRange = true;
 
-	                    if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
-	                    scheduleChartsRedraw('dateRange');
+	                    ensureTxRangeFromParent(range.from, range.to)
+	                        .then(() => (typeof requestMockDataFromParent === 'function' ? requestMockDataFromParent() : null))
+	                        .then(() => {
+	                            costChartState.__datePickerEnsuringRange = false;
+	                            costChartState.__txDailyAggBuilt = false;
+	                            if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
+	                            scheduleChartsRedraw('dateRangeTx');
+	                        })
+	                        .catch(() => {
+	                            costChartState.__datePickerEnsuringRange = false;
+	                            if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
+	                            scheduleChartsRedraw('dateRange');
+	                        });
+	                    return;
 	                }
+
+	                if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
+	                scheduleChartsRedraw('dateRange');
             };
 
             const fmtPill = (iso) => {
