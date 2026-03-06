@@ -41,12 +41,14 @@
     };
   }
 
-  // Stable key: prefer explicit id; otherwise normalized composite key.
+  // Stable key: always include date/item/location/qty dimensions.
+  // NOTE: some monthly feeds can reuse transactionId values across snapshots,
+  // so using id-only dedupe can incorrectly drop older months.
   function computeTxKey(tx) {
     if (!tx || typeof tx !== 'object') return '';
     const id = String(tx.transactionId || tx.txId || tx.id || tx.uuid || '').trim();
-    if (id) return id;
     return [
+      id,
       tx.date || '',
       tx.itemCode || '',
       tx.location || 'UNKNOWN',
