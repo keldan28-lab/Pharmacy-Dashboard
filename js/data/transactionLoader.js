@@ -177,7 +177,8 @@
       el.onload = done;
       el.onerror = () => {
         console.warn('⚠️ Failed to load transaction script:', src);
-        done();
+        ns.DataLoader.__loadingMonths.delete(mk);
+        resolve({ loaded: false, count: 0, monthKey: mk, src: src, error: 'script load failed' });
       };
 
       devLog('Loading month script', mk, '=>', src, opts && opts.reason ? '(' + opts.reason + ')' : '');
