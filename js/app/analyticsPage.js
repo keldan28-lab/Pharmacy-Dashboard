@@ -2225,11 +2225,17 @@
             const items = window.mockData.items;
             console.log(`📊 Drawing line graph with ${items.length} items`);
             
-            // Calculate weekly usage vs restock ratios (same logic as Charts page)
-            const maxWeeks = 13;
+            // Calculate weekly usage vs restock ratios (last ~2 months)
+            const maxWeeks = 8;
             const weeklyRatios = [];
+            const maxSeriesLen = items.reduce((m, item) => {
+                const uLen = Array.isArray(item && item.usageRate) ? item.usageRate.length : 0;
+                const rLen = Array.isArray(item && item.restockRate) ? item.restockRate.length : 0;
+                return Math.max(m, uLen, rLen);
+            }, 0);
+            const startWeek = Math.max(0, maxSeriesLen - maxWeeks);
             
-            for (let week = 0; week < maxWeeks; week++) {
+            for (let week = startWeek; week < maxSeriesLen; week++) {
                 let totalUsage = 0;
                 let totalRestock = 0;
                 
