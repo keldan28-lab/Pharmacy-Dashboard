@@ -2145,6 +2145,41 @@ function applyFlowOverrideFromVerticalBarSelection() {
             return false;
         }
 
+        function refreshTxDateBoundsFromTransactions(txRoot) {
+            try {
+                let minISO = null, maxISO = null;
+                const consider = (raw) => {
+                    if (!raw) return;
+                    const iso = String(raw).slice(0, 10);
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+                    if (!minISO || iso < minISO) minISO = iso;
+                    if (!maxISO || iso > maxISO) maxISO = iso;
+                };
+                const processRow = (row) => {
+                    if (!row || typeof row !== 'object') return;
+                    consider(row.transDate || row.TransDate || row.transactionDate || row.TransactionDate || row.trans_date || row.date || row.Date || row.transdate || row.postDate || row.PostDate || row.serviceDate || row.ServiceDate);
+                };
+
+                if (Array.isArray(txRoot)) {
+                    for (let i = 0; i < txRoot.length; i++) processRow(txRoot[i]);
+                } else if (txRoot && typeof txRoot === 'object') {
+                    for (const k of Object.keys(txRoot)) {
+                        const bucket = txRoot[k];
+                        const hist = bucket && (bucket.history || bucket.transactions || bucket.tx || bucket.records);
+                        if (Array.isArray(hist)) {
+                            for (let i = 0; i < hist.length; i++) processRow(hist[i]);
+                        } else {
+                            processRow(bucket);
+                        }
+                    }
+                }
+
+                if (minISO && maxISO) {
+                    costChartState._txDateBounds = { minISO, maxISO };
+                }
+            } catch (e) {}
+        }
+
         
         function requestMockDataFromParent(options) {
             return new Promise((resolve, reject) => {
@@ -2187,6 +2222,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
                             if (raw && raw.transactions) {
                                 payload.transactions = raw.transactions;
                             }
+                            refreshTxDateBoundsFromTransactions(payload.transactions || null);
 
                             // If empty, retry until timeout (do NOT cache empties).
                             if (!payload.items || payload.items.length === 0) {
@@ -2381,6 +2417,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
                 if (payload.raw && payload.raw.transactions) {
                     computedPayload.transactions = payload.raw.transactions;
                 }
+                refreshTxDateBoundsFromTransactions(computedPayload.transactions || null);
                 if (computedPayload.items && computedPayload.items.length > 0) {
                     cachedMockData = computedPayload;
                     // Keep a reference on state for renderers that read from costChartState.
