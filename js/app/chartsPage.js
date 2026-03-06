@@ -2190,13 +2190,13 @@ function applyFlowOverrideFromVerticalBarSelection() {
                             const payload = computed || { lastUpdated: new Date().toISOString().split('T')[0], items: [] };
 
                             // Attach raw transactions so vertical charts can reflect newly added month files (e.g., 2026_01).
-                            // We keep computed as the primary shape (items, projected waste, etc.).
-	                            // IMPORTANT: computed payload may include an empty `transactions` object.
-	                            // In that case we MUST override with the merged raw monthly transactions.
-	                            const hasTx = payload.transactions && (typeof payload.transactions === 'object') && (Object.keys(payload.transactions).length > 0);
-	                            if (raw && raw.transactions && (!payload.transactions || !hasTx)) {
-	                                payload.transactions = raw.transactions;
-	                            }
+                            // Keep computed as the primary shape (items, projected waste, etc.) but
+                            // ALWAYS prefer the dashboard raw merged monthly transaction map when available.
+                            // This avoids stale/partial computed transaction maps (often recent-only windows)
+                            // from constraining date-range rendering.
+                            if (raw && raw.transactions) {
+                                payload.transactions = raw.transactions;
+                            }
 
                             // If empty, retry until timeout (do NOT cache empties).
                             if (!payload.items || payload.items.length === 0) {
