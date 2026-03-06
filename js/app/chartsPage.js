@@ -502,7 +502,7 @@ const backButton = document.getElementById('backButton');
                             costChartState.__directNavEnsuringTx = true;
                             try { console.log('📨 Charts: ensureTxRange (direct nav):', rr); } catch (e) {}
                             ensureTxRangeFromParent(rr.from, rr.to)
-                                .then(() => (typeof requestMockDataFromParent === 'function' ? requestMockDataFromParent() : null))
+                                .then(() => (typeof requestMockDataFromParent === 'function' ? requestMockDataFromParent({ forceRefresh: true }) : null))
                                 .then(() => {
                                     costChartState.__directNavEnsuringTx = false;
                                     try { costChartState.__vbEnsuredRangeKey = rr.from + '|' + rr.to; } catch (e) {}
@@ -2156,7 +2156,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
         }
 
         
-        function requestMockDataFromParent() {
+        function requestMockDataFromParent(options) {
             return new Promise((resolve, reject) => {
                 // If we already have non-empty computed items AND usable transactions, reuse it.
                 // Bar-chart Option B needs raw transactions; if cachedMockData has items but missing/empty transactions,
@@ -2171,7 +2171,8 @@ function applyFlowOverrideFromVerticalBarSelection() {
                     }
                     return false;
                 };
-                if (cachedMockData && cachedMockData.items && cachedMockData.items.length > 0 && _hasUsableTx(cachedMockData)) {
+                const forceRefresh = !!(options && options.forceRefresh);
+                if (!forceRefresh && cachedMockData && cachedMockData.items && cachedMockData.items.length > 0 && _hasUsableTx(cachedMockData)) {
                     resolve(cachedMockData);
                     return;
                 }
@@ -4045,7 +4046,7 @@ const applyPreset = (preset) => {
 	                    costChartState.__datePickerEnsuringRange = true;
 
 	                    ensureTxRangeFromParent(range.from, range.to)
-	                        .then(() => (typeof requestMockDataFromParent === 'function' ? requestMockDataFromParent() : null))
+	                        .then(() => (typeof requestMockDataFromParent === 'function' ? requestMockDataFromParent({ forceRefresh: true }) : null))
 	                        .then(() => {
 	                            costChartState.__datePickerEnsuringRange = false;
 	                            costChartState.__txDailyAggBuilt = false;
@@ -9490,7 +9491,7 @@ try {
                     costChartState.__vbEnsuringRangeKey = rangeKey;
 
                     ensureTxRangeFromParent(r.from, r.to)
-                        .then(() => requestMockDataFromParent())
+                        .then(() => requestMockDataFromParent({ forceRefresh: true }))
                         .then(() => {
                             costChartState.__vbEnsuringRange = false;
                             costChartState.__vbEnsuredRangeKey = rangeKey;
