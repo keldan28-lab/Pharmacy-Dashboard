@@ -1983,17 +1983,14 @@ Subloc: ${counts.subloc}`);
             __setAppLoading(true, 'Loading inventory data…');
 
             const loader = window.InventoryApp && window.InventoryApp.DataLoader;
-            const availableMonths = (loader && typeof loader.listAvailableMonths === 'function')
-                ? loader.listAvailableMonths()
-                : [];
-            const monthCount = Math.max(1, Array.isArray(availableMonths) ? availableMonths.length : 0);
+            const initialMonthCount = 2;
 
             const ensureLoaded = loader && typeof loader.loadRecentMonths === 'function'
-                // Load all listed transaction months before computing processed dashboard data.
-                // This prevents Charts/Analytics from being anchored to only the most-recent month file.
-                ? loader.loadRecentMonths({ count: monthCount })
+                // Keep startup light: only preload recent months for dashboard/analytics/optimization.
+                // Charts requests broader history on-demand via ensureTxRange when the user picks a range.
+                ? loader.loadRecentMonths({ count: initialMonthCount })
                 : (loader && typeof loader.ensureTransactionsLoaded === 'function'
-                    ? loader.ensureTransactionsLoaded({ initialMonths: monthCount })
+                    ? loader.ensureTransactionsLoaded({ initialMonths: initialMonthCount })
                 : Promise.resolve({ loaded: true, count: 0 }));
 
             ensureLoaded.then((info) => {

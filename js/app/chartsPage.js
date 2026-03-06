@@ -5018,6 +5018,26 @@ function ensureTxDailyAggCache() {
     const txnRoot = (__md && __md.transactions) ? __md.transactions : null;
     if (!txnRoot) return;
 
+    // Preferred source of truth: TransactionStore rollups built by the shared loader.
+    let parentStore = null;
+    try {
+        if (window.parent && window.parent !== window && window.parent.InventoryApp && window.parent.InventoryApp.TransactionStore) {
+            parentStore = window.parent.InventoryApp.TransactionStore;
+        }
+    } catch (_) {
+        parentStore = null;
+    }
+    if (parentStore && typeof parentStore.getDailyAggMaps === 'function') {
+        const maps = parentStore.getDailyAggMaps() || {};
+        costChartState.__txDailyAggBuilt = true;
+        costChartState.__txDailyAggByCode = maps.byCode || Object.create(null);
+        costChartState.__txDailyAggByCodeSubloc = maps.byCodeSubloc || Object.create(null);
+        costChartState.__txDailyAggSublocMeta = Object.create(null);
+        costChartState.__weekEndByISO = Object.create(null);
+        costChartState.__vbinsCache = Object.create(null);
+        return;
+    }
+
     costChartState.__txDailyAggBuilt = true;
     costChartState.__txDailyAggByCode = Object.create(null); // code -> [{iso, u, r, w}]
     // Optional location-aware aggregates (code -> sublocCanon -> [{iso,u,r,w}])

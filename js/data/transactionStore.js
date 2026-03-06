@@ -6,6 +6,8 @@
   const dailyRollup = new Map();             // YYYY-MM-DD -> { totalQty, txCount }
   const itemDayRollup = new Map();           // day|item|location -> { day,itemCode,location,qtySum,txCount }
   const loadedMonths = new Set();
+  let legacyTransactionsCache = null;
+  let dailyAggMapsCache = null;
 
   function normalizeDay(input) {
     if (!input) return '';
@@ -115,6 +117,10 @@
 
     txKeysByMonth.set(month, monthKeys);
     loadedMonths.add(month);
+    if (addedCount > 0) {
+      legacyTransactionsCache = null;
+      dailyAggMapsCache = null;
+    }
     return { addedCount: addedCount, skippedCount: skippedCount, dirtyDays: Array.from(dirtyDays).sort() };
   }
 
@@ -143,6 +149,7 @@
   }
 
   function toLegacyTransactions() {
+    if (legacyTransactionsCache) return legacyTransactionsCache;
     const out = {};
     txByKey.forEach((tx) => {
       const code = tx.itemCode;
@@ -159,7 +166,82 @@
     Object.keys(out).forEach((code) => {
       out[code].history.sort((a, b) => new Date(a.transDate) - new Date(b.transDate));
     });
-    return out;
+    legacyTransactionsCache = out;
+    return legacyTransactionsCache;
+  }
+
+  function getDailyAggMaps() {
+    if (dailyAggMapsCache) return dailyAggMapsCache;
+
+    const byCode = Object.create(null);
+    const byCodeSubloc = Object.create(null);
+
+    itemDayRollup.forEach((v) => {
+      const iso = String(v.day || '');
+      const baseCode = String(v.itemCode || '').trim();
+      if (!baseCode || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+
+      const codeNorm = baseCode.replace(/^0+/, '') || baseCode;
+      const codeNoDash = baseCode.replace(/[\s-]/g, '');
+      const codeNoDashNorm = codeNoDash ? (codeNoDash.replace(/^0+/, '') || codeNoDash) : '';
+      const codeKeys = [baseCode];
+      if (codeNorm !== baseCode) codeKeys.push(codeNorm);
+      if (codeNoDash && codeNoDash !== baseCode) codeKeys.push(codeNoDash);
+      if (codeNoDashNorm && codeNoDashNorm !== codeNoDash) codeKeys.push(codeNoDashNorm);
+
+      const usage = Number(v.usageQty || 0);
+      const restock = Number(v.restockQty || 0);
+      const waste = Number(v.wasteQty || 0);
+      const subloc = String(v.location || '').trim();
+
+      for (let i = 0; i < codeKeys.length; i++) {
+        const code = codeKeys[i];
+        if (!byCode[code]) byCode[code] = Object.create(null);
+        byCode[code][iso] = byCode[code][iso] || { u: 0, r: 0, w: 0 };
+        byCode[code][iso].u += usage;
+        byCode[code][iso].r += restock;
+        byCode[code][iso].w += waste;
+
+        if (!subloc || subloc === 'UNKNOWN') continue;
+        if (!byCodeSubloc[code]) byCodeSubloc[code] = Object.create(null);
+        if (!byCodeSubloc[code][subloc]) byCodeSubloc[code][subloc] = Object.create(null);
+        byCodeSubloc[code][subloc][iso] = byCodeSubloc[code][subloc][iso] || { u: 0, r: 0, w: 0 };
+        byCodeSubloc[code][subloc][iso].u += usage;
+        byCodeSubloc[code][subloc][iso].r += restock;
+        byCodeSubloc[code][subloc][iso].w += waste;
+      }
+    });
+
+    function materialize(dayMap) {
+      const out = Object.create(null);
+      const codes = Object.keys(dayMap);
+      for (let i = 0; i < codes.length; i++) {
+        const code = codes[i];
+        const isos = Object.keys(dayMap[code]).sort();
+        const arr = new Array(isos.length);
+        for (let j = 0; j < isos.length; j++) {
+          const iso = isos[j];
+          const a = dayMap[code][iso] || { u: 0, r: 0, w: 0 };
+          arr[j] = { iso: iso, u: a.u || 0, r: a.r || 0, w: a.w || 0 };
+        }
+        out[code] = arr;
+      }
+      return out;
+    }
+
+    const byCodeOut = materialize(byCode);
+    const byCodeSublocOut = Object.create(null);
+    const subCodes = Object.keys(byCodeSubloc);
+    for (let i = 0; i < subCodes.length; i++) {
+      const code = subCodes[i];
+      byCodeSublocOut[code] = materialize(byCodeSubloc[code]);
+    }
+
+    dailyAggMapsCache = {
+      byCode: byCodeOut,
+      byCodeSubloc: byCodeSublocOut
+    };
+    return dailyAggMapsCache;
   }
 
   function inRange(day, start, end) {
@@ -241,7 +323,8 @@
     getAggregatesInRange: getAggregatesInRange,
     getTopItems: getTopItems,
     toArray: toArray,
-    toLegacyTransactions: toLegacyTransactions
+    toLegacyTransactions: toLegacyTransactions,
+    getDailyAggMaps: getDailyAggMaps
   };
 
   window.__txDebug = window.__txDebug || {};
