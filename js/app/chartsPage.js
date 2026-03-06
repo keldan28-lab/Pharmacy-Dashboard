@@ -4843,21 +4843,14 @@ const nav = e.target && e.target.closest ? e.target.closest('.chart-cal-nav-btn'
 // We rebuild usageRate/restockRate/wasteRate anchored to the selected range TO date.
 // ---------------------------------------------------------------------------------
 function ensureTransactionRatesForSelectedRange() {
-    // If we are in true "All" mode (no from/to), prefer the precomputed weekly bins
-    // shipped from the compute pipeline. This avoids a full O(items * tx * weeks) recompute
-    // on every view switch and preserves multi-month visibility.
+    // In all mode we still derive rates from currently loaded transactions so chart views
+    // stay aligned after on-demand month loads.
     const fromEl = document.getElementById('chartFromDate');
     const toEl = document.getElementById('chartToDate');
     const presetEl = document.getElementById('chartDatePreset');
     const isAllMode = (!fromEl || !fromEl.value) && (!toEl || !toEl.value) && (!presetEl || presetEl.value === 'all');
 
-    if (isAllMode) {
-        // Mark cache key so we don't thrash
-        costChartState.__lastRatesRangeKey = '__ALL_PRECOMPUTED__';
-        return;
-    }
-
-    const range = getSelectedDateRangeISO(); // {from,to} or null
+    const range = isAllMode ? null : getSelectedDateRangeISO(); // {from,to} or null
     // IMPORTANT: use the canonical payload stored on costChartState when available.
     // Some navigation paths do not populate a global `cachedMockData`.
     const __md = (costChartState && costChartState.cachedMockData)
@@ -4871,7 +4864,12 @@ function ensureTransactionRatesForSelectedRange() {
 
 
     // Build a stable cache key
-    const key = range ? `${range.from || ''}|${range.to || ''}` : '__ALL__';
+    let txVersionKey = '';
+    try {
+        const dl = window.parent && window.parent.InventoryApp && window.parent.InventoryApp.DataLoader;
+        if (dl && typeof dl.__txVersion === 'number') txVersionKey = String(dl.__txVersion);
+    } catch (_) {}
+    const key = range ? `${range.from || ''}|${range.to || ''}` : `__ALL__|${txVersionKey}`;
     if (costChartState.__lastRatesRangeKey === key) return;
     costChartState.__lastRatesRangeKey = key;
 
@@ -7530,6 +7528,7 @@ const valueColor = getCSSVar('--cost-label-hover');
             if (!canvas || !ctx) return;
             
             console.log('📈 Drawing Usage Vs Restock ratio chart');
+            try { ensureTransactionRatesForSelectedRange(); } catch (e) {}
             
             // Get filtered items
             let items = costChartState.items;
