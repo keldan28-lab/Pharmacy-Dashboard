@@ -4922,9 +4922,15 @@ function ensureTransactionRatesForSelectedRange() {
     // Recompute rates for items currently loaded.
     // Prefer parent TransactionStore's incremental item-day rollups when available.
     const items = Array.isArray(costChartState.items) ? costChartState.items : [];
-    const parentStore = (window.parent && window.parent.InventoryApp && window.parent.InventoryApp.TransactionStore)
-        ? window.parent.InventoryApp.TransactionStore
-        : null;
+    let parentStore = null;
+    try {
+        if (window.parent && window.parent !== window && window.parent.InventoryApp && window.parent.InventoryApp.TransactionStore) {
+            parentStore = window.parent.InventoryApp.TransactionStore;
+        }
+    } catch (_) {
+        // Cross-origin-safe fallback: keep using local transaction history below.
+        parentStore = null;
+    }
     const itemDayRows = (parentStore && typeof parentStore.getAggregatesInRange === 'function')
         ? parentStore.getAggregatesInRange(fromISO || '', anchorISO || '', 'itemDay')
         : null;
