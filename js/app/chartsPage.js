@@ -3927,23 +3927,18 @@ function setupDateRangeControls() {
             // Expose bounds for other helpers (e.g., usage totals in cost-bar)
             costChartState._txDateBounds = __bounds || null;
             if (__bounds) {
-                fromEl.min = __bounds.minISO;
-                fromEl.max = __bounds.maxISO;
-                toEl.min = __bounds.minISO;
-                toEl.max = __bounds.maxISO;
-
-                
-                // Restrict To-date to not exceed today (projection is controlled separately)
+                // Date picker policy:
+                // - Min date: unlimited (allow selecting earlier dates; loader will fetch missing months)
+                // - Max date: today
                 const __todayISO = new Date().toISOString().split('T')[0];
-                const __toMaxISO = (__bounds.maxISO && __bounds.maxISO < __todayISO) ? __bounds.maxISO : __todayISO;
-                fromEl.max = __toMaxISO;
-                toEl.max = __toMaxISO;
+                fromEl.min = '';
+                toEl.min = '';
+                fromEl.max = __todayISO;
+                toEl.max = __todayISO;
 
-// Clamp any stored values into bounds
-                if (fromEl.value && fromEl.value < __bounds.minISO) fromEl.value = __bounds.minISO;
-                if (fromEl.value && fromEl.value > __toMaxISO) fromEl.value = __toMaxISO;
-                if (toEl.value && toEl.value < __bounds.minISO) toEl.value = __bounds.minISO;
-                if (toEl.value && toEl.value > __toMaxISO) toEl.value = __toMaxISO;
+                // Clamp only upper-bound to today.
+                if (fromEl.value && fromEl.value > __todayISO) fromEl.value = __todayISO;
+                if (toEl.value && toEl.value > __todayISO) toEl.value = __todayISO;
 
                 // Ensure ordering
                 if (fromEl.value && toEl.value && fromEl.value > toEl.value) fromEl.value = toEl.value;
@@ -3952,17 +3947,8 @@ function setupDateRangeControls() {
             const updatePresetAvailability = () => {
                 try {
                     const pop = document.getElementById('chartRangePopover');
-                    const minISO = __bounds && __bounds.minISO ? __bounds.minISO : null;
-                    const maxISO = (__bounds && __bounds.maxISO) ? __bounds.maxISO : null;
-                    const todayISO = new Date().toISOString().split('T')[0];
-                    const maxSelectableISO = maxISO && maxISO < todayISO ? maxISO : todayISO;
-                    if (!minISO || !maxSelectableISO) return;
-
-                    const start = new Date(minISO + 'T00:00:00');
-                    const end = new Date(maxSelectableISO + 'T00:00:00');
-                    const availableDays = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 86400000));
-
-                    const shouldDisable = (days) => (Number.isFinite(days) && days > 0 && availableDays < days);
+                    // Min date is intentionally unlimited; do not disable presets based on loaded history.
+                    const shouldDisable = () => false;
 
                     // Popover buttons
                     if (pop) {
@@ -4021,8 +4007,7 @@ const applyPreset = (preset) => {
                         const from = new Date(today);
                         from.setDate(from.getDate() - days);
                         let __fromISO = from.toISOString().split('T')[0];
-                        if (__bounds && __bounds.minISO && __fromISO < __bounds.minISO) __fromISO = __bounds.minISO;
-                        fromEl.value = __fromISO;
+                                                fromEl.value = __fromISO;
                         toEl.value = todayKey;
                     }
                 }
@@ -4334,7 +4319,6 @@ const applyPreset = (preset) => {
                     // Never allow selecting future dates in the calendar UI (To-date max is today)
                     if (iso > __todayISO_cal) { disabled = true; hidden = true; }
                     // If we know transaction bounds, also clamp to available history and max selectable
-                    if (__bounds && __bounds.minISO && iso < __bounds.minISO) { disabled = true; }
                     if (__bounds && __bounds.maxISO && iso > __maxSelectableISO) { disabled = true; hidden = true; }
                     // Also hide any day that is after the max selectable date (even if bounds missing)
                     if (!__bounds && iso > __todayISO_cal) { hidden = true; disabled = true; }
@@ -4456,11 +4440,8 @@ const applyPreset = (preset) => {
                         // not jump to Dec of the same year.
                         const clampMonthToBounds = (d) => {
                             try {
-                                const minD = (__bounds && __bounds.minISO) ? (parseISO(__bounds.minISO) || null) : null;
                                 const maxD = parseISO(maxSelectableISO) || null;
-                                const minMonth = minD ? new Date(minD.getFullYear(), minD.getMonth(), 1) : null;
                                 const maxMonth = maxD ? new Date(maxD.getFullYear(), maxD.getMonth(), 1) : null;
-                                if (minMonth && d < minMonth) return minMonth;
                                 if (maxMonth && d > maxMonth) return maxMonth;
                                 return d;
                             } catch (e) { return d; }
@@ -4631,7 +4612,6 @@ const nav = e.target && e.target.closest ? e.target.closest('.chart-cal-nav-btn'
                         const __b = (__bounds && __bounds.minISO && __bounds.maxISO) ? __bounds : (costChartState._txDateBounds || null);
                         const __maxSelectableISO_sel = (__b && __b.maxISO && __b.maxISO < __todayISO_sel) ? __b.maxISO : __todayISO_sel;
                         if (iso > __maxSelectableISO_sel) return;
-                        if (__b && __b.minISO && iso < __b.minISO) return;
                     } catch (e) {}
 
                     // Selection logic is side-aware:
@@ -10960,7 +10940,6 @@ let _displayProjectionStartIndex = shouldGenerateOutlook ? originalWeekCount : -
                     return toISODate(d);
                 };
                 if (!rangeFromISO) rangeFromISO = (__bounds && __bounds.minISO) ? __bounds.minISO : __addDaysISO(rangeToISO, -44);
-                if (__bounds && __bounds.minISO && rangeFromISO < __bounds.minISO) rangeFromISO = __bounds.minISO;
                 if (rangeFromISO > rangeToISO) rangeFromISO = rangeToISO;
 
                 // If Outlook is enabled, extend the DAY view into the future even though the To-date
