@@ -64,8 +64,14 @@ vm.runInContext(loaderSrc, context, { filename: 'transactionLoader.js' });
   const within = await dl.ensureRangeLoaded('2026-02-01', '2026-03-31');
   assert(within.count === 0, 'within preloaded range should load none');
 
+  // Simulate a month script that is already present globally (no <script> append needed).
+  context.window.TRANSACTION_2026_01 = monthPayloads['2026_01'];
+  const fromGlobal = await dl.ensureMonthsLoaded(['2026-01']);
+  assert(fromGlobal.count === 1, 'predefined global month should count as loaded now');
+  assert(fromGlobal.loadedNow.includes('2026-01'), 'loadedNow should include global-ingested month');
+
   const four = await dl.ensureRangeLoaded('2025-12-01', '2026-03-31');
-  assert(four.count === 2, '4-month range should load missing two months');
+  assert(four.count === 1, '4-month range should load only remaining missing month');
 
   const year = await dl.ensureRangeLoaded('2025-10-01', '2026-03-31');
   assert(year.count === 2, 'year range should load remaining two months');

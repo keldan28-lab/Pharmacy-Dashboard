@@ -151,7 +151,7 @@
     if (monthGlobalExists(mk)) {
       const storeResult = ingestMonthIntoStore(mk);
       markMonthLoaded(mk);
-      return Promise.resolve({ loaded: true, count: 0, monthKey: mk, store: storeResult });
+      return Promise.resolve({ loaded: true, count: 1, monthKey: mk, store: storeResult, fromGlobal: true });
     }
 
     const inflight = ns.DataLoader.__loadingMonths.get(mk);
