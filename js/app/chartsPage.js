@@ -860,16 +860,6 @@ const backButton = document.getElementById('backButton');
                     }
                 } catch (e) {}
 
-                // Invalidate drill bin caches (weekly/day) so the next draw recomputes
-                // aggregates for the new range.
-                try {
-                    if (costChartState._verticalDrillBinCache) {
-                        const c = costChartState._verticalDrillBinCache;
-                        if (c.dailyAggByRange && c.dailyAggByRange.clear) c.dailyAggByRange.clear();
-                        if (c.binsByKey && c.binsByKey.clear) c.binsByKey.clear();
-                    }
-                } catch (e) {}
-
                 // Sync UI elements if present
                 const selector = document.getElementById('costChartViewSelector');
                 if (selector && snap.viewMode) selector.value = snap.viewMode;
@@ -4030,6 +4020,15 @@ const applyPreset = (preset) => {
                         if (c.dailyAggByRange && c.dailyAggByRange.clear) c.dailyAggByRange.clear();
                         if (c.binsByKey && c.binsByKey.clear) c.binsByKey.clear();
                     }
+                } catch (e) {}
+
+                // Clear stale drill context when date range changes.
+                // A previously selected month/week can otherwise lock rendering to that scope
+                // (for example, continuing to show only a February slice after widening range).
+                try {
+                    costChartState.verticalDrillContext = null;
+                    costChartState.verticalBarSelectedBars = [];
+                    localStorage.setItem('verticalDrillContext', 'null');
                 } catch (e) {}
 
 	                // Date range affects all chart types that rely on transactions.
