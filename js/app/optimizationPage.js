@@ -4117,6 +4117,7 @@ function _openWasteOptimizationReport(){
   const scopeLoc = (scope && scope.type === 'location') ? norm(scope.key||'') : '';
   const scopeSubloc = (scope && scope.type === 'sublocation') ? norm(scope.key||'') : '';
   const bySubloc = Object.create(null);
+  const minSortMode = _getMinSuggestionSortMode();
 
   for (const it of invRecs){
     const code = String(it.itemCode||'').trim();
@@ -4401,7 +4402,11 @@ function _openMinSuggestionReport(){
   } else {
     for (const sub of sublocKeys){
       const rows = bySubloc[sub] || [];
-      rows.sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta) || a.itemName.localeCompare(b.itemName));
+      if (minSortMode === 'impact') {
+        rows.sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta) || a.itemName.localeCompare(b.itemName));
+      } else {
+        rows.sort((a,b)=>a.itemName.localeCompare(b.itemName) || String(a.itemCode||'').localeCompare(String(b.itemCode||''), undefined, { sensitivity:'base' }));
+      }
       html += `<h2>${esc(sub)} ${scopeLoc ? '' : (rows[0] && rows[0].location ? '— '+esc(rows[0].location) : '')}</h2>`;
       
 // Sublocation summary
