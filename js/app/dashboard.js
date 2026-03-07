@@ -541,7 +541,11 @@ function _initLogToggles() {
         dashboard: 'logToggleDashboard',
         analytics: 'logToggleAnalytics',
         charts: 'logToggleCharts',
-        spike: 'logToggleSpike'
+        spike: 'logToggleSpike',
+        txLoader: 'logToggleTxLoader',
+        txMerge: 'logToggleTxMerge',
+        txRange: 'logToggleTxRange',
+        minSuggestion: 'logToggleMinSuggestion'
     };
     Object.keys(map).forEach((k) => {
         const el = document.getElementById(map[k]);
@@ -3396,6 +3400,12 @@ Subloc: ${counts.subloc}`);
 
             // Ensure a date range of monthly transaction scripts is loaded (Charts on-demand)
             if (event.data.type === 'ensureTxRange') {
+                _sectionLog('txRange', '[TxRange] request', {
+                    fromISO: event.data && event.data.fromISO,
+                    toISO: event.data && event.data.toISO,
+                    reqId: event.data && event.data.reqId,
+                    sourceReady: !!event.source
+                });
                 const fromISO = event.data.fromISO;
                 const toISO = event.data.toISO;
                 const reqId = event.data.reqId || null;
@@ -3407,6 +3417,7 @@ Subloc: ${counts.subloc}`);
 
                 const loader = window.InventoryApp && window.InventoryApp.DataLoader;
                 if (!loader || typeof loader.ensureRangeLoaded !== 'function') {
+                    _sectionLog('txRange', '[TxRange] loader unavailable for range', { fromISO: fromISO, toISO: toISO, reqId: reqId });
                     event.source && event.source.postMessage({ type: 'txRangeReady', ok: false, reqId: reqId, error: 'DataLoader.ensureRangeLoaded not available' }, '*');
                     return;
                 }
@@ -3418,6 +3429,7 @@ Subloc: ${counts.subloc}`);
                 };
 
                 if (inflight && inflight.promise) {
+                    _sectionLog('txRange', '[TxRange] joined inflight range', { rangeKey: rangeKey, startedAt: inflight.startedAt || null });
                     // Attach to existing promise.
                     inflight.promise.then((info) => respond({ ok: true, info })).catch((err) => respond({ ok: false, error: String(err && err.message ? err.message : err) }));
                     return;
@@ -3434,9 +3446,22 @@ Subloc: ${counts.subloc}`);
 
                 p.then((info) => {
                     delete window.__ensureTxRangeInflight[rangeKey];
+                    try {
+                        const loadedMonths = (window.InventoryApp && window.InventoryApp.DataLoader && typeof window.InventoryApp.DataLoader.getLoadedMonthKeys === 'function')
+                            ? window.InventoryApp.DataLoader.getLoadedMonthKeys()
+                            : [];
+                        _sectionLog('txRange', '[TxRange] ready', {
+                            rangeKey: rangeKey,
+                            loadedNow: info && info.loadedNow ? info.loadedNow : [],
+                            requested: info && info.requested ? info.requested : [],
+                            totalLoadedMonths: loadedMonths.length,
+                            loadedMonths: loadedMonths
+                        });
+                    } catch (_) {}
                     respond({ ok: true, info: info });
                 }).catch((err) => {
                     delete window.__ensureTxRangeInflight[rangeKey];
+                    _sectionLog('txRange', '[TxRange] failed', { rangeKey: rangeKey, error: String(err && err.message ? err.message : err) });
                     respond({ ok: false, error: String(err && err.message ? err.message : err) });
                 });
             }

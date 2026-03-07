@@ -9,6 +9,10 @@
   }
 
   function isDevLoggingEnabled() {
+    try {
+      if (localStorage.getItem('log_txLoader') === '0') return false;
+      if (localStorage.getItem('log_txLoader') === '1') return true;
+    } catch (_) {}
     return !!(window.__PB_DEV_TRANSACTIONS || location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:');
   }
 
@@ -241,7 +245,22 @@
 
   function ensureRangeLoaded(fromISO, toISO, opts) {
     const keys = monthsForRange(fromISO, toISO);
-    return ensureMonthsLoaded(keys, Object.assign({}, opts || {}, { reason: 'range:' + String(fromISO) + '->' + String(toISO) }));
+    devLog('ensureRangeLoaded', {
+      fromISO: fromISO,
+      toISO: toISO,
+      derivedMonths: keys,
+      currentlyLoaded: getLoadedMonthKeys()
+    });
+    return ensureMonthsLoaded(keys, Object.assign({}, opts || {}, { reason: 'range:' + String(fromISO) + '->' + String(toISO) })).then((info) => {
+      devLog('ensureRangeLoaded done', {
+        fromISO: fromISO,
+        toISO: toISO,
+        loadedNow: info && info.loadedNow ? info.loadedNow : [],
+        requested: info && info.requested ? info.requested : [],
+        currentlyLoaded: getLoadedMonthKeys()
+      });
+      return info;
+    });
   }
 
   function loadRecentMonths(options) {

@@ -39,6 +39,23 @@
       .reverse();
   }
 
+  function isMergeLoggingEnabled() {
+    try {
+      if (localStorage.getItem('log_txMerge') === '0') return false;
+      if (localStorage.getItem('log_txMerge') === '1') return true;
+    } catch (_) {}
+    return !!(window.__PB_DEV_TRANSACTIONS || location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:');
+  }
+
+  function mergeLog() {
+    if (!isMergeLoggingEnabled()) return;
+    try {
+      const args = Array.prototype.slice.call(arguments);
+      args.unshift('[TransactionMerge]');
+      console.log.apply(console, args);
+    } catch (_) {}
+  }
+
   function coerceHistoryContainer(obj) {
     // Expected: { [itemCode]: { history: [...] } }
     return obj && typeof obj === 'object' ? obj : null;
@@ -67,6 +84,7 @@
     const keys = listTransactionGlobals(r);
     const merged = {};
     const seen = new Set();
+    mergeLog('merge start', { globals: keys });
 
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
@@ -95,6 +113,16 @@
         return da - db;
       });
     });
+
+    try {
+      const codes = Object.keys(merged);
+      let historyRows = 0;
+      for (let i = 0; i < codes.length; i++) {
+        const h = merged[codes[i]] && merged[codes[i]].history;
+        historyRows += Array.isArray(h) ? h.length : 0;
+      }
+      mergeLog('merge done', { itemCodes: codes.length, historyRows: historyRows, dedupeKeys: seen.size });
+    } catch (_) {}
 
     return merged;
   }

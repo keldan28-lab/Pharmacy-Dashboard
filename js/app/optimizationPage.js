@@ -639,6 +639,49 @@ function _getTransactions(raw, computed){
   return null;
 }
 
+const __optPocketParseCache = Object.create(null);
+
+function _parsePocketDescriptor(rawPocket){
+  const src = String(rawPocket || '').trim();
+  if (!src) {
+    return { cabinet: '', drawer: '', drawerLoc: '', size: '', pocketType: '', medLoaded: '', medLoadedLabel: '', raw: '' };
+  }
+  if (__optPocketParseCache[src]) return __optPocketParseCache[src];
+  const parts = src.split('|').map((v)=>String(v || '').trim());
+  const cabinetDrawer = parts[0] || '';
+  const cdSplit = cabinetDrawer.split(/\s+(?=Drw\b)/i);
+  const medLoaded = String(parts[4] || '').trim().toUpperCase();
+  const parsed = {
+    cabinet: String(cdSplit[0] || '').trim(),
+    drawer: String(cdSplit[1] || '').trim(),
+    drawerLoc: String(parts[1] || '').trim(),
+    size: String(parts[2] || '').trim(),
+    pocketType: String(parts[3] || '').trim(),
+    medLoaded: medLoaded,
+    medLoadedLabel: (medLoaded === 'L') ? 'loaded' : ((medLoaded === 'P') ? 'pended' : ''),
+    raw: src
+  };
+  __optPocketParseCache[src] = parsed;
+  return parsed;
+}
+
+function _isMinSuggestionLoggingEnabled(){
+  try {
+    if (localStorage.getItem('log_minSuggestion') === '0') return false;
+    if (localStorage.getItem('log_minSuggestion') === '1') return true;
+  } catch(_){ }
+  return false;
+}
+
+function _minSuggestionLog(){
+  if (!_isMinSuggestionLoggingEnabled()) return;
+  try {
+    const args = Array.prototype.slice.call(arguments);
+    args.unshift('[Min Suggestion Report]');
+    console.log.apply(console, args);
+  } catch(_){ }
+}
+
 function _iterInventoryRecords(inv){
   const out = [];
   if (!inv || typeof inv !== 'object') return out;
@@ -647,6 +690,7 @@ function _iterInventoryRecords(inv){
     if (!slots || typeof slots !== 'object') continue;
     for (const subloc of Object.keys(slots)){
       const r = slots[subloc] || {};
+      const pocketRaw = String(r.pocket || r.Pocket || '').trim();
       out.push({
         itemCode,
         // Normalize sublocation keys to match transaction records (which may vary in case)
@@ -654,6 +698,8 @@ function _iterInventoryRecords(inv){
         qty: _num((r.qty ?? r.qtyOnHand ?? r.onHand ?? r.on_hand ?? r.quantity ?? r.Qty ?? 0), 0),
         min: _num((r.min ?? r.minQty ?? r.min_qty ?? r.parMin ?? r.minQuantity ?? 0), 0),
         max: _num((r.max ?? r.maxQty ?? r.max_qty ?? r.parMax ?? r.maxQuantity ?? 0), 0),
+        pocket: pocketRaw,
+        pocketParsed: _parsePocketDescriptor(pocketRaw),
         // Some pockets are marked "standard" in inventory (e.g., Pyxis standard pockets).
         // Preserve this so Item view can render the min-tick border as coral.
         standard: !!(r.standard ?? r.isStandard ?? r.Standard ?? false),
@@ -4173,6 +4219,11 @@ function _openMinSuggestionReport(){
   try{
     const txLen = Array.isArray(tx) ? tx.length : (tx && Array.isArray(tx.transactions) ? tx.transactions.length : 0);
     if (!txLen) console.warn('[Min Suggestion Report] No transactions found; report will be dominated by No-demand items.');
+    _minSuggestionLog('tx root diagnostics', {
+      txShape: Array.isArray(tx) ? 'array' : (tx && typeof tx === 'object' ? 'object' : typeof tx),
+      txLen: txLen,
+      txItemCodes: (tx && typeof tx === 'object' && !Array.isArray(tx)) ? Object.keys(tx).length : null
+    });
   }catch(_){ }
   const ref = window.__optSubMap || (window.__optSubMap = _getSublocationMap());
   const metaByCode = window.__optMetaByCode || (window.__optMetaByCode = _buildItemMetaByCode());
@@ -4264,6 +4315,7 @@ function _openMinSuggestionReport(){
       itemName: String(meta.description || meta.drugName || meta.name || code),
       sublocation: sub,
       location: loc,
+      pocketSize: String((it.pocketParsed && it.pocketParsed.size) || ''),
       curMin,
       sugMin: sugMinInt,
       delta,
@@ -4285,6 +4337,13 @@ function _openMinSuggestionReport(){
   }
 
   const sublocKeys = Object.keys(bySubloc).sort((a,b)=>a.localeCompare(b));
+  _minSuggestionLog('report scope summary', {
+    sublocations: sublocKeys.length,
+    activeSubloc: activeSubloc || 'ALL',
+    scopeLoc: scopeLoc || 'ALL',
+    activeBucket: activeBucket,
+    rowCount: sublocKeys.reduce((sum, key)=> sum + ((bySubloc[key] || []).length), 0)
+  });
   const title = (activeSubloc ? `Min Suggestions Report — ${activeSubloc}` : (scopeLoc ? `Min Suggestions Report — ${scopeLoc}` : 'Min Suggestions Report — All Locations'));
 
   const w = window.open('', '_blank');
@@ -4336,7 +4395,7 @@ const sNetSign = (sNet>0)?'+':'';
 const sCostSign = (sCost>0)?'+':'';
 html += `<div class="meta">Adjustments: ${esc(String(sInc))} increase • ${esc(String(sDec))} decrease • Net ΔMin: ${esc(sNetSign+String(Math.round(sNet)))} • Est $: ${esc(sCostSign+'$'+Math.round(Math.abs(sCost)).toLocaleString())}</div>`;
       html += `<table><thead><tr>`+
-              `<th class="item-col">Items</th><th>ADS</th><th>Action</th>`+
+              `<th class="item-col">Items</th><th>ADS</th><th>Pocket</th>`+
               `<th class="num">Min</th><th class="num">Suggested</th><th class="num">Δ</th>`+
               `<th class="num">Lead</th><th class="num">Demand/d</th><th class="num">Cover</th><th class="num">SS</th><th class="num">Δ</th>`+
               `</tr></thead><tbody>`;
@@ -4346,7 +4405,7 @@ html += `<div class="meta">Adjustments: ${esc(String(sInc))} increase • ${esc(
         html += `<tr>`+
                 `<td class="item-col"><div class="item-wrap">${esc(r.itemName||'')}</div></td>`+
                 `<td>${esc(r.itemCode||'')}</td>`+
-                `<td class="${cls}">${esc(r.bucket)}</td>`+
+                `<td>${esc(r.pocketSize || '—')}</td>`+
                 `<td class="num">${esc(fmt(r.curMin,0))}</td>`+
                 `<td class="num">${esc(fmt(r.sugMin,0))}</td>`+
                 `<td class="num ${cls}">${esc(sign+String(Math.round(r.delta)))}</td>`+
