@@ -254,7 +254,7 @@ const backButton = document.getElementById('backButton');
                             requestMockDataFromParent()
                                 .then(() => {
                                     // Reset any Option-B aggregates so the bar chart can rebuild.
-                                    costChartState.__txDailyAggBuilt = false;
+                                    invalidateTxDerivedCaches();
                                     scheduleChartsRedraw('referrer');
                                 })
                                 .catch((e) => console.warn('⚠️ Charts: Data request failed on referrer set', e));
@@ -506,7 +506,7 @@ const backButton = document.getElementById('backButton');
                                 .then(() => {
                                     costChartState.__directNavEnsuringTx = false;
                                     try { costChartState.__vbEnsuredRangeKey = rr.from + '|' + rr.to; } catch (e) {}
-                                    costChartState.__txDailyAggBuilt = false;
+                                    invalidateTxDerivedCaches();
                                     scheduleChartsRedraw('directNavTx');
                                 })
                                 .catch(() => {
@@ -2155,6 +2155,18 @@ function applyFlowOverrideFromVerticalBarSelection() {
             return false;
         }
 
+        function invalidateTxDerivedCaches() {
+            try { costChartState.__txDailyAggBuilt = false; } catch (e) {}
+            try { costChartState.__lastRatesRangeKey = ''; } catch (e) {}
+            try {
+                if (costChartState && costChartState._verticalDrillBinCache) {
+                    const c = costChartState._verticalDrillBinCache;
+                    if (c.dailyAggByRange && c.dailyAggByRange.clear) c.dailyAggByRange.clear();
+                    if (c.binsByKey && c.binsByKey.clear) c.binsByKey.clear();
+                }
+            } catch (e) {}
+        }
+
         
         function requestMockDataFromParent(options) {
             return new Promise((resolve, reject) => {
@@ -2207,8 +2219,8 @@ function applyFlowOverrideFromVerticalBarSelection() {
                                     // NOTE: The InventoryApp.postMessage.requestMockData callback path does not
                                     // trigger the window 'mockDataResponse' handler, so we must set this here.
                                     costChartState.cachedMockData = cachedMockData;
-                                    // Invalidate tx aggregation caches when the dataset changes.
-                                    costChartState.__txDailyAggBuilt = false;
+                                    // Invalidate transaction-derived caches when the dataset changes.
+                                    invalidateTxDerivedCaches();
 
                             // --- Ensure vertical bar chart has an item source ---
                             // Some chart types read from costChartState.items (not cachedMockData.items).
@@ -2237,8 +2249,8 @@ function applyFlowOverrideFromVerticalBarSelection() {
                             cachedMockData = payload;
                             // Keep a reference on state for renderers that read from costChartState.
                             costChartState.cachedMockData = cachedMockData;
-                            // Invalidate tx aggregation caches when the dataset changes.
-                            costChartState.__txDailyAggBuilt = false;
+                            // Invalidate transaction-derived caches when the dataset changes.
+                            invalidateTxDerivedCaches();
 
                             // --- Ensure vertical bar chart has an item source ---
                             // Some chart types read from costChartState.items (not cachedMockData.items).
@@ -4051,7 +4063,7 @@ const applyPreset = (preset) => {
 	                            .then(() => (typeof requestMockDataFromParent === 'function' ? requestMockDataFromParent({ forceRefresh: true }) : null))
 	                            .then(() => {
 	                                costChartState.__datePickerEnsuringRange = false;
-	                                costChartState.__txDailyAggBuilt = false;
+	                                invalidateTxDerivedCaches();
 	                                if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
 	                                scheduleChartsRedraw('dateRangeTx');
 	                            })
@@ -4869,7 +4881,8 @@ function ensureTransactionRatesForSelectedRange() {
         const dl = window.parent && window.parent.InventoryApp && window.parent.InventoryApp.DataLoader;
         if (dl && typeof dl.__txVersion === 'number') txVersionKey = String(dl.__txVersion);
     } catch (_) {}
-    const key = range ? `${range.from || ''}|${range.to || ''}` : `__ALL__|${txVersionKey}`;
+    const keyBase = range ? `${range.from || ''}|${range.to || ''}` : '__ALL__';
+    const key = `${keyBase}|v:${txVersionKey}`;
     if (costChartState.__lastRatesRangeKey === key) return;
     costChartState.__lastRatesRangeKey = key;
 
@@ -5881,7 +5894,7 @@ function dateToISO(d) {
                         requestMockDataFromParent()
                             .then(() => {
                                 costChartState.__barChartDataLoading = false;
-                                costChartState.__txDailyAggBuilt = false;
+                                invalidateTxDerivedCaches();
                                 scheduleChartsRedraw('bar-chart-data');
                             })
                             .catch(() => { costChartState.__barChartDataLoading = false; });
@@ -9486,7 +9499,7 @@ try {
                                 .then(() => {
                                     costChartState.__vbWaitingForData = false;
                                     // Invalidate aggregates so they rebuild with the new payload
-                                    costChartState.__txDailyAggBuilt = false;
+                                    invalidateTxDerivedCaches();
                                     scheduleChartsRedraw('mockData');
                                 })
                                 .catch(() => { costChartState.__vbWaitingForData = false; });
@@ -9544,7 +9557,7 @@ try {
                             costChartState.__vbEnsuringRange = false;
                             costChartState.__vbEnsuredRangeKey = rangeKey;
                             if (!r || (!r.from && !r.to)) costChartState.__vbEnsuredAllRange = true;
-                            costChartState.__txDailyAggBuilt = false;
+                            invalidateTxDerivedCaches();
                             scheduleChartsRedraw('txRange');
                         })
                         .catch(() => {
