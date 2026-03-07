@@ -4310,12 +4310,21 @@ function _openMinSuggestionReport(){
                  : (bucketCls === 'green') ? 'OK'
                  : 'No demand';
 
+    const parsedPocket = it.pocketParsed || null;
+    const pocketSize = String((parsedPocket && parsedPocket.size) || '').trim();
+    const pocketType = String((parsedPocket && parsedPocket.pocketType) || '').trim();
+    const pocketDisplay = (!pocketSize || pocketSize.toUpperCase() === 'N/A')
+      ? (pocketType || '—')
+      : pocketSize;
+
     const row = {
       itemCode: code,
       itemName: String(meta.description || meta.drugName || meta.name || code),
       sublocation: sub,
       location: loc,
-      pocketSize: String((it.pocketParsed && it.pocketParsed.size) || ''),
+      pocketSize,
+      pocketType,
+      pocketDisplay,
       curMin,
       sugMin: sugMinInt,
       delta,
@@ -4405,7 +4414,7 @@ html += `<div class="meta">Adjustments: ${esc(String(sInc))} increase • ${esc(
         html += `<tr>`+
                 `<td class="item-col"><div class="item-wrap">${esc(r.itemName||'')}</div></td>`+
                 `<td>${esc(r.itemCode||'')}</td>`+
-                `<td>${esc(r.pocketSize || '—')}</td>`+
+                `<td>${esc(r.pocketDisplay || '—')}</td>`+
                 `<td class="num">${esc(fmt(r.curMin,0))}</td>`+
                 `<td class="num">${esc(fmt(r.sugMin,0))}</td>`+
                 `<td class="num ${cls}">${esc(sign+String(Math.round(r.delta)))}</td>`+
