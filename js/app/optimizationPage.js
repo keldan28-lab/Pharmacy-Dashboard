@@ -4250,6 +4250,14 @@ function _openMinSuggestionReport(){
   const activeSubloc = scopeSubloc || ((uiSubloc && uiSubloc !== 'ALL') ? uiSubloc : '');
   const activeBucket = String(window.__optItemMinBucketFilter || 'ALL'); // gray/blue/green/coral or ALL
   const searchTerm = (_getOptSearchTerm ? String((_getOptSearchTerm()||'')).trim().toLowerCase() : '');
+  const isItemLocDrill = (window.__optViewBy === 'item' && window.__optDrillScope && window.__optDrillScope.type === 'location');
+  let showStandardItems = (window.__optShowStandardItems !== false);
+  if (isItemLocDrill && window.__optShowStandardItems == null){
+    try {
+      const rawStd = localStorage.getItem('optShowStandardItems');
+      if (rawStd != null) showStandardItems = (String(rawStd) !== 'false');
+    } catch(_){ }
+  }
 
   const bySubloc = Object.create(null);
 
@@ -4264,6 +4272,9 @@ function _openMinSuggestionReport(){
       const hay = (String(code||'') + ' ' + String((metaByCode[code]&&metaByCode[code].name)||'')).toLowerCase();
       if (!hay.includes(searchTerm)) continue;
     }
+
+    // Match Item view "Standard" toggle behavior used in the on-screen Min list.
+    if (isItemLocDrill && !showStandardItems && it.standard) continue;
 
     const pk = code + '|' + sub;
     const curMin = _num(it.min, 0);
