@@ -536,6 +536,14 @@ function _sectionLog(section, ...args) {
     if (_isLogEnabled(section)) console.log(...args);
 }
 
+function _sectionWarn(section, ...args) {
+    if (_isLogEnabled(section)) console.warn(...args);
+}
+
+function _sectionError(section, ...args) {
+    if (_isLogEnabled(section)) console.error(...args);
+}
+
 function _initLogToggles() {
     const map = {
         dashboard: 'logToggleDashboard',
@@ -545,6 +553,8 @@ function _initLogToggles() {
         txLoader: 'logToggleTxLoader',
         txMerge: 'logToggleTxMerge',
         txRange: 'logToggleTxRange',
+        fda: 'logToggleFDA',
+        rxnorm: 'logToggleRxNorm',
         minSuggestion: 'logToggleMinSuggestion'
     };
     Object.keys(map).forEach((k) => {
@@ -4564,6 +4574,13 @@ Subloc: ${counts.subloc}`);
         // END CENTRALIZED MOCK DATA STORE & COMMUNICATION
         // ==================================================================================
         
+        const fdaLog = (...args) => _sectionLog('fda', ...args);
+        const fdaWarn = (...args) => _sectionWarn('fda', ...args);
+        const fdaError = (...args) => _sectionError('fda', ...args);
+        const rxNormLog = (...args) => _sectionLog('rxnorm', ...args);
+        const rxNormWarn = (...args) => _sectionWarn('rxnorm', ...args);
+        const rxNormError = (...args) => _sectionError('rxnorm', ...args);
+
         // ==================================================================================
         // FDA SHORTAGES API PARSER
         // ==================================================================================
@@ -4583,11 +4600,11 @@ Subloc: ${counts.subloc}`);
          * Calculates manufacturer ratios from RxNorm API
          */
         async function parseFDAShortages() {
-            console.log('🏥 Starting FDA Shortages Parser...');
+            fdaLog('🏥 Starting FDA Shortages Parser...');
             
             // Check cache validity
             if (FDA_CACHE && FDA_LAST_FETCH && (Date.now() - FDA_LAST_FETCH) < FDA_CACHE_DURATION) {
-                console.log('✓ Using cached FDA data (age:', Math.round((Date.now() - FDA_LAST_FETCH) / 1000 / 60), 'minutes)');
+                fdaLog('✓ Using cached FDA data (age:', Math.round((Date.now() - FDA_LAST_FETCH) / 1000 / 60), 'minutes)');
                 return FDA_CACHE;
             }
             
@@ -4600,10 +4617,10 @@ Subloc: ${counts.subloc}`);
                 // Calculate cutoff date (45 days ago)
                 const today = new Date();
                 const cutoffDate = new Date(today - (DATE_CUTOFF_DAYS * 24 * 60 * 60 * 1000));
-                console.log(`📅 Cutoff date: ${cutoffDate.toLocaleDateString()} (45 days ago)`);
+                fdaLog(`📅 Cutoff date: ${cutoffDate.toLocaleDateString()} (45 days ago)`);
                 
                 // Parse records starting from skip=0
-                console.log(`📝 Starting to parse records from skip=0...`);
+                fdaLog(`📝 Starting to parse records from skip=0...`);
                 const parsedItems = [];
                 const processedNDCs = new Set();
                 let skip = 0;
@@ -4611,7 +4628,7 @@ Subloc: ${counts.subloc}`);
                 
                 // Collect all items that pass filters
                 while (shouldContinue) {
-                    console.log(`  Fetching skip=${skip}, limit=${LIMIT}...`);
+                    fdaLog(`  Fetching skip=${skip}, limit=${LIMIT}...`);
                     const url = `${BASE_URL}?${SEARCH_PARAMS}&limit=${LIMIT}&skip=${skip}`;
                     
                     try {
@@ -4619,15 +4636,15 @@ Subloc: ${counts.subloc}`);
                         const data = await response.json();
                         
                         if (!data.results || data.results.length === 0) {
-                            console.log(`  ✓ No more results at skip=${skip}`);
+                            fdaLog(`  ✓ No more results at skip=${skip}`);
                             break;
                         }
                         
-                        console.log(`  Processing ${data.results.length} items at skip=${skip}...`);
+                        fdaLog(`  Processing ${data.results.length} items at skip=${skip}...`);
                         
                         // Log the structure of the first node to see what fields are available
                         if (skip === 0 && data.results.length > 0) {
-                            console.log(`  📋 FDA Node Structure (first item):`, {
+                            fdaLog(`  📋 FDA Node Structure (first item):`, {
                                 allKeys: Object.keys(data.results[0]),
                                 presentation: data.results[0].presentation,
                                 generic_name: data.results[0].generic_name,
@@ -4646,7 +4663,7 @@ Subloc: ${counts.subloc}`);
                             const updateDate = new Date(node.update_date);
                             
                             if (updateDate < cutoffDate) {
-                                console.log(`  ⏹️ Stopping: Found item with update_date ${node.update_date} (> 45 days old)`);
+                                fdaLog(`  ⏹️ Stopping: Found item with update_date ${node.update_date} (> 45 days old)`);
                                 shouldContinue = false;
                                 break;
                             }
@@ -4661,7 +4678,7 @@ Subloc: ${counts.subloc}`);
                             
                             // Log the first few package_ndc values to debug
                             if (parsedItems.length < 3) {
-                                console.log(`  📦 FDA package_ndc for item ${parsedItems.length + 1}: "${packageNdc}"`);
+                                fdaLog(`  📦 FDA package_ndc for item ${parsedItems.length + 1}: "${packageNdc}"`);
                             }
                             
                             if (!packageNdc || processedNDCs.has(packageNdc)) {
@@ -4692,7 +4709,7 @@ Subloc: ${counts.subloc}`);
                             
                             // Log extraction for first few items
                             if (parsedItems.length < 3) {
-                                console.log(`  🔍 Name extraction for item ${parsedItems.length + 1}:`, {
+                                fdaLog(`  🔍 Name extraction for item ${parsedItems.length + 1}:`, {
                                     presentation_type: Array.isArray(node.presentation) ? 'array' : typeof node.presentation,
                                     presentation_value: node.presentation,
                                     generic_name: node.generic_name,
@@ -4702,7 +4719,7 @@ Subloc: ${counts.subloc}`);
                             
                             // Skip if name is too short (likely invalid data)
                             if (!name || name.length < 3) {
-                                console.warn(`  ⚠️ Skipping invalid presentation: "${name}" (too short or empty)`, {
+                                fdaWarn(`  ⚠️ Skipping invalid presentation: "${name}" (too short or empty)`, {
                                     raw_presentation: node.presentation,
                                     generic_name: node.generic_name,
                                     ndc: packageNdc
@@ -4740,7 +4757,7 @@ Subloc: ${counts.subloc}`);
                             
                             // Log first few items for debugging
                             if (parsedItems.length <= 3) {
-                                console.log(`    Item #${parsedItems.length}:`, {
+                                fdaLog(`    Item #${parsedItems.length}:`, {
                                     raw_presentation: node.presentation,
                                     extracted_name: name,
                                     generic_name: node.generic_name,
@@ -4752,7 +4769,7 @@ Subloc: ${counts.subloc}`);
                             }
                         }
                         
-                        console.log(`  ✓ Processed ${itemsProcessedInBatch} items from this batch`);
+                        fdaLog(`  ✓ Processed ${itemsProcessedInBatch} items from this batch`);
                         
                         // If we should continue, move to next batch
                         if (shouldContinue) {
@@ -4760,12 +4777,12 @@ Subloc: ${counts.subloc}`);
                         }
                         
                     } catch (error) {
-                        console.error(`❌ Error fetching skip=${skip}:`, error);
+                        fdaError(`❌ Error fetching skip=${skip}:`, error);
                         break;
                     }
                 }
                 
-                console.log(`✓ Parsed ${parsedItems.length} FDA shortage items (within last 45 days)`);
+                fdaLog(`✓ Parsed ${parsedItems.length} FDA shortage items (within last 45 days)`);
                 
                 // STEP 1: Group by NDC to eliminate duplicates (same NDC = same item)
                 const ndcMap = new Map();
@@ -4776,7 +4793,7 @@ Subloc: ${counts.subloc}`);
                 }
                 
                 const uniqueByNdc = Array.from(ndcMap.values());
-                console.log(`📦 Step 1: ${uniqueByNdc.length} unique items after grouping by NDC (from ${parsedItems.length} total)`);
+                fdaLog(`📦 Step 1: ${uniqueByNdc.length} unique items after grouping by NDC (from ${parsedItems.length} total)`);
                 
                 // STEP 2: Group by name and sum manufacturerRatios
                 const nameMap = new Map();
@@ -4796,16 +4813,16 @@ Subloc: ${counts.subloc}`);
                 }
                 
                 const groupedByName = Array.from(nameMap.values());
-                console.log(`📦 Step 2: ${groupedByName.length} unique items after grouping by name`);
+                fdaLog(`📦 Step 2: ${groupedByName.length} unique items after grouping by name`);
                 
                 // Show all items for debugging (first 30)
-                console.log(`\n📋 All FDA items (first 30):`);
+                fdaLog(`\n📋 All FDA items (first 30):`);
                 groupedByName.slice(0, 30).forEach((item, i) => {
-                    console.log(`  ${i+1}. ${item.name} (${item.availability})`);
+                    fdaLog(`  ${i+1}. ${item.name} (${item.availability})`);
                 });
                 
                 // STEP 3: Match to MOCK_DATA BEFORE fetching ratios
-                console.log(`\n🔗 Step 3: Matching to MOCK_DATA...`);
+                fdaLog(`\n🔗 Step 3: Matching to MOCK_DATA...`);
                 for (const item of groupedByName) {
                     item.itemCode = matchItemCode(item.name);
                 }
@@ -4813,18 +4830,18 @@ Subloc: ${counts.subloc}`);
                 const matchedItems = groupedByName.filter(i => i.itemCode);
                 const unmatchedItems = groupedByName.filter(i => !i.itemCode);
                 const matchedCount = matchedItems.length;
-                console.log(`✓ Matched ${matchedCount}/${groupedByName.length} items to MOCK_DATA`);
+                fdaLog(`✓ Matched ${matchedCount}/${groupedByName.length} items to MOCK_DATA`);
                 
                 // Show unmatched items for debugging
                 if (unmatchedItems.length > 0 && unmatchedItems.length <= 10) {
-                    console.log(`\n⚠️ Unmatched FDA items:`);
+                    fdaLog(`\n⚠️ Unmatched FDA items:`);
                     unmatchedItems.forEach(item => {
-                        console.log(`  - ${item.name}`);
+                        fdaLog(`  - ${item.name}`);
                     });
                 } else if (unmatchedItems.length > 10) {
-                    console.log(`\n⚠️ ${unmatchedItems.length} unmatched FDA items (showing first 10):`);
+                    fdaLog(`\n⚠️ ${unmatchedItems.length} unmatched FDA items (showing first 10):`);
                     unmatchedItems.slice(0, 10).forEach(item => {
-                        console.log(`  - ${item.name}`);
+                        fdaLog(`  - ${item.name}`);
                     });
                 }
                 
@@ -4834,20 +4851,20 @@ Subloc: ${counts.subloc}`);
                     return avail === 'unavailable' || avail.includes('limited');
                 });
                 
-                console.log(`\n🔍 Step 4: ${itemsNeedingRxNorm.length} matched items need manufacturer ratios`);
-                console.log(`   (Skipping ${matchedItems.length - itemsNeedingRxNorm.length} items - wrong availability)`);
-                console.log(`   (Skipping ${groupedByName.length - matchedCount} items - no MOCK_DATA match)`);
+                fdaLog(`\n🔍 Step 4: ${itemsNeedingRxNorm.length} matched items need manufacturer ratios`);
+                fdaLog(`   (Skipping ${matchedItems.length - itemsNeedingRxNorm.length} items - wrong availability)`);
+                fdaLog(`   (Skipping ${groupedByName.length - matchedCount} items - no MOCK_DATA match)`);
                 
                 // STEP 5: Fetch manufacturer ratios ONLY for matched items that need them
                 if (itemsNeedingRxNorm.length > 0) {
-                    console.log(`\n📞 Step 5: Fetching manufacturer ratios for ${itemsNeedingRxNorm.length} items...`);
+                    fdaLog(`\n📞 Step 5: Fetching manufacturer ratios for ${itemsNeedingRxNorm.length} items...`);
                 }
                 
                 const batchSize = 10;
                 for (let i = 0; i < itemsNeedingRxNorm.length; i += batchSize) {
                     const batch = itemsNeedingRxNorm.slice(i, i + batchSize);
                     
-                    console.log(`\n--- Batch ${Math.floor(i / batchSize) + 1} ---`);
+                    fdaLog(`\n--- Batch ${Math.floor(i / batchSize) + 1} ---`);
                     
                     // Use first NDC from each group
                     const ratioPromises = batch.map(item => 
@@ -4856,29 +4873,29 @@ Subloc: ${counts.subloc}`);
                                 item.manufactureRatio = ratio;
                             })
                             .catch(err => {
-                                console.warn('RxNorm error:', err.message);
+                                fdaWarn('RxNorm error:', err.message);
                                 item.manufactureRatio = 0;
                             })
                     );
                     
                     await Promise.all(ratioPromises);
                     
-                    console.log(`✓ Batch complete: ${Math.min(i + batchSize, itemsNeedingRxNorm.length)}/${itemsNeedingRxNorm.length}`);
+                    fdaLog(`✓ Batch complete: ${Math.min(i + batchSize, itemsNeedingRxNorm.length)}/${itemsNeedingRxNorm.length}`);
                     
                     if (i + batchSize < itemsNeedingRxNorm.length) {
                         await new Promise(resolve => setTimeout(resolve, 100));
                     }
                 }
                 
-                console.log(`\n📊 Manufacturer Ratio Summary:`);
-                console.log(`  Total items needing ratios: ${itemsNeedingRxNorm.length}`);
-                console.log(`  Items with ratio > 0: ${itemsNeedingRxNorm.filter(i => i.manufactureRatio > 0).length}`);
-                console.log(`  Items with ratio = 0: ${itemsNeedingRxNorm.filter(i => i.manufactureRatio === 0).length}`);
+                fdaLog(`\n📊 Manufacturer Ratio Summary:`);
+                fdaLog(`  Total items needing ratios: ${itemsNeedingRxNorm.length}`);
+                fdaLog(`  Items with ratio > 0: ${itemsNeedingRxNorm.filter(i => i.manufactureRatio > 0).length}`);
+                fdaLog(`  Items with ratio = 0: ${itemsNeedingRxNorm.filter(i => i.manufactureRatio === 0).length}`);
                 
-                console.log(`\n✓ All processing complete`);
-                console.log(`  Total FDA items: ${groupedByName.length}`);
-                console.log(`  Matched to MOCK_DATA: ${matchedCount}`);
-                console.log(`  Fetched ratios for: ${itemsNeedingRxNorm.length}`);
+                fdaLog(`\n✓ All processing complete`);
+                fdaLog(`  Total FDA items: ${groupedByName.length}`);
+                fdaLog(`  Matched to MOCK_DATA: ${matchedCount}`);
+                fdaLog(`  Fetched ratios for: ${itemsNeedingRxNorm.length}`);
                 
                 // FINAL COUNT: Items that will show in Shortage Bulletin
                 const finalFiltered = groupedByName.filter(item => {
@@ -4889,11 +4906,11 @@ Subloc: ${counts.subloc}`);
                            (avail.includes('limited') && ratio > 0.5);
                 });
                 
-                console.log(`\n🎯 FINAL COUNT FOR FDA CARD: ${finalFiltered.length}`);
+                fdaLog(`\n🎯 FINAL COUNT FOR FDA CARD: ${finalFiltered.length}`);
                 if (finalFiltered.length > 0) {
-                    console.log(`   Items that will appear in Shortage Bulletin:`);
+                    fdaLog(`   Items that will appear in Shortage Bulletin:`);
                     finalFiltered.forEach((item, i) => {
-                        console.log(`   ${i+1}. ${item.name} (${item.itemCode}, ratio: ${item.manufactureRatio.toFixed(2)})`);
+                        fdaLog(`   ${i+1}. ${item.name} (${item.itemCode}, ratio: ${item.manufactureRatio.toFixed(2)})`);
                     });
                 }
                 
@@ -4902,11 +4919,11 @@ Subloc: ${counts.subloc}`);
                 FDA_CACHE = groupedByName;
                 FDA_LAST_FETCH = Date.now();
                 
-                console.log(`\n✅ FDA parsing complete, returning ${groupedByName.length} grouped items`);
+                fdaLog(`\n✅ FDA parsing complete, returning ${groupedByName.length} grouped items`);
                 return groupedByName;
                 
             } catch (error) {
-                console.error('❌ FDA Parser Error:', error);
+                fdaError('❌ FDA Parser Error:', error);
                 return [];
             }
         }
@@ -4926,17 +4943,17 @@ Subloc: ${counts.subloc}`);
                 // Use the FULL NDC format (with dashes) in the API call
                 const url = `https://rxnav.nlm.nih.gov/REST/relatedndc?ndc=${ndc}&relation=drug&ndcstatus=active`;
                 
-                console.log(`  🔍 RxNorm API call for NDC: ${ndc}`);
+                rxNormLog(`  🔍 RxNorm API call for NDC: ${ndc}`);
                 
                 const response = await fetch(url);
                 
                 if (!response.ok) {
-                    console.warn(`  ⚠️ RxNorm API returned status ${response.status} for NDC ${ndc}`);
+                    rxNormWarn(`  ⚠️ RxNorm API returned status ${response.status} for NDC ${ndc}`);
                     return 0;
                 }
                 
                 const text = await response.text();
-                console.log(`  ✓ RxNorm response received (${text.length} chars)`);
+                rxNormLog(`  ✓ RxNorm response received (${text.length} chars)`);
                 
                 // Parse XML response
                 const parser = new DOMParser();
@@ -4945,17 +4962,17 @@ Subloc: ${counts.subloc}`);
                 // Check for parsing errors
                 const parseError = xmlDoc.querySelector('parsererror');
                 if (parseError) {
-                    console.warn(`  ⚠️ XML parse error for NDC ${ndc}:`, parseError.textContent);
+                    rxNormWarn(`  ⚠️ XML parse error for NDC ${ndc}:`, parseError.textContent);
                     return 0;
                 }
                 
                 // RxNorm relatedndc API returns structure: <rxnormdata><ndcInfoList><ndcInfo><ndc11>...</ndc11></ndcInfo>...
                 // Get all <ndc11> elements (11-digit NDCs without dashes)
                 const ndcElements = xmlDoc.getElementsByTagName('ndc11');
-                console.log(`  Found ${ndcElements.length} <ndc11> elements`);
+                rxNormLog(`  Found ${ndcElements.length} <ndc11> elements`);
                 
                 if (ndcElements.length === 0) {
-                    console.log(`  ⚠️ No <ndc11> elements found`);
+                    rxNormLog(`  ⚠️ No <ndc11> elements found`);
                     return 0;
                 }
                 
@@ -4972,7 +4989,7 @@ Subloc: ${counts.subloc}`);
                         
                         // Log first few for debugging
                         if (i < 5) {
-                            console.log(`     NDC ${i + 1}: "${ndcValue}" → 9-digit: "${ndc9digit}"`);
+                            rxNormLog(`     NDC ${i + 1}: "${ndcValue}" → 9-digit: "${ndc9digit}"`);
                         }
                     }
                 }
@@ -4980,12 +4997,12 @@ Subloc: ${counts.subloc}`);
                 const count = uniqueNdcs.size;
                 const ratio = count === 0 ? 0 : 1 / count;
                 
-                console.log(`  ✓ NDC ${ndc}: ${count} unique manufacturers (from ${ndcElements.length} total NDCs) → ratio = ${ratio.toFixed(4)}`);
+                rxNormLog(`  ✓ NDC ${ndc}: ${count} unique manufacturers (from ${ndcElements.length} total NDCs) → ratio = ${ratio.toFixed(4)}`);
                 
                 return ratio;
                 
             } catch (error) {
-                console.error('  ❌ RxNorm API error for NDC', ndc, ':', error);
+                rxNormError('  ❌ RxNorm API error for NDC', ndc, ':', error);
                 return 0;
             }
         }

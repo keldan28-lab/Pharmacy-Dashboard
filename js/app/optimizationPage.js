@@ -4238,6 +4238,7 @@ function _openMinSuggestionReport(){
   const reviewDays = _getWhatIfReviewPeriodDays();
   const z = _getWhatIfServiceLevelZ();
   const thr = _getMinSuggestionDeltaThreshold();
+  const minSortMode = _getMinSuggestionSortMode();
 
   // Respect current drill scope if present
   const norm = (s)=>String(s||'').trim().toUpperCase();
