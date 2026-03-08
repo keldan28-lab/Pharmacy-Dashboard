@@ -3345,18 +3345,33 @@ function applyFlowOverrideFromVerticalBarSelection() {
                         const mappedMainLoc = _mainLocFromSublocToken(disp);
                         const locKey = mappedMainLoc ? String(mappedMainLoc).trim().toUpperCase() : _locKeyFromCanon(_canonLocKey(canon));
                         if (!locKey) continue;
-                        if (!locMap.has(locKey)) locMap.set(locKey, { label: locKey, sublocs: new Map() });
+
+                        const qty = Math.abs(Number(r.transQty ?? r.TransQty ?? r.qty ?? r.quantity ?? 0) || 0);
+                        if (!locMap.has(locKey)) locMap.set(locKey, { label: locKey, total: 0, sublocs: new Map() });
                         const entry = locMap.get(locKey);
-                        if (!entry.sublocs.has(canon)) entry.sublocs.set(canon, disp);
+                        entry.total += qty;
+                        if (!entry.sublocs.has(canon)) entry.sublocs.set(canon, { label: disp, total: 0 });
+                        const sub = entry.sublocs.get(canon);
+                        sub.total += qty;
                     }
                 }
 
                 const out = { locations: [], byLocation: Object.create(null) };
-                const locKeys = Array.from(locMap.keys()).sort((a,b)=> String(a).localeCompare(String(b)));
+                const locKeys = Array.from(locMap.keys())
+                    .filter((lk)=> {
+                        const e = locMap.get(lk);
+                        return e && Number(e.total || 0) > 0;
+                    })
+                    .sort((a,b)=> String(a).localeCompare(String(b)));
                 out.locations = locKeys;
                 for (const lk of locKeys) {
                     const entry = locMap.get(lk);
-                    out.byLocation[lk] = Array.from(entry.sublocs.values()).sort((a,b)=> String(a).localeCompare(String(b)));
+                    const sublocs = Array.from(entry.sublocs.values())
+                        .filter((x)=> Number(x && x.total || 0) > 0)
+                        .map((x)=> String(x.label || '').trim())
+                        .filter(Boolean)
+                        .sort((a,b)=> String(a).localeCompare(String(b)));
+                    out.byLocation[lk] = sublocs;
                 }
                 return out;
             } catch (e) {
