@@ -1444,6 +1444,12 @@ function _render(){
     rptBtn.style.display = show ? 'inline-flex' : 'none';
     rptBtn.title = (metric === 'tx_waste') ? 'Print Waste Optimization Report' : 'Print Min Suggestions';
   }
+  const minFilterCtl = document.getElementById('optMinFilterControl');
+  const minFilterPop = document.getElementById('optMinFilterPopover');
+  if (minFilterCtl){
+    minFilterCtl.style.display = (metric === 'min') ? 'inline-flex' : 'none';
+    if (metric !== 'min' && minFilterPop) minFilterPop.style.display = 'none';
+  }
 
   // ---- Search + context chips (Charts-style) ----
   (function _renderChips(){
@@ -2736,39 +2742,40 @@ if (metric === 'min'){
     rightGroup.appendChild(stdBtn);
   }
 
-  const filterBtn = document.createElement('button');
-  filterBtn.type = 'button';
-  filterBtn.className = 'sort-toggle-btn opt-min-filter-btn';
-  filterBtn.title = 'Filter categories';
-  filterBtn.innerHTML = '<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z" fill="currentColor"></path></svg>';
+  const filterControl = document.getElementById('optMinFilterControl');
+  const filterBtn = document.getElementById('optMinFilterIconBtn');
+  const legendPop = document.getElementById('optMinFilterPopover');
+  if (filterControl && filterBtn && legendPop){
+    filterControl.style.display = 'inline-flex';
+    legendPop.innerHTML = '';
+    const frame = document.createElement('div');
+    frame.className = 'opt-min-legend-pop';
+    frame.appendChild(legend);
+    legendPop.appendChild(frame);
 
-  const legendPop = document.createElement('div');
-  legendPop.className = 'opt-min-legend-pop';
-  legendPop.style.display = 'none';
-  legendPop.appendChild(legend);
+    const closePop = ()=>{ legendPop.style.display = 'none'; };
+    if (!filterBtn.__optBound){
+      filterBtn.__optBound = true;
+      filterBtn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        legendPop.style.display = (legendPop.style.display === 'none' ? 'block' : 'none');
+      });
+    }
 
-  const closePop = ()=>{ legendPop.style.display = 'none'; };
-  filterBtn.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    legendPop.style.display = (legendPop.style.display === 'none' ? 'flex' : 'none');
-  });
-
-  window.__optMinLegendPopover = { pop: legendPop, btn: filterBtn };
-  if (!window.__optMinLegendPopoverBound){
-    window.__optMinLegendPopoverBound = true;
-    document.addEventListener('click', (ev)=>{
-      try {
-        const st = window.__optMinLegendPopover || null;
-        if (!st || !st.pop || !st.btn) return;
-        if (!st.pop.contains(ev.target) && ev.target !== st.btn && !st.btn.contains(ev.target)) {
-          st.pop.style.display = 'none';
-        }
-      } catch(_){ }
-    });
+    window.__optMinLegendPopover = { pop: legendPop, btn: filterBtn };
+    if (!window.__optMinLegendPopoverBound){
+      window.__optMinLegendPopoverBound = true;
+      document.addEventListener('click', (ev)=>{
+        try {
+          const st = window.__optMinLegendPopover || null;
+          if (!st || !st.pop || !st.btn) return;
+          if (!st.pop.contains(ev.target) && ev.target !== st.btn && !st.btn.contains(ev.target)) {
+            st.pop.style.display = 'none';
+          }
+        } catch(_){ }
+      });
+    }
   }
-
-  rightGroup.appendChild(filterBtn);
-  rightGroup.appendChild(legendPop);
 }
   // Build track content
   trackLeft.appendChild(leftGroup);

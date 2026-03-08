@@ -10300,11 +10300,15 @@ try {
         const candidatesArr = Array.from(candidatesSet);
         candidatesArr.sort();
         const midIdx = candidatesArr.length ? Math.floor(candidatesArr.length / 2) : 0;
+        const __projLocSig = (__vbLocOn || __vbSublocOnEff)
+            ? ('L:' + String(__vbLocCanon || '') + '|S:' + String(__vbSublocCanonEff || ''))
+            : 'L:ALL|S:ALL';
         const projWasteCacheKey = [
             'v1',
             String(lastRealWeekEndISO || ''),
             String(outlookDays || 0),
             String(view),
+            String(__projLocSig),
             String(candidatesArr.length),
             String(candidatesArr[0] || ''),
             String(candidatesArr[midIdx] || ''),
@@ -10335,6 +10339,24 @@ try {
                 if (!expD) continue;
                 // Only project into the outlook window beyond the last real date
                 if (expD < startDate || expD > endDate) continue;
+
+                // Keep projected waste location/sublocation aware for vertical-bar filters.
+                if (__vbLocOn || __vbSublocOnEff) {
+                    const locCanonExact = _canonSublocExact(loc);
+                    if (!locCanonExact) continue;
+                    if (__vbLocOn) {
+                        const ml = (_mainLocFromSublocToken(loc) || _mainLocFromSublocToken(locCanonExact) || '');
+                        const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(locCanonExact);
+                        const tokenU = String(locCanonExact || '').trim().toUpperCase();
+                        let _match = false;
+                        if (lk0 && lk0 === __vbLocCanon) _match = true;
+                        else if (tokenU && tokenU === __vbLocCanon) _match = true;
+                        else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
+                        if (!_match) continue;
+                    }
+                    if (__vbSublocOnEff && locCanonExact !== __vbSublocCanonEff) continue;
+                }
+
                 lots.push({ loc, qty, expD, expISO });
             }
             if (!lots.length) return;
