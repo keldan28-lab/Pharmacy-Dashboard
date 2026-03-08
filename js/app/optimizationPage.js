@@ -2464,21 +2464,6 @@ const meta = metaByCode[code] || {};
     : 0;
   // Render scale header (aligned to bar column)
   const track = document.createElement('div'); track.className='opt-scale-track';
-  // Back button (drill-up) for focus mode.
-  const backBtn = document.createElement('div');
-  backBtn.className = 'opt-back-arrow';
-  backBtn.title = 'Back';
-  backBtn.setAttribute('role','button');
-  backBtn.setAttribute('tabindex','0');
-  backBtn.innerHTML = `
-    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>`;
-  backBtn.addEventListener('click', _navBack);
-  backBtn.addEventListener('keydown', (e)=>{
-    if (e.key === 'Enter' || e.key === ' ') backBtn.click();
-  });
-
   // Left side controls inside the scale track
   const trackLeft = document.createElement('div');
   trackLeft.className = 'opt-scale-track-left';
@@ -2488,37 +2473,97 @@ const meta = metaByCode[code] || {};
   leftGroup.className = 'opt-scale-left-group';
   const rightGroup = document.createElement('div');
   rightGroup.className = 'opt-scale-right-group';
-  // Show back only when we have drill history (or focus accordion is active)
-  const canBack = (Array.isArray(window.__optNavStack) && window.__optNavStack.length) || !!window.__optExpandedLocKey;
-  if (canBack){
-    backBtn.classList.add('visible');
-    leftGroup.appendChild(backBtn);
-  }
 
-  // Location→Item drill: sublocation segmented toggle (All + each sublocation)
+  const _mkArrowToggleBar = (values, currentValue, onPick, typeClass) => {
+    const bar = document.createElement('div');
+    bar.className = 'chart-toggle-bar ' + typeClass;
+
+    const left = document.createElement('button');
+    left.className = 'chart-toggle-arrow left toggle-arrow-left';
+    left.type = 'button';
+    left.setAttribute('aria-label', 'Scroll left');
+    left.innerHTML = `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+
+    const right = document.createElement('button');
+    right.className = 'chart-toggle-arrow right toggle-arrow-right';
+    right.type = 'button';
+    right.setAttribute('aria-label', 'Scroll right');
+    right.innerHTML = `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+
+    const scroller = document.createElement('div');
+    scroller.className = 'chart-toggle-scroll';
+
+    const group = document.createElement('div');
+    group.className = 'opt-subloc-toggle ' + (typeClass === 'chart-toggle-bar-loc' ? 'loc-toggles' : 'subloc-toggles');
+
+    const list = ['ALL'].concat(Array.isArray(values) ? values.filter(Boolean) : []);
+    const seen = new Set();
+    for (const rawVal of list){
+      const val = String(rawVal || '').trim().toUpperCase();
+      if (!val || seen.has(val)) continue;
+      seen.add(val);
+      const btn = document.createElement('div');
+      btn.className = 'opt-subloc-btn' + ((String(currentValue || 'ALL').toUpperCase() === val) ? ' active' : '');
+      btn.textContent = (val === 'ALL') ? 'All' : val;
+      btn.setAttribute('role', 'button');
+      btn.setAttribute('tabindex', '0');
+      btn.addEventListener('click', (e)=>{ e.stopPropagation(); onPick(val); });
+      btn.addEventListener('keydown', (e)=>{ if (e.key === 'Enter' || e.key === ' ') btn.click(); });
+      group.appendChild(btn);
+    }
+
+    scroller.appendChild(group);
+
+    const updateArrows = ()=>{
+      const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      const x = scroller.scrollLeft;
+      left.classList.toggle('hidden', x <= 2);
+      right.classList.toggle('hidden', x >= (max - 2));
+    };
+
+    left.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: -220, behavior: 'smooth' }); setTimeout(updateArrows, 220); });
+    right.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: 220, behavior: 'smooth' }); setTimeout(updateArrows, 220); });
+    scroller.addEventListener('scroll', updateArrows, { passive: true });
+    try { requestAnimationFrame(()=>requestAnimationFrame(updateArrows)); } catch(_){ updateArrows(); }
+
+    bar.appendChild(left);
+    bar.appendChild(scroller);
+    bar.appendChild(right);
+    return bar;
+  };
+
+  // Item view controls: location + sublocation segmented toggles (with left/right arrows)
   if (viewBy === 'item' && window.__optDrillScope && window.__optDrillScope.type === 'location'){
+    const refLocChoices = new Set();
+    try {
+      for (const r of Array.isArray(ref) ? ref : []){
+        const loc = String((r && (r['Patient Care Area'] || r.location || r.loc || '')) || '').trim();
+        const dep = String((r && (r['Pyxis Name'] || r.department || '')) || '').trim();
+        if (!loc) continue;
+        if (_isHiddenPharmacyLocationLabel(loc) || dep.toUpperCase() === 'PHARMACY') continue;
+        refLocChoices.add(loc.toUpperCase());
+      }
+    } catch(_){}
+
+    const currentLoc = String(window.__optDrillScope.key || '').toUpperCase();
+    const locChoices = Array.from(refLocChoices).sort((a,b)=>a.localeCompare(b, undefined, { sensitivity:'base' }));
+    if (locChoices.length){
+      leftGroup.appendChild(_mkArrowToggleBar(locChoices, currentLoc || 'ALL', (val)=>{
+        if (val === 'ALL') return;
+        if (String(window.__optDrillScope.key || '').toUpperCase() === val) return;
+        window.__optDrillScope = { type: 'location', key: val };
+        window.__optItemSublocFilter = 'ALL';
+        _render();
+      }, 'chart-toggle-bar-loc'));
+    }
+
     const choices = Array.isArray(window.__optItemSublocChoices) ? window.__optItemSublocChoices : [];
     if (choices.length){
-      const group = document.createElement('div');
-      group.className = 'opt-subloc-toggle';
-      const cur = String(window.__optItemSublocFilter || 'ALL');
-      const mk = (label, val) => {
-        const b = document.createElement('div');
-        b.className = 'opt-subloc-btn' + ((cur === val) ? ' active' : '');
-        b.textContent = label;
-        b.setAttribute('role','button');
-        b.setAttribute('tabindex','0');
-        b.addEventListener('click', (e)=>{
-          e.stopPropagation();
-          window.__optItemSublocFilter = val;
-          _render();
-        });
-        b.addEventListener('keydown', (e)=>{ if (e.key==='Enter' || e.key===' ') b.click(); });
-        return b;
-      };
-      group.appendChild(mk('All','ALL'));
-      for (const c of choices){ group.appendChild(mk(String(c), String(c))); }
-      leftGroup.appendChild(group);
+      const cur = String(window.__optItemSublocFilter || 'ALL').toUpperCase();
+      leftGroup.appendChild(_mkArrowToggleBar(choices, cur, (val)=>{
+        window.__optItemSublocFilter = val;
+        _render();
+      }, 'chart-toggle-bar-subloc'));
     }
   }
 
