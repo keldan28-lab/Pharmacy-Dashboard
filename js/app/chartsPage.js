@@ -3535,7 +3535,24 @@ function applyFlowOverrideFromVerticalBarSelection() {
 	            return bar;
 	        }
 
-	        function buildLocationAndSublocControls(){
+	
+        function _mkMinMaxTogglePill() {
+            const pill = document.createElement('div');
+            pill.className = 'opt-subloc-btn chart-minmax-pill' + ((costChartState.verticalBarMinMaxOverlayEnabled !== false) ? ' active' : '');
+            pill.textContent = 'Min/Max';
+            pill.setAttribute('role', 'button');
+            pill.setAttribute('tabindex', '0');
+            pill.title = 'Show/Hide Min/Max band';
+            const fire = (e) => {
+                if (e) e.stopPropagation();
+                toggleVerticalBarMinMaxOverlay(e || null);
+            };
+            pill.addEventListener('click', fire);
+            pill.addEventListener('keydown', (e)=>{ if (e.key === 'Enter' || e.key === ' ') fire(e); });
+            return pill;
+        }
+
+        function buildLocationAndSublocControls(){
             const map = (costChartState && costChartState.itemSublocMap && typeof costChartState.itemSublocMap === 'object')
                 ? costChartState.itemSublocMap
                 : null;
@@ -3584,6 +3601,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
                             try { scheduleChartsRedraw('sublocFilter'); } catch(e) {}
                         }
 }, 'subloc'));
+            container.appendChild(_mkMinMaxTogglePill());
             return container;
         }
 
@@ -5757,8 +5775,6 @@ function dateToISO(d) {
                             data-tooltip="Waste" onclick="setVerticalBarView('waste', event)">
                         <svg viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="14" fill="currentColor" font-weight="bold">W</text></svg>
                     </button>
-                    <button class="sub-icon-btn sub-icon-pill ${costChartState.verticalBarMinMaxOverlayEnabled !== false ? 'active' : ''}" 
-                            data-tooltip="Min/Max" onclick="toggleVerticalBarMinMaxOverlay(event)">Min/Max</button>
                 `;
             } else if (chartType === 'line-chart') {
                 // Trend Lines: Usage Variance and Restock vs Usage
@@ -5829,11 +5845,9 @@ function dateToISO(d) {
             // Update active state in sub-menu
             const parentMenu = event && event.target ? event.target.closest('.sub-icons-menu') : null;
             if (parentMenu) {
-                parentMenu.querySelectorAll('.sub-icon-btn').forEach(btn => {
-                    if (!btn.classList.contains('sub-icon-pill')) btn.classList.remove('active');
-                });
+                parentMenu.querySelectorAll('.sub-icon-btn').forEach(btn => btn.classList.remove('active'));
                 const clicked = event.target.closest('.sub-icon-btn');
-                if (clicked && !clicked.classList.contains('sub-icon-pill')) clicked.classList.add('active');
+                if (clicked) clicked.classList.add('active');
             }
             
             // Redraw chart
@@ -5844,7 +5858,7 @@ function dateToISO(d) {
             if (event) event.stopPropagation();
             costChartState.verticalBarMinMaxOverlayEnabled = (costChartState.verticalBarMinMaxOverlayEnabled === false);
 
-            const btn = event && event.target ? event.target.closest('.sub-icon-pill') : null;
+            const btn = event && event.target ? event.target.closest('.chart-minmax-pill') : null;
             if (btn) btn.classList.toggle('active', costChartState.verticalBarMinMaxOverlayEnabled !== false);
 
             switchChartType('bar-chart');
