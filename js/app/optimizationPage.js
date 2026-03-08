@@ -279,6 +279,56 @@ function _locationLabelForSubloc(subloc, ref){
   return subloc || 'UNKNOWN';
 }
 
+function _getVisibleLocationChoices(ref){
+  const out = new Set();
+  const src = (ref && typeof ref === 'object') ? ref : null;
+  if (!src) return [];
+  for (const k of Object.keys(src)){
+    const row = src[k] || {};
+    const loc = String(row.mainLocation || row.location || '').trim().toUpperCase();
+    const dep = String(row.department || '').trim().toUpperCase();
+    if (!loc) continue;
+    if (_isHiddenPharmacyLocationLabel(loc) || dep === 'PHARMACY') continue;
+    out.add(loc);
+  }
+  return Array.from(out).sort((a,b)=>a.localeCompare(b, undefined, { sensitivity:'base' }));
+}
+
+
+function _getTxLocationChoicesForItems(txRoot, itemCodes, ref){
+  const out = new Set();
+  const codes = Array.isArray(itemCodes) ? itemCodes.filter(Boolean) : [];
+  if (!txRoot || !codes.length) return [];
+
+  const getBucket = (root, codeStr) => {
+    const s = String(codeStr || '').trim();
+    if (!s || !root) return null;
+    const noLead = s.replace(/^0+/, '') || s;
+    const noDash = s.replace(/[\s-]/g, '');
+    const noDashNoLead = (noDash || '').replace(/^0+/, '') || noDash;
+    return root[s] || root[noLead] || (noDash ? root[noDash] : null) || (noDashNoLead ? root[noDashNoLead] : null) || null;
+  };
+
+  for (const code of codes){
+    const bucket = getBucket(txRoot, code);
+    const hist = bucket && (bucket.history || bucket.transactions || bucket.tx || []);
+    if (!Array.isArray(hist)) continue;
+    for (const row of hist){
+      const t = String((row && (row.transactionType || row.type || row.transType || '')) || '').toLowerCase();
+      const isWasteTxn = (t.indexOf('waste') >= 0 || t.indexOf('expire') >= 0 || t.indexOf('return') >= 0 || t.indexOf('discard') >= 0 || t.indexOf('adjust') >= 0);
+      const destRaw = String((row && (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '')) || '').trim();
+      const srcRaw = String((row && (row.sublocation || row.location || row.fromLocation || row.sourceLocation || row.device || '')) || '').trim();
+      const raw = destRaw || (isWasteTxn ? srcRaw : '');
+      if (!raw) continue;
+      const loc = String(_locationLabelForSubloc(raw, ref) || raw).trim().toUpperCase();
+      if (!loc) continue;
+      if (_isHiddenPharmacyLocationLabel(loc)) continue;
+      out.add(loc);
+    }
+  }
+  return Array.from(out).sort((a,b)=>a.localeCompare(b, undefined, { sensitivity:'base' }));
+}
+
 // Build an index of itemCodes that currently have inventory remaining past expiry.
 // Used for the "unused" (translucent teal) segment in Optimization.
 //
@@ -1383,6 +1433,23 @@ function _normPocketKeyFromAny(pk){
   return _normPocketKey(c, sub);
 }
 
+function _closeOptTransientPopups(except){
+  const keep = String(except || '');
+  try {
+    const dd = document.getElementById('optDropdown');
+    const opts = document.getElementById('optDropdownOptions');
+    if (keep !== 'dropdown' && dd && opts) { dd.classList.remove('open'); opts.style.display = 'none'; }
+  } catch(_) {}
+  try {
+    const pop = document.getElementById('optMinFilterPopover');
+    if (keep !== 'minFilter' && pop) pop.style.display = 'none';
+  } catch(_) {}
+  try {
+    const rangePop = document.getElementById('chartRangePopover');
+    if (keep !== 'date' && rangePop) rangePop.setAttribute('aria-hidden', 'true');
+  } catch(_) {}
+}
+
 
 function _wireDropdown(){
   const dd = document.getElementById('optDropdown');
@@ -1391,7 +1458,7 @@ function _wireDropdown(){
   if (!dd || !head || !opts) return;
 
   function close(){ dd.classList.remove('open'); opts.style.display='none'; }
-  function open(){ dd.classList.add('open'); opts.style.display='block'; }
+  function open(){ _closeOptTransientPopups('dropdown'); dd.classList.add('open'); opts.style.display='block'; }
 
   close();
 
@@ -1428,6 +1495,12 @@ function _render(){
     const show = (metric === 'min' || metric === 'tx_waste');
     rptBtn.style.display = show ? 'inline-flex' : 'none';
     rptBtn.title = (metric === 'tx_waste') ? 'Print Waste Optimization Report' : 'Print Min Suggestions';
+  }
+  const minFilterCtl = document.getElementById('optMinFilterControl');
+  const minFilterPop = document.getElementById('optMinFilterPopover');
+  if (minFilterCtl){
+    minFilterCtl.style.display = (metric === 'min') ? 'inline-flex' : 'none';
+    if (metric !== 'min' && minFilterPop) minFilterPop.style.display = 'none';
   }
 
   // ---- Search + context chips (Charts-style) ----
@@ -1517,6 +1590,16 @@ function _render(){
 
   const metaByCode = window.__optMetaByCode || (window.__optMetaByCode = _buildItemMetaByCode());
   const ref = window.__optSubMap || (window.__optSubMap = _getSublocationMap());
+
+  // Item view always exposes location + sublocation toggle bars.
+  // Ensure we have a location scope selected when entering Item view.
+  if (viewBy === 'item' && (!window.__optDrillScope || window.__optDrillScope.type !== 'location')){
+    const locChoices = _getVisibleLocationChoices(ref);
+    if (locChoices.length){
+      window.__optDrillScope = { type: 'location', key: locChoices[0] };
+      window.__optItemSublocFilter = 'ALL';
+    }
+  }
 
   const raw = window.__optLastRaw || null;
   const computed = window.__optLastComputed || null;
@@ -2464,21 +2547,6 @@ const meta = metaByCode[code] || {};
     : 0;
   // Render scale header (aligned to bar column)
   const track = document.createElement('div'); track.className='opt-scale-track';
-  // Back button (drill-up) for focus mode.
-  const backBtn = document.createElement('div');
-  backBtn.className = 'opt-back-arrow';
-  backBtn.title = 'Back';
-  backBtn.setAttribute('role','button');
-  backBtn.setAttribute('tabindex','0');
-  backBtn.innerHTML = `
-    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>`;
-  backBtn.addEventListener('click', _navBack);
-  backBtn.addEventListener('keydown', (e)=>{
-    if (e.key === 'Enter' || e.key === ' ') backBtn.click();
-  });
-
   // Left side controls inside the scale track
   const trackLeft = document.createElement('div');
   trackLeft.className = 'opt-scale-track-left';
@@ -2488,37 +2556,134 @@ const meta = metaByCode[code] || {};
   leftGroup.className = 'opt-scale-left-group';
   const rightGroup = document.createElement('div');
   rightGroup.className = 'opt-scale-right-group';
-  // Show back only when we have drill history (or focus accordion is active)
-  const canBack = (Array.isArray(window.__optNavStack) && window.__optNavStack.length) || !!window.__optExpandedLocKey;
-  if (canBack){
-    backBtn.classList.add('visible');
-    leftGroup.appendChild(backBtn);
-  }
 
-  // Location→Item drill: sublocation segmented toggle (All + each sublocation)
+  const _mkArrowToggleBar = (values, currentValue, onPick, typeClass, includeAll) => {
+    const bar = document.createElement('div');
+    const controlsClass = (typeClass === 'chart-toggle-bar-loc') ? 'loc-controls' : 'subloc-controls';
+    bar.className = 'chart-toggle-bar ' + typeClass + ' ' + controlsClass;
+
+    const left = document.createElement('button');
+    left.className = 'chart-toggle-arrow left toggle-arrow-left';
+    left.type = 'button';
+    left.setAttribute('aria-label', 'Scroll left');
+    left.innerHTML = `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+
+    const right = document.createElement('button');
+    right.className = 'chart-toggle-arrow right toggle-arrow-right';
+    right.type = 'button';
+    right.setAttribute('aria-label', 'Scroll right');
+    right.innerHTML = `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+
+    const scroller = document.createElement('div');
+    scroller.className = 'opt-subloc-toggle chart-toggle-scroll ' + (typeClass === 'chart-toggle-bar-loc' ? 'loc-toggles' : 'subloc-toggles');
+    const kind = (typeClass === 'chart-toggle-bar-loc') ? 'loc' : 'subloc';
+
+    try {
+      window.__optToggleScroll = window.__optToggleScroll || {};
+      const saved = window.__optToggleScroll[kind];
+      if (typeof saved === 'number' && isFinite(saved)) scroller.scrollLeft = Math.max(0, saved);
+    } catch(_) {}
+    scroller.addEventListener('scroll', ()=>{
+      try {
+        window.__optToggleScroll = window.__optToggleScroll || {};
+        window.__optToggleScroll[kind] = scroller.scrollLeft;
+      } catch(_) {}
+    }, { passive: true });
+
+    const list = (includeAll === false ? [] : ['ALL']).concat(Array.isArray(values) ? values.filter(Boolean) : []);
+    const seen = new Set();
+    for (const rawVal of list){
+      const val = String(rawVal || '').trim().toUpperCase();
+      if (!val || seen.has(val)) continue;
+      seen.add(val);
+      const btn = document.createElement('div');
+      btn.className = 'opt-subloc-btn' + ((String(currentValue || 'ALL').toUpperCase() === val) ? ' active' : '');
+      btn.textContent = (val === 'ALL') ? 'All' : val;
+      btn.setAttribute('role', 'button');
+      btn.setAttribute('tabindex', '0');
+      btn.addEventListener('click', (e)=>{ try { window.__optToggleScroll = window.__optToggleScroll || {}; window.__optToggleScroll[kind] = scroller.scrollLeft; } catch(_) {} e.stopPropagation(); onPick(val); });
+      btn.addEventListener('keydown', (e)=>{ if (e.key === 'Enter' || e.key === ' ') btn.click(); });
+      scroller.appendChild(btn);
+    }
+
+    left.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: -220, behavior: 'smooth' }); });
+    right.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: 220, behavior: 'smooth' }); });
+
+    const updateArrows = ()=>{
+      const overflow = (scroller.scrollWidth - scroller.clientWidth) > 2;
+      left.style.display = overflow ? 'flex' : 'none';
+      right.style.display = overflow ? 'flex' : 'none';
+      bar.classList.toggle('no-arrows', !overflow);
+    };
+
+    const postMountAdjust = ()=>{
+      try {
+        const active = scroller.querySelector('.opt-subloc-btn.active');
+        if (!active) return;
+        const aLeft = active.offsetLeft;
+        const aRight = aLeft + active.offsetWidth;
+        const vLeft = scroller.scrollLeft;
+        const vRight = vLeft + scroller.clientWidth;
+        if (aLeft < vLeft) scroller.scrollLeft = Math.max(0, aLeft - 18);
+        else if (aRight > vRight) scroller.scrollLeft = aRight - scroller.clientWidth + 18;
+        window.__optToggleScroll = window.__optToggleScroll || {};
+        window.__optToggleScroll[kind] = scroller.scrollLeft;
+      } catch(_) {}
+    };
+
+    try {
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{ postMountAdjust(); updateArrows(); }));
+      if (typeof ResizeObserver !== 'undefined'){
+        const ro = new ResizeObserver(updateArrows);
+        ro.observe(scroller);
+        ro.observe(bar);
+      } else {
+        window.addEventListener('resize', updateArrows);
+      }
+    } catch(_){ postMountAdjust(); updateArrows(); }
+
+    bar.appendChild(left);
+    bar.appendChild(scroller);
+    bar.appendChild(right);
+    return bar;
+  };
+
+  // Item view controls: location + sublocation segmented toggles (with left/right arrows)
   if (viewBy === 'item' && window.__optDrillScope && window.__optDrillScope.type === 'location'){
+    const currentLoc = String(window.__optDrillScope.key || '').toUpperCase();
+    const __itemCodesForScope = (()=>{
+      const out = new Set();
+      try {
+        if (window.__optItemFilterSet && window.__optItemFilterSet.size) {
+          for (const c of window.__optItemFilterSet) out.add(String(c || '').trim());
+        }
+        if (window.__optPocketFilterSet && window.__optPocketFilterSet.size) {
+          for (const pk of window.__optPocketFilterSet) {
+            const c = String(pk || '').split('|')[0] || '';
+            if (c) out.add(c);
+          }
+        }
+      } catch(_) {}
+      return Array.from(out).filter(Boolean);
+    })();
+    const txLocChoices = _getTxLocationChoicesForItems(tx, __itemCodesForScope, ref);
+    const locChoices = txLocChoices.length ? txLocChoices : _getVisibleLocationChoices(ref);
+    if (locChoices.length){
+      leftGroup.appendChild(_mkArrowToggleBar(locChoices, currentLoc || 'ALL', (val)=>{
+        if (String(window.__optDrillScope.key || '').toUpperCase() === val) return;
+        window.__optDrillScope = { type: 'location', key: val };
+        window.__optItemSublocFilter = 'ALL';
+        _render();
+      }, 'chart-toggle-bar-loc', false));
+    }
+
     const choices = Array.isArray(window.__optItemSublocChoices) ? window.__optItemSublocChoices : [];
     if (choices.length){
-      const group = document.createElement('div');
-      group.className = 'opt-subloc-toggle';
-      const cur = String(window.__optItemSublocFilter || 'ALL');
-      const mk = (label, val) => {
-        const b = document.createElement('div');
-        b.className = 'opt-subloc-btn' + ((cur === val) ? ' active' : '');
-        b.textContent = label;
-        b.setAttribute('role','button');
-        b.setAttribute('tabindex','0');
-        b.addEventListener('click', (e)=>{
-          e.stopPropagation();
-          window.__optItemSublocFilter = val;
-          _render();
-        });
-        b.addEventListener('keydown', (e)=>{ if (e.key==='Enter' || e.key===' ') b.click(); });
-        return b;
-      };
-      group.appendChild(mk('All','ALL'));
-      for (const c of choices){ group.appendChild(mk(String(c), String(c))); }
-      leftGroup.appendChild(group);
+      const cur = String(window.__optItemSublocFilter || 'ALL').toUpperCase();
+      leftGroup.appendChild(_mkArrowToggleBar(choices, cur, (val)=>{
+        window.__optItemSublocFilter = val;
+        _render();
+      }, 'chart-toggle-bar-subloc', true));
     }
   }
 
@@ -2581,7 +2746,7 @@ if (metric === 'min'){
   legend.className = 'opt-min-legend';
   const leg = (cls, label) => {
     const it = document.createElement('div');
-    it.className = 'opt-min-legend-item' + ((String(window.__optItemMinBucketFilter||'ALL')===cls)?' active':'');
+    it.className = 'opt-min-legend-item ' + cls + ((String(window.__optItemMinBucketFilter||'ALL')===cls)?' active':'');
     it.setAttribute('data-bucket', cls);
     it.setAttribute('role','button');
     it.setAttribute('tabindex','0');
@@ -2645,7 +2810,40 @@ if (metric === 'min'){
     rightGroup.appendChild(stdBtn);
   }
 
-  rightGroup.appendChild(legend);
+  const filterControl = document.getElementById('optMinFilterControl');
+  const filterBtn = document.getElementById('optMinFilterIconBtn');
+  const legendPop = document.getElementById('optMinFilterPopover');
+  if (filterControl && filterBtn && legendPop){
+    filterControl.style.display = 'inline-flex';
+    legendPop.innerHTML = '';
+    const frame = document.createElement('div');
+    frame.className = 'opt-min-legend-pop';
+    frame.appendChild(legend);
+    legendPop.appendChild(frame);
+
+    const closePop = ()=>{ legendPop.style.display = 'none'; };
+    if (!filterBtn.__optBound){
+      filterBtn.__optBound = true;
+      filterBtn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        if (legendPop.style.display === 'none') { _closeOptTransientPopups('minFilter'); legendPop.style.display = 'block'; } else legendPop.style.display = 'none';
+      });
+    }
+
+    window.__optMinLegendPopover = { pop: legendPop, btn: filterBtn };
+    if (!window.__optMinLegendPopoverBound){
+      window.__optMinLegendPopoverBound = true;
+      document.addEventListener('click', (ev)=>{
+        try {
+          const st = window.__optMinLegendPopover || null;
+          if (!st || !st.pop || !st.btn) return;
+          if (!st.pop.contains(ev.target) && ev.target !== st.btn && !st.btn.contains(ev.target)) {
+            st.pop.style.display = 'none';
+          }
+        } catch(_){ }
+      });
+    }
+  }
 }
   // Build track content
   trackLeft.appendChild(leftGroup);
@@ -3159,20 +3357,11 @@ if (metric === 'min'){
                 if (metric === 'iur'){
                   _drillToItemScope(drillType, drillKey, { sublocation: subKey, iurRate: String(tierCls||'') });
                 } else if (metric === 'min'){
-                  // Min Suggestions filtering is by bucket category (Increase/No-demand/Decrease/OK)
-                  // rather than IUR tiers. Apply a hard bucket filter in Item view.
                   _drillToItemScope(drillType, drillKey, { sublocation: subKey, minBucket: String(tierCls||'') });
                 } else {
-                  const members = r.tierItems ? (r.tierItems[tierCls] || []) : [];
-                  const pocketKeys = members
-                    .map(m => {
-                      if (m && m.pocketKey) return String(m.pocketKey);
-                      const c = (m && m.itemCode) ? String(m.itemCode) : '';
-                      const s = (m && m.sublocation) ? String(m.sublocation) : subKey;
-                      return (c ? _normPocketKey(c, s) : '');
-                    })
-                    .filter(Boolean);
-                  _drillToItemScope(drillType, drillKey, { bucket: String(tierCls||''), sublocation: subKey, pocketKeys });
+                  // Reorder: move to item view with location/sublocation scope only.
+                  // Do not hard-filter by member pockets from segment clicks.
+                  _drillToItemScope(drillType, drillKey, { sublocation: subKey });
                 }
                 return;
               }
@@ -3319,21 +3508,11 @@ if (metric === 'min'){
 
         if (metric === 'iur'){
           _drillToItemScope(drillType, drillKey, { sublocation: subKey, iurRate: String(tierCls||'') });
+        } else if (metric === 'min'){
+          _drillToItemScope(drillType, drillKey, { sublocation: subKey, minBucket: String(tierCls||'') });
         } else {
-          const members = rowObj.tierItems[tierCls] || [];
-          const pocketKeys = members
-            .map(m => {
-              if (m && m.pocketKey) return String(m.pocketKey);
-              // Fallback (defensive): reconstruct from itemCode+sublocation.
-              const c = (m && m.itemCode) ? String(m.itemCode) : '';
-              const s = (m && m.sublocation) ? String(m.sublocation) : subKey;
-              return (c ? _normPocketKey(c, s) : '');
-            })
-            .filter(Boolean);
-          // IMPORTANT: pass bucket for UI state; filter applies based on pocketKeys even if tier is missing.
-          // NOTE: Min Suggestions / Reorder use bucket categories (Increase/No demand/etc.).
-          // We pass pocketKeys and bucket; no IUR tier filter should be involved.
-          _drillToItemScope(drillType, drillKey, { bucket: String(tierCls||''), sublocation: subKey, pocketKeys });
+          // Reorder: only scope to toggle context; do not apply pocket-level hard filters.
+          _drillToItemScope(drillType, drillKey, { sublocation: subKey });
         }
       });;
     };
@@ -4496,7 +4675,7 @@ function _setupOptDateRange(){
   };
 
   const closePopover = ()=>{ popover.setAttribute('aria-hidden','true'); };
-  const openPopover = ()=>{ popover.setAttribute('aria-hidden','false'); };
+  const openPopover = ()=>{ _closeOptTransientPopups('date'); popover.setAttribute('aria-hidden','false'); };
   const togglePopover = ()=>{
     const isOpen = popover.getAttribute('aria-hidden') !== 'true';
     if (isOpen) closePopover(); else openPopover();

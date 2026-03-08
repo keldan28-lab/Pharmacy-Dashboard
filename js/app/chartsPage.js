@@ -3312,16 +3312,15 @@ function applyFlowOverrideFromVerticalBarSelection() {
                    r.location || r.fromLocation || r.from || r.sendFromLocation || r.sourceLocation || '';
         }
 
-        function computeSublocMapForItem(itemCode){
+        function computeSublocMapForCodes(itemCodes){
             try {
-                const code = String(itemCode || "").trim();
-                if (!code) return [];
+                const codes = Array.isArray(itemCodes) ? itemCodes.map(c=>String(c||'').trim()).filter(Boolean) : [];
+                if (!codes.length) return null;
                 const txRoot = (costChartState && costChartState.cachedMockData && costChartState.cachedMockData.transactions)
                     ? costChartState.cachedMockData.transactions
                     : ((typeof cachedMockData === "object" && cachedMockData && cachedMockData.transactions) ? cachedMockData.transactions : null);
-                if (!txRoot || typeof txRoot !== "object") return [];
+                if (!txRoot || typeof txRoot !== "object") return null;
 
-                // Robust lookup: transaction buckets may be keyed by padded/unpadded/dashed variants.
                 const _getTxnBucketForCode = (root, codeStr) => {
                     if (!root || !codeStr) return null;
                     const s = String(codeStr).trim();
@@ -3329,47 +3328,60 @@ function applyFlowOverrideFromVerticalBarSelection() {
                     const noLead = s.replace(/^0+/, '') || s;
                     const noDash = s.replace(/[\s-]/g, '');
                     const noDashNoLead = (noDash || '').replace(/^0+/, '') || noDash;
-                    return root[s]
-                        || root[noLead]
-                        || (noDash ? root[noDash] : null)
-                        || (noDashNoLead ? root[noDashNoLead] : null)
-                        || null;
+                    return root[s] || root[noLead] || (noDash ? root[noDash] : null) || (noDashNoLead ? root[noDashNoLead] : null) || null;
                 };
 
-                const bucket = _getTxnBucketForCode(txRoot, code);
-                const hist = bucket && (bucket.history || bucket.transactions || bucket.tx || []);
-                if (!Array.isArray(hist) || !hist.length) return [];
-
-                // locKey -> { label, sublocs: Map(canon -> display) }
                 const locMap = new Map();
-                for (let i = 0; i < hist.length; i++) {
-                    const r = hist[i] || {};
-                    const disp = String(_getTxnSublocRaw(r) || "").trim();
-                    if (!disp) continue;
-                    const canon = _canonSublocExact(disp);
-                    if (!canon) continue;
+                for (let ci = 0; ci < codes.length; ci++) {
+                    const bucket = _getTxnBucketForCode(txRoot, codes[ci]);
+                    const hist = bucket && (bucket.history || bucket.transactions || bucket.tx || []);
+                    if (!Array.isArray(hist) || !hist.length) continue;
+                    for (let i = 0; i < hist.length; i++) {
+                        const r = hist[i] || {};
+                        const disp = String(_getTxnSublocRaw(r) || "").trim();
+                        if (!disp) continue;
+                        const canon = _canonSublocExact(disp);
+                        if (!canon) continue;
+                        const mappedMainLoc = _mainLocFromSublocToken(disp);
+                        const locKey = mappedMainLoc ? String(mappedMainLoc).trim().toUpperCase() : _locKeyFromCanon(_canonLocKey(canon));
+                        if (!locKey) continue;
 
-                    // Prefer authoritative mapping (sublocation -> mainLocation) when present.
-                    // Fallback to heuristics if mapping is missing.
-                    const mappedMainLoc = _mainLocFromSublocToken(disp);
-                    const locKey = mappedMainLoc ? String(mappedMainLoc).trim().toUpperCase() : _locKeyFromCanon(_canonLocKey(canon));
-                    if (!locKey) continue;
-                    if (!locMap.has(locKey)) locMap.set(locKey, { label: locKey, sublocs: new Map() });
-                    const entry = locMap.get(locKey);
-                    if (!entry.sublocs.has(canon)) entry.sublocs.set(canon, disp);
+                        const qty = Math.abs(Number(r.transQty ?? r.TransQty ?? r.qty ?? r.quantity ?? 0) || 0);
+                        if (!locMap.has(locKey)) locMap.set(locKey, { label: locKey, total: 0, sublocs: new Map() });
+                        const entry = locMap.get(locKey);
+                        entry.total += qty;
+                        if (!entry.sublocs.has(canon)) entry.sublocs.set(canon, { label: disp, total: 0 });
+                        const sub = entry.sublocs.get(canon);
+                        sub.total += qty;
+                    }
                 }
+
                 const out = { locations: [], byLocation: Object.create(null) };
-                const locKeys = Array.from(locMap.keys()).sort((a,b)=> String(a).localeCompare(String(b)));
+                const locKeys = Array.from(locMap.keys())
+                    .filter((lk)=> {
+                        const e = locMap.get(lk);
+                        return e && Number(e.total || 0) > 0;
+                    })
+                    .sort((a,b)=> String(a).localeCompare(String(b)));
                 out.locations = locKeys;
                 for (const lk of locKeys) {
                     const entry = locMap.get(lk);
-                    const sublocs = Array.from(entry.sublocs.values()).sort((a,b)=> String(a).localeCompare(String(b)));
+                    const sublocs = Array.from(entry.sublocs.values())
+                        .filter((x)=> Number(x && x.total || 0) > 0)
+                        .map((x)=> String(x.label || '').trim())
+                        .filter(Boolean)
+                        .sort((a,b)=> String(a).localeCompare(String(b)));
                     out.byLocation[lk] = sublocs;
                 }
                 return out;
             } catch (e) {
-                return [];
+                return null;
             }
+        }
+
+        function computeSublocMapForItem(itemCode){
+            const out = computeSublocMapForCodes([itemCode]);
+            return out || [];
         }
 
         function computeSublocMapFromReference(){
@@ -3579,9 +3591,22 @@ function applyFlowOverrideFromVerticalBarSelection() {
         }
 
         function buildLocationAndSublocControls(){
+            const fd = (costChartState && costChartState.filterData && typeof costChartState.filterData === 'object') ? costChartState.filterData : null;
+            const scopedCodes = (() => {
+                const set = new Set();
+                try {
+                    if (fd && fd.itemCode) set.add(String(fd.itemCode).trim());
+                    if (fd && Array.isArray(fd.itemCodes)) fd.itemCodes.forEach(c=> set.add(String(c||'').trim()));
+                    if (costChartState && costChartState.itemSublocItemCode) set.add(String(costChartState.itemSublocItemCode).trim());
+                } catch (e) {}
+                return Array.from(set).filter(Boolean);
+            })();
+            const scopedMap = scopedCodes.length ? computeSublocMapForCodes(scopedCodes) : null;
             const map = (costChartState && costChartState.itemSublocMap && typeof costChartState.itemSublocMap === 'object' && Array.isArray(costChartState.itemSublocMap.locations) && costChartState.itemSublocMap.locations.length)
                 ? costChartState.itemSublocMap
-                : (computeSublocMapFromReference() || { locations: [], byLocation: Object.create(null) });
+                : ((scopedMap && Array.isArray(scopedMap.locations) && scopedMap.locations.length)
+                    ? scopedMap
+                    : (computeSublocMapFromReference() || { locations: [], byLocation: Object.create(null) }));
 
 	            // Single-row, side-by-side controls (Location bar + Sublocation bar)
 	            const container = document.createElement('div');
@@ -3590,7 +3615,6 @@ function applyFlowOverrideFromVerticalBarSelection() {
 
             const curLoc = String(costChartState.itemLocFilter || 'ALL');
             const curSub = String(costChartState.itemSublocFilter || 'ALL');
-            const fd = (costChartState && costChartState.filterData && typeof costChartState.filterData === 'object') ? costChartState.filterData : null;
             const hasItemFilter = !!(
                 (fd && ((fd.itemCode && String(fd.itemCode).trim()) || (Array.isArray(fd.itemCodes) && fd.itemCodes.length > 0))) ||
                 (costChartState && String(costChartState.itemSublocItemCode || '').trim())
@@ -4187,6 +4211,7 @@ const applyPreset = (preset) => {
 
             const openPopover = () => {
                 if (!popover) return;
+                closeChartsTransientPopups('date');
                 popover.classList.add('is-open');
                 popover.setAttribute('aria-hidden', 'false');
                 document.body.classList.add('chart-range-popover-open');
@@ -9838,6 +9863,34 @@ try {
             const __vbSublocOnEff = (__vbLocOn ? __vbSublocOn : false);
             const __vbSublocCanonEff = (__vbLocOn ? __vbSublocCanon : '');
 
+
+            const _txMatchesVerticalScope = (row, kindHint) => {
+                if (!(__vbLocOn || __vbSublocOnEff)) return true;
+                const qty0 = Number(row && (row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0));
+                const kind = kindHint || classifyTxn(row && (row.transactionType || row.type || row.transType), qty0);
+                const destRaw0 = (row && (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || ''));
+                let scopeRaw = String(destRaw0 || '').trim();
+                if (!scopeRaw && kind === 'waste') {
+                    scopeRaw = String((row && (row.sublocation || row.location || row.fromLocation || row.sourceLocation || row.device || '')) || '').trim();
+                }
+                if (!scopeRaw) return false;
+                const scopeCanonExact = _canonSublocExact(scopeRaw);
+                if (!scopeCanonExact) return false;
+
+                if (__vbLocOn) {
+                    const ml = (_mainLocFromSublocToken(scopeRaw) || _mainLocFromSublocToken(scopeCanonExact) || '');
+                    const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(scopeCanonExact);
+                    const tokenU = String(scopeCanonExact || '').trim().toUpperCase();
+                    let match = false;
+                    if (lk0 && lk0 === __vbLocCanon) match = true;
+                    else if (tokenU && tokenU === __vbLocCanon) match = true;
+                    else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) match = true;
+                    if (!match) return false;
+                }
+                if (__vbSublocOnEff && scopeCanonExact !== __vbSublocCanonEff) return false;
+                return true;
+            };
+
             // Diagnostics: confirm toggle values are being read by the renderer
             try {
                 console.log('🧩 VBar diagnostics (filters):', {
@@ -9928,44 +9981,9 @@ try {
                         const row = hist[j] || {};
                         const d = parseISODate(row.transDate || row.date || row.transactionDate);
                         if (!inRange(d)) continue;
-
-                        // Apply loc/subloc filters (DESTINATION ONLY for vertical bar chart)
-                        // - itemLocFilter = mainLocation (e.g., 1W)
-                        // - itemSublocFilter = destination unit token (e.g., 1WA)
-                        // Transaction `sublocation` is SOURCE (cabinet/device) and should not be used here.
-                        const destRaw0 = (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '');
-                        const destRaw = String(destRaw0 || '').trim();
-                        // If a destination-based filter is active but this row has no destination token,
-                        // it cannot contribute to the destination chart slice.
-                        if ((__vbLocOn || __vbSublocOnEff) && !destRaw) continue;
-
-                        const destCanonExact = _canonSublocExact(destRaw);
-                        if (!destCanonExact) continue;
-
-                        if (__vbLocOn) {
-                            // Prefer authoritative SUBLOCATION_MAP mainLocation; fallback to heuristic loc key.
-                            // Resolve mainLocation strictly from SUBLOCATION_MAP when possible.
-                            // IMPORTANT: avoid canonicalizeLocationCode() here; it can over-collapse tokens
-                            // and make location filters appear to have no effect.
-                            const ml = (_mainLocFromSublocToken(destRaw) || _mainLocFromSublocToken(destCanonExact) || "");
-                            const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(destCanonExact);
-                            const tokenU = String(destCanonExact || "").trim().toUpperCase();
-                            // Match rules:
-                            // 1) resolved mainLocation (lk0) equals selected location
-                            // 2) destination token itself equals selected location (some feeds send mainLocation directly)
-                            // 3) destination token starts with selected location (e.g., OR1, OR-2, ED-A)
-                            let _match = false;
-                            if (lk0 && lk0 === __vbLocCanon) _match = true;
-                            else if (tokenU && tokenU === __vbLocCanon) _match = true;
-                            else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
-                            if (!_match) continue;
-                        }
-                        if (__vbSublocOnEff) {
-                            if (destCanonExact !== __vbSublocCanonEff) continue;
-                        }
-
                         const qty = Number(row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0);
                         const kind = classifyTxn(row.transactionType || row.type || row.transType, qty);
+                        if (!_txMatchesVerticalScope(row, kind)) continue;
                         const mag = Math.abs(qty || 0);
                         if (!mag) continue;
 
@@ -10001,33 +10019,9 @@ try {
                             const row = hist[j] || {};
                             const d = parseISODate(row.transDate || row.date || row.transactionDate);
                             if (!inRange(d)) continue;
-
-                            // Respect active location/sublocation filters in the fallback path too.
-                            // Otherwise the chart appears to ignore toggle selections.
-                            if (__vbLocOn || __vbSublocOnEff) {
-                                // Destination-only filtering for vertical bar chart
-                                const destRaw0 = (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '');
-                                const destRaw = String(destRaw0 || '').trim();
-                                if (!destRaw) continue;
-                                const destCanonExact = _canonSublocExact(destRaw);
-                                if (!destCanonExact) continue;
-
-                                if (__vbLocOn) {
-                                    const ml = (_mainLocFromSublocToken(destRaw) || _mainLocFromSublocToken(destCanonExact) || '');
-                                    const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(destCanonExact);
-                                    const tokenU = String(destCanonExact || '').trim().toUpperCase();
-                                    let _match = false;
-                                    if (lk0 && lk0 === __vbLocCanon) _match = true;
-                                    else if (tokenU && tokenU === __vbLocCanon) _match = true;
-                                    else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
-                                    if (!_match) continue;
-                                }
-                                if (__vbSublocOnEff) {
-                                    if (destCanonExact !== __vbSublocCanonEff) continue;
-                                }
-                            }
                             const qty = Number(row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0);
                             const kind = classifyTxn(row.transactionType || row.type || row.transType, qty);
+                            if (!_txMatchesVerticalScope(row, kind)) continue;
                             const mag = Math.abs(qty || 0);
                             if (!mag) continue;
 
@@ -10300,11 +10294,15 @@ try {
         const candidatesArr = Array.from(candidatesSet);
         candidatesArr.sort();
         const midIdx = candidatesArr.length ? Math.floor(candidatesArr.length / 2) : 0;
+        const __projLocSig = (__vbLocOn || __vbSublocOnEff)
+            ? ('L:' + String(__vbLocCanon || '') + '|S:' + String(__vbSublocCanonEff || ''))
+            : 'L:ALL|S:ALL';
         const projWasteCacheKey = [
             'v1',
             String(lastRealWeekEndISO || ''),
             String(outlookDays || 0),
             String(view),
+            String(__projLocSig),
             String(candidatesArr.length),
             String(candidatesArr[0] || ''),
             String(candidatesArr[midIdx] || ''),
@@ -10335,6 +10333,24 @@ try {
                 if (!expD) continue;
                 // Only project into the outlook window beyond the last real date
                 if (expD < startDate || expD > endDate) continue;
+
+                // Keep projected waste location/sublocation aware for vertical-bar filters.
+                if (__vbLocOn || __vbSublocOnEff) {
+                    const locCanonExact = _canonSublocExact(loc);
+                    if (!locCanonExact) continue;
+                    if (__vbLocOn) {
+                        const ml = (_mainLocFromSublocToken(loc) || _mainLocFromSublocToken(locCanonExact) || '');
+                        const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(locCanonExact);
+                        const tokenU = String(locCanonExact || '').trim().toUpperCase();
+                        let _match = false;
+                        if (lk0 && lk0 === __vbLocCanon) _match = true;
+                        else if (tokenU && tokenU === __vbLocCanon) _match = true;
+                        else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
+                        if (!_match) continue;
+                    }
+                    if (__vbSublocOnEff && locCanonExact !== __vbSublocCanonEff) continue;
+                }
+
                 lots.push({ loc, qty, expD, expISO });
             }
             if (!lots.length) return;
@@ -10850,35 +10866,9 @@ let _displayProjectionStartIndex = shouldGenerateOutlook ? originalWeekCount : -
                         const row = hist[j] || {};
                         const d = parseISODate(row.transDate || row.date || row.transactionDate);
                         if (!inRange(d)) continue;
-
-                            // Respect location/sublocation filters in the fallback path as well.
-                            // Otherwise, toggles appear to "do nothing" because fallback repopulates
-                            // weekly totals from unfiltered histories.
-                            if (__vbLocOn || __vbSublocOnEff) {
-                                // Destination-only filters for vertical bar chart (monthly fallback path)
-                                const destRaw0 = (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '');
-                                const destRaw = String(destRaw0 || '').trim();
-                                if (!destRaw) continue;
-                                const destCanonExact = _canonSublocExact(destRaw);
-                                if (!destCanonExact) continue;
-
-                                if (__vbLocOn) {
-                                    const ml = (_mainLocFromSublocToken(destRaw) || _mainLocFromSublocToken(destCanonExact) || '');
-                                    const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(destCanonExact);
-                                    const tokenU = String(destCanonExact || '').trim().toUpperCase();
-                                    let _match = false;
-                                    if (lk0 && lk0 === __vbLocCanon) _match = true;
-                                    else if (tokenU && tokenU === __vbLocCanon) _match = true;
-                                    else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
-                                    if (!_match) continue;
-                                }
-                                if (__vbSublocOnEff) {
-                                    if (destCanonExact !== __vbSublocCanonEff) continue;
-                                }
-                            }
-
                         const qty = Number(row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0);
                         const kind = classifyTxn(row.transactionType || row.type || row.transType, qty);
+                        if (!_txMatchesVerticalScope(row, kind)) continue;
                         const mag = Math.abs(qty || 0);
                         if (!mag) continue;
 
@@ -11114,33 +11104,12 @@ if (!__vbLocOn && !__vbSublocOnEff) {
             const row = hist[j] || {};
             const iso = String((row.transDate || row.date || row.transactionDate || '')).slice(0, 10);
             if (!iso || iso < rangeFromISO || iso > rangeToISO) continue;
-
-            // Destination-only filtering for Day view as well (Vertical Bar drill)
-            const destRaw0 = (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '');
-            const destRaw = String(destRaw0 || '').trim();
-            if ((__vbLocOn || __vbSublocOnEff) && !destRaw) continue;
-            const destCanonExact = _canonSublocExact(destRaw);
-            if (!destCanonExact) continue;
-
-            if (__vbLocOn) {
-                const ml = (_mainLocFromSublocToken(destRaw) || _mainLocFromSublocToken(destCanonExact) || '');
-                const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(destCanonExact);
-                const tokenU = String(destCanonExact || '').trim().toUpperCase();
-                let _match = false;
-                if (lk0 && lk0 === __vbLocCanon) _match = true;
-                else if (tokenU && tokenU === __vbLocCanon) _match = true;
-                else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
-                if (!_match) continue;
-            }
-            if (__vbSublocOnEff) {
-                if (destCanonExact !== __vbSublocCanonEff) continue;
-            }
-
             const agg = dailyAgg.get(iso);
             if (!agg) continue;
 
             const qty = Number(row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0);
             const kind = classifyTxn(row.transactionType || row.type || row.transType, qty);
+            if (!_txMatchesVerticalScope(row, kind)) continue;
             const mag = Math.abs(qty || 0);
             if (!mag) continue;
 
@@ -11857,7 +11826,6 @@ const drawProjectionDividerAndLabel = () => {
                     if (i === 0) ctx.moveTo(xCenter, y);
                     else ctx.lineTo(xCenter, y);
                 }
-                ctx.stroke();
 
                 // Fill down to baseline for subtle shaded backdrop
                 ctx.lineTo(padding.left + (weekCount - 1) * barGroupWidth + barGroupWidth / 2, baseY);
@@ -13924,6 +13892,8 @@ if (view === 'all') {
             // Toggle dropdown
             dropdownHeader.addEventListener('click', function(e) {
                 e.stopPropagation();
+                const willOpen = !dropdown.classList.contains('open');
+                if (willOpen) closeChartsTransientPopups('dropdown');
                 dropdown.classList.toggle('open');
             });
             
@@ -13983,6 +13953,24 @@ if (view === 'all') {
             console.log('✓ Custom dropdown initialized');
         }
         
+
+        function closeChartsTransientPopups(except){
+            const keep = String(except || '');
+            try {
+                if (keep !== 'dropdown') {
+                    const dropdown = document.getElementById('customDropdown');
+                    if (dropdown) dropdown.classList.remove('open');
+                }
+            } catch(e) {}
+            try {
+                if (keep !== 'date') {
+                    if (costChartState && typeof costChartState._closeRangePopover === 'function') costChartState._closeRangePopover();
+                    const pop = document.getElementById('chartRangePopover');
+                    if (pop) { pop.classList.remove('is-open'); pop.setAttribute('aria-hidden','true'); }
+                }
+            } catch(e) {}
+        }
+
         // Initialize
         console.log('🚀 Charts: Script executing...');
         
