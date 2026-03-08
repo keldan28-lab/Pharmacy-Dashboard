@@ -3601,7 +3601,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
                             try { scheduleChartsRedraw('sublocFilter'); } catch(e) {}
                         }
 }, 'subloc'));
-            container.appendChild(_mkMinMaxTogglePill());
+            if (String(curSub).toUpperCase() !== 'ALL') container.appendChild(_mkMinMaxTogglePill());
             return container;
         }
 
