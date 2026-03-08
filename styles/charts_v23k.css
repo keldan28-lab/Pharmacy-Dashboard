@@ -2674,6 +2674,7 @@ body:not(.dark-mode) .sort-toggle-btn{ color: rgba(120,120,120,0.75); }
   border-radius: 999px;
   border: 2px solid rgba(120,120,120,0.25);
   background: rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -2px 6px rgba(0,0,0,0.06);
 }
 
 /* Inline, arrow-scrolled + draggable toggle bars */
@@ -2735,6 +2736,7 @@ body.dark-mode .chart-toggle-arrow:focus-visible{ box-shadow: 0 0 12px rgba(0, 1
 body.dark-mode .opt-subloc-toggle{
   border-color: rgba(220,220,220,0.18);
   background: rgba(0,0,0,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -2px 6px rgba(0,0,0,0.22);
 }
 .opt-subloc-btn{
   min-width: 56px;
@@ -2756,16 +2758,10 @@ body.dark-mode .opt-subloc-btn{ color: rgba(240,240,240,0.80); }
   color: rgba(32, 200, 181, 0.98);
 }
 .chart-loc-subloc-controls{
-  border: 2px solid rgba(120,120,120,0.22);
-  border-radius: 999px;
-  background: rgba(255,255,255,0.10);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -2px 6px rgba(0,0,0,0.06);
-  padding: 3px 6px;
-}
-body.dark-mode .chart-loc-subloc-controls{
-  border-color: rgba(220,220,220,0.18);
-  background: rgba(0,0,0,0.10);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -2px 6px rgba(0,0,0,0.22);
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 .chart-toggle-bar-subloc .opt-subloc-btn.active{
   background: transparent;
