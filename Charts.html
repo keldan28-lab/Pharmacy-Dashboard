@@ -216,12 +216,10 @@
                         <div id="chartContextControls" class="chart-context-controls">
                 <div class="chart-context-inner">
 				<div id="verticalDrillContainer" class="chart-drill">
-                        <span class="chart-context-divider">|</span>
-                        <span class="chart-drill-label">Drill</span>
-                        <div class="chart-drill-controls">
-                            <span class="chart-drill-text">Month</span>
+                        <div class="chart-drill-controls chart-drill-compact">
+                            <button id="chartDrillOutBtn" class="chart-drill-btn" type="button" aria-label="Drill out to month">−</button>
+                            <button id="chartDrillInBtn" class="chart-drill-btn" type="button" aria-label="Drill in to date">+</button>
                             <input id="chartDrillSlider" class="chart-drill-slider" type="range" min="0" max="2" step="1" value="1" aria-label="Drilldown level"/>
-                            <span class="chart-drill-text">Day</span>
                         </div>
                     </div>
                 </div>
