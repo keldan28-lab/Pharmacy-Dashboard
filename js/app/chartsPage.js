@@ -736,6 +736,7 @@ const backButton = document.getElementById('backButton');
             inventoryStackMode: 'both', // 'both' | 'pyxis' | 'pharmacy' (used for quantity-on-hand view)
             dateRangeDays: (localStorage.getItem('chartsDateRangeDays') || 'all'), // 'all' | '30' | '60' | '90' (bar views)
             verticalBarView: 'all', // 'all', 'usage', 'restock', 'waste' for bar-chart
+            verticalBarMinMaxOverlayEnabled: true,
             verticalDrillLevel: parseInt(localStorage.getItem('verticalDrillLevel') || '1', 10), // 0=month,1=week,2=day
             verticalDrillContext: JSON.parse(localStorage.getItem('verticalDrillContext') || 'null'), // { monthKey, weekEndISO }
             timeSeriesMetric: 'variance', // 'variance' or 'restock-usage' for time-chart
@@ -757,6 +758,7 @@ const backButton = document.getElementById('backButton');
                     if (st.timeSeriesMetric) costChartState.timeSeriesMetric = st.timeSeriesMetric;
                     if (st.costBarMetric) costChartState.costBarMetric = st.costBarMetric;
                     if (st.verticalBarView) costChartState.verticalBarView = st.verticalBarView;
+                    if (typeof st.verticalBarMinMaxOverlayEnabled === 'boolean') costChartState.verticalBarMinMaxOverlayEnabled = st.verticalBarMinMaxOverlayEnabled;
                 }
             }
         } catch (e) {
@@ -781,6 +783,7 @@ const backButton = document.getElementById('backButton');
                     drillDownStack: Array.isArray(costChartState.drillDownStack) ? costChartState.drillDownStack : [],
                     highlightKey: costChartState.highlightKey || null,
                     verticalBarView: costChartState.verticalBarView || 'all',
+                    verticalBarMinMaxOverlayEnabled: costChartState.verticalBarMinMaxOverlayEnabled !== false,
                     verticalDrillLevel: Number.isFinite(costChartState.verticalDrillLevel) ? costChartState.verticalDrillLevel : 1,
                     verticalDrillContext: costChartState.verticalDrillContext || null,
                     timeSeriesMetric: costChartState.timeSeriesMetric || 'variance',
@@ -818,6 +821,7 @@ const backButton = document.getElementById('backButton');
                 costChartState.drillDownStack = Array.isArray(snap.drillDownStack) ? snap.drillDownStack : [];
                 costChartState.highlightKey = snap.highlightKey || null;
                 costChartState.verticalBarView = snap.verticalBarView || costChartState.verticalBarView;
+                if (typeof snap.verticalBarMinMaxOverlayEnabled === 'boolean') costChartState.verticalBarMinMaxOverlayEnabled = snap.verticalBarMinMaxOverlayEnabled;
                 costChartState.verticalDrillLevel = Number.isFinite(snap.verticalDrillLevel) ? snap.verticalDrillLevel : costChartState.verticalDrillLevel;
                 costChartState.verticalDrillContext = snap.verticalDrillContext || null;
                 costChartState.timeSeriesMetric = snap.timeSeriesMetric || costChartState.timeSeriesMetric;
@@ -5753,6 +5757,8 @@ function dateToISO(d) {
                             data-tooltip="Waste" onclick="setVerticalBarView('waste', event)">
                         <svg viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="14" fill="currentColor" font-weight="bold">W</text></svg>
                     </button>
+                    <button class="sub-icon-btn sub-icon-pill ${costChartState.verticalBarMinMaxOverlayEnabled !== false ? 'active' : ''}" 
+                            data-tooltip="Min/Max" onclick="toggleVerticalBarMinMaxOverlay(event)">Min/Max</button>
                 `;
             } else if (chartType === 'line-chart') {
                 // Trend Lines: Usage Variance and Restock vs Usage
@@ -5821,11 +5827,26 @@ function dateToISO(d) {
             costChartState.verticalBarView = view;
             
             // Update active state in sub-menu
-            const parentMenu = event.target.closest('.sub-icons-menu');
-            parentMenu.querySelectorAll('.sub-icon-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.closest('.sub-icon-btn').classList.add('active');
+            const parentMenu = event && event.target ? event.target.closest('.sub-icons-menu') : null;
+            if (parentMenu) {
+                parentMenu.querySelectorAll('.sub-icon-btn').forEach(btn => {
+                    if (!btn.classList.contains('sub-icon-pill')) btn.classList.remove('active');
+                });
+                const clicked = event.target.closest('.sub-icon-btn');
+                if (clicked && !clicked.classList.contains('sub-icon-pill')) clicked.classList.add('active');
+            }
             
             // Redraw chart
+            switchChartType('bar-chart');
+        }
+
+        function toggleVerticalBarMinMaxOverlay(event) {
+            if (event) event.stopPropagation();
+            costChartState.verticalBarMinMaxOverlayEnabled = (costChartState.verticalBarMinMaxOverlayEnabled === false);
+
+            const btn = event && event.target ? event.target.closest('.sub-icon-pill') : null;
+            if (btn) btn.classList.toggle('active', costChartState.verticalBarMinMaxOverlayEnabled !== false);
+
             switchChartType('bar-chart');
         }
         
@@ -5885,7 +5906,8 @@ function dateToISO(d) {
                     chartType: costChartState.chartType,
                     timeSeriesMetric: costChartState.timeSeriesMetric,
                     costBarMetric: costChartState.costBarMetric,
-                    verticalBarView: costChartState.verticalBarView
+                    verticalBarView: costChartState.verticalBarView,
+                    verticalBarMinMaxOverlayEnabled: costChartState.verticalBarMinMaxOverlayEnabled !== false
                 }));
             } catch (e) {}
 
@@ -11319,6 +11341,84 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
             }
             maxValue = Math.max(1, maxValue);
 
+            const getPrettyAxisStep = (rawMax, gridSteps) => {
+                const safeMax = Math.max(0, Number(rawMax) || 0);
+                const target = safeMax / Math.max(1, Number(gridSteps) || 1);
+                if (!(target > 0)) return 1;
+                const magnitude = Math.pow(10, Math.floor(Math.log10(target)));
+                const normalized = target / magnitude;
+                let nice;
+                if (normalized <= 1) nice = 1;
+                else if (normalized <= 2) nice = 2;
+                else if (normalized <= 2.5) nice = 2.5;
+                else if (normalized <= 5) nice = 5;
+                else nice = 10;
+                return nice * magnitude;
+            };
+
+            const getVerticalBarMinMaxBand = () => {
+                try {
+                    if (!(costChartState && costChartState.verticalBarMinMaxOverlayEnabled !== false)) return null;
+                    if (view !== 'usage') return null;
+                    const subFilter = String((costChartState && costChartState.itemSublocFilter) || 'ALL').trim();
+                    if (!subFilter || subFilter.toUpperCase() === 'ALL') return null;
+
+                    const fd = (costChartState && costChartState.filterData && typeof costChartState.filterData === 'object') ? costChartState.filterData : null;
+                    let targetCode = '';
+                    if (fd) {
+                        targetCode = String(fd.itemCode || fd.code || '').trim();
+                        if (!targetCode && Array.isArray(fd.itemCodes) && fd.itemCodes.length === 1) {
+                            targetCode = String(fd.itemCodes[0] || '').trim();
+                        }
+                    }
+                    if (!targetCode) targetCode = String((costChartState && costChartState.itemSublocItemCode) || '').trim();
+                    if (!targetCode) return null;
+
+                    const invRoot = (costChartState.cachedMockData && costChartState.cachedMockData.inventory) ? costChartState.cachedMockData.inventory : null;
+                    const invEntry = (invRoot && invRoot[targetCode]) ? invRoot[targetCode] : null;
+                    if (!invEntry) return null;
+
+                    const rows = Array.isArray(invEntry.sublocations)
+                        ? invEntry.sublocations.map(r => ({
+                            sublocation: String(r.sublocation || r.location || r.loc || '').trim(),
+                            min: Number(r.minQty ?? r.min ?? 0) || 0,
+                            max: Number(r.maxQty ?? r.max ?? 0) || 0
+                        }))
+                        : (typeof invEntry === 'object' ? Object.keys(invEntry).map(k => {
+                            const v = invEntry[k] || {};
+                            return {
+                                sublocation: String(k),
+                                min: Number(v.minQty ?? v.min ?? 0) || 0,
+                                max: Number(v.maxQty ?? v.max ?? 0) || 0
+                            };
+                        }) : []);
+
+                    const selectedSubloc = _canonSublocExact(subFilter);
+                    if (!selectedSubloc) return null;
+
+                    let pocketMin = 0;
+                    let pocketMax = 0;
+                    for (let i = 0; i < rows.length; i++) {
+                        const rr = rows[i] || {};
+                        const tok = _canonSublocExact(rr.sublocation || '');
+                        if (!tok || tok !== selectedSubloc) continue;
+                        pocketMin += Number(rr.min) || 0;
+                        pocketMax += Number(rr.max) || 0;
+                    }
+                    if (!(pocketMin > 0 || pocketMax > 0)) return null;
+
+                    const factor = drillLevel === 2 ? 1 : (drillLevel === 0 ? 30 : 7);
+                    const minAgg = Math.max(0, pocketMin * factor);
+                    const maxAgg = Math.max(minAgg, pocketMax * factor);
+                    return { min: minAgg, max: maxAgg };
+                } catch (e) {
+                    return null;
+                }
+            };
+
+            const minMaxBand = getVerticalBarMinMaxBand();
+            if (minMaxBand) maxValue = Math.max(maxValue, Number(minMaxBand.max) || 0);
+
             // Horizontal grid lines for vertical bar chart (scale-relative, with scale values)
             (function drawBarChartHorizontalGrid(){
                 const gridSteps = 5;
@@ -11332,8 +11432,8 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                 ctx.textBaseline = 'middle';
 
                 const rawMaxValue = maxValue;
-                const scaleRoundStep = (rawMaxValue <= 50) ? 5 : (rawMaxValue <= 500) ? 10 : (rawMaxValue <= 5000) ? 100 : 1000;
-                const alignedMaxValue = Math.max(scaleRoundStep, Math.ceil(rawMaxValue / scaleRoundStep) * scaleRoundStep);
+                const niceStep = getPrettyAxisStep(rawMaxValue, gridSteps);
+                const alignedMaxValue = Math.max(niceStep, Math.ceil(rawMaxValue / niceStep) * niceStep);
                 const scaleLabelX = padding.left - 8; // keep y-scale labels left of first bar
 
                 // Align bar scaling with grid/scale labels
@@ -11342,12 +11442,12 @@ const barWidth = Math.max(__baseBarWidth, Math.min(50, __maxByGroup));
                 for (let g = 0; g <= gridSteps; g++) {
                     const ratio = g / gridSteps;
                     const y = baseY - (ratio * chartHeight);
-                    const scaleVal = Math.round((alignedMaxValue * ratio) / scaleRoundStep) * scaleRoundStep;
+                    const scaleVal = alignedMaxValue * ratio;
                     ctx.beginPath();
                     ctx.moveTo(padding.left, y);
                     ctx.lineTo(padding.left + chartWidth, y);
                     ctx.stroke();
-                    ctx.fillText(String(scaleVal), scaleLabelX, y - 5);
+                    ctx.fillText(String(Math.round(scaleVal * 100) / 100), scaleLabelX, y - 5);
                 }
                 ctx.restore();
             })();
@@ -11646,6 +11746,33 @@ const drawProjectionDividerAndLabel = () => {
             
                         // Draw projection overlay behind bars (future region)
             drawProjectionOverlay();
+
+            // Optional Min/Max pocket band (Usage view + sublocation + item filter)
+            if (minMaxBand && maxValue > 0) {
+                const baseY = displayHeight - padding.bottom;
+                const minH = (Number(minMaxBand.min || 0) / maxValue) * chartHeight;
+                const maxH = (Number(minMaxBand.max || 0) / maxValue) * chartHeight;
+                const yTop = baseY - maxH;
+                const yBottom = baseY - minH;
+                const bandH = Math.max(0, yBottom - yTop);
+                if (bandH > 0) {
+                    const darkBand = document.body.classList.contains('dark-mode');
+                    ctx.save();
+                    ctx.fillStyle = darkBand ? 'rgba(32, 200, 181, 0.14)' : 'rgba(32, 200, 181, 0.12)';
+                    ctx.fillRect(padding.left, yTop, chartWidth, bandH);
+                    ctx.strokeStyle = darkBand ? 'rgba(32, 200, 181, 0.45)' : 'rgba(32, 200, 181, 0.35)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 3]);
+                    ctx.beginPath();
+                    ctx.moveTo(padding.left, yTop);
+                    ctx.lineTo(padding.left + chartWidth, yTop);
+                    ctx.moveTo(padding.left, yBottom);
+                    ctx.lineTo(padding.left + chartWidth, yBottom);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.restore();
+                }
+            }
 
             // In ALL view, render Restock as a shaded line backdrop (instead of bars)
             if (view === 'all') {
