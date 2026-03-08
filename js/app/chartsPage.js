@@ -9838,6 +9838,34 @@ try {
             const __vbSublocOnEff = (__vbLocOn ? __vbSublocOn : false);
             const __vbSublocCanonEff = (__vbLocOn ? __vbSublocCanon : '');
 
+
+            const _txMatchesVerticalScope = (row, kindHint) => {
+                if (!(__vbLocOn || __vbSublocOnEff)) return true;
+                const qty0 = Number(row && (row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0));
+                const kind = kindHint || classifyTxn(row && (row.transactionType || row.type || row.transType), qty0);
+                const destRaw0 = (row && (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || ''));
+                let scopeRaw = String(destRaw0 || '').trim();
+                if (!scopeRaw && kind === 'waste') {
+                    scopeRaw = String((row && (row.sublocation || row.location || row.fromLocation || row.sourceLocation || row.device || '')) || '').trim();
+                }
+                if (!scopeRaw) return false;
+                const scopeCanonExact = _canonSublocExact(scopeRaw);
+                if (!scopeCanonExact) return false;
+
+                if (__vbLocOn) {
+                    const ml = (_mainLocFromSublocToken(scopeRaw) || _mainLocFromSublocToken(scopeCanonExact) || '');
+                    const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(scopeCanonExact);
+                    const tokenU = String(scopeCanonExact || '').trim().toUpperCase();
+                    let match = false;
+                    if (lk0 && lk0 === __vbLocCanon) match = true;
+                    else if (tokenU && tokenU === __vbLocCanon) match = true;
+                    else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) match = true;
+                    if (!match) return false;
+                }
+                if (__vbSublocOnEff && scopeCanonExact !== __vbSublocCanonEff) return false;
+                return true;
+            };
+
             // Diagnostics: confirm toggle values are being read by the renderer
             try {
                 console.log('🧩 VBar diagnostics (filters):', {
@@ -9928,44 +9956,9 @@ try {
                         const row = hist[j] || {};
                         const d = parseISODate(row.transDate || row.date || row.transactionDate);
                         if (!inRange(d)) continue;
-
-                        // Apply loc/subloc filters (DESTINATION ONLY for vertical bar chart)
-                        // - itemLocFilter = mainLocation (e.g., 1W)
-                        // - itemSublocFilter = destination unit token (e.g., 1WA)
-                        // Transaction `sublocation` is SOURCE (cabinet/device) and should not be used here.
-                        const destRaw0 = (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '');
-                        const destRaw = String(destRaw0 || '').trim();
-                        // If a destination-based filter is active but this row has no destination token,
-                        // it cannot contribute to the destination chart slice.
-                        if ((__vbLocOn || __vbSublocOnEff) && !destRaw) continue;
-
-                        const destCanonExact = _canonSublocExact(destRaw);
-                        if (!destCanonExact) continue;
-
-                        if (__vbLocOn) {
-                            // Prefer authoritative SUBLOCATION_MAP mainLocation; fallback to heuristic loc key.
-                            // Resolve mainLocation strictly from SUBLOCATION_MAP when possible.
-                            // IMPORTANT: avoid canonicalizeLocationCode() here; it can over-collapse tokens
-                            // and make location filters appear to have no effect.
-                            const ml = (_mainLocFromSublocToken(destRaw) || _mainLocFromSublocToken(destCanonExact) || "");
-                            const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(destCanonExact);
-                            const tokenU = String(destCanonExact || "").trim().toUpperCase();
-                            // Match rules:
-                            // 1) resolved mainLocation (lk0) equals selected location
-                            // 2) destination token itself equals selected location (some feeds send mainLocation directly)
-                            // 3) destination token starts with selected location (e.g., OR1, OR-2, ED-A)
-                            let _match = false;
-                            if (lk0 && lk0 === __vbLocCanon) _match = true;
-                            else if (tokenU && tokenU === __vbLocCanon) _match = true;
-                            else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
-                            if (!_match) continue;
-                        }
-                        if (__vbSublocOnEff) {
-                            if (destCanonExact !== __vbSublocCanonEff) continue;
-                        }
-
                         const qty = Number(row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0);
                         const kind = classifyTxn(row.transactionType || row.type || row.transType, qty);
+                        if (!_txMatchesVerticalScope(row, kind)) continue;
                         const mag = Math.abs(qty || 0);
                         if (!mag) continue;
 
@@ -10001,33 +9994,9 @@ try {
                             const row = hist[j] || {};
                             const d = parseISODate(row.transDate || row.date || row.transactionDate);
                             if (!inRange(d)) continue;
-
-                            // Respect active location/sublocation filters in the fallback path too.
-                            // Otherwise the chart appears to ignore toggle selections.
-                            if (__vbLocOn || __vbSublocOnEff) {
-                                // Destination-only filtering for vertical bar chart
-                                const destRaw0 = (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '');
-                                const destRaw = String(destRaw0 || '').trim();
-                                if (!destRaw) continue;
-                                const destCanonExact = _canonSublocExact(destRaw);
-                                if (!destCanonExact) continue;
-
-                                if (__vbLocOn) {
-                                    const ml = (_mainLocFromSublocToken(destRaw) || _mainLocFromSublocToken(destCanonExact) || '');
-                                    const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(destCanonExact);
-                                    const tokenU = String(destCanonExact || '').trim().toUpperCase();
-                                    let _match = false;
-                                    if (lk0 && lk0 === __vbLocCanon) _match = true;
-                                    else if (tokenU && tokenU === __vbLocCanon) _match = true;
-                                    else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
-                                    if (!_match) continue;
-                                }
-                                if (__vbSublocOnEff) {
-                                    if (destCanonExact !== __vbSublocCanonEff) continue;
-                                }
-                            }
                             const qty = Number(row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0);
                             const kind = classifyTxn(row.transactionType || row.type || row.transType, qty);
+                            if (!_txMatchesVerticalScope(row, kind)) continue;
                             const mag = Math.abs(qty || 0);
                             if (!mag) continue;
 
@@ -10872,35 +10841,9 @@ let _displayProjectionStartIndex = shouldGenerateOutlook ? originalWeekCount : -
                         const row = hist[j] || {};
                         const d = parseISODate(row.transDate || row.date || row.transactionDate);
                         if (!inRange(d)) continue;
-
-                            // Respect location/sublocation filters in the fallback path as well.
-                            // Otherwise, toggles appear to "do nothing" because fallback repopulates
-                            // weekly totals from unfiltered histories.
-                            if (__vbLocOn || __vbSublocOnEff) {
-                                // Destination-only filters for vertical bar chart (monthly fallback path)
-                                const destRaw0 = (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '');
-                                const destRaw = String(destRaw0 || '').trim();
-                                if (!destRaw) continue;
-                                const destCanonExact = _canonSublocExact(destRaw);
-                                if (!destCanonExact) continue;
-
-                                if (__vbLocOn) {
-                                    const ml = (_mainLocFromSublocToken(destRaw) || _mainLocFromSublocToken(destCanonExact) || '');
-                                    const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(destCanonExact);
-                                    const tokenU = String(destCanonExact || '').trim().toUpperCase();
-                                    let _match = false;
-                                    if (lk0 && lk0 === __vbLocCanon) _match = true;
-                                    else if (tokenU && tokenU === __vbLocCanon) _match = true;
-                                    else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
-                                    if (!_match) continue;
-                                }
-                                if (__vbSublocOnEff) {
-                                    if (destCanonExact !== __vbSublocCanonEff) continue;
-                                }
-                            }
-
                         const qty = Number(row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0);
                         const kind = classifyTxn(row.transactionType || row.type || row.transType, qty);
+                        if (!_txMatchesVerticalScope(row, kind)) continue;
                         const mag = Math.abs(qty || 0);
                         if (!mag) continue;
 
@@ -11136,33 +11079,12 @@ if (!__vbLocOn && !__vbSublocOnEff) {
             const row = hist[j] || {};
             const iso = String((row.transDate || row.date || row.transactionDate || '')).slice(0, 10);
             if (!iso || iso < rangeFromISO || iso > rangeToISO) continue;
-
-            // Destination-only filtering for Day view as well (Vertical Bar drill)
-            const destRaw0 = (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '');
-            const destRaw = String(destRaw0 || '').trim();
-            if ((__vbLocOn || __vbSublocOnEff) && !destRaw) continue;
-            const destCanonExact = _canonSublocExact(destRaw);
-            if (!destCanonExact) continue;
-
-            if (__vbLocOn) {
-                const ml = (_mainLocFromSublocToken(destRaw) || _mainLocFromSublocToken(destCanonExact) || '');
-                const lk0 = ml ? String(ml).trim().toUpperCase() : _locKeyFromCanon(destCanonExact);
-                const tokenU = String(destCanonExact || '').trim().toUpperCase();
-                let _match = false;
-                if (lk0 && lk0 === __vbLocCanon) _match = true;
-                else if (tokenU && tokenU === __vbLocCanon) _match = true;
-                else if (tokenU && __vbLocCanon && tokenU.startsWith(__vbLocCanon)) _match = true;
-                if (!_match) continue;
-            }
-            if (__vbSublocOnEff) {
-                if (destCanonExact !== __vbSublocCanonEff) continue;
-            }
-
             const agg = dailyAgg.get(iso);
             if (!agg) continue;
 
             const qty = Number(row.transQty ?? row.TransQty ?? row.qty ?? row.quantity ?? 0);
             const kind = classifyTxn(row.transactionType || row.type || row.transType, qty);
+            if (!_txMatchesVerticalScope(row, kind)) continue;
             const mag = Math.abs(qty || 0);
             if (!mag) continue;
 
