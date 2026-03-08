@@ -3591,7 +3591,10 @@ function applyFlowOverrideFromVerticalBarSelection() {
             const curLoc = String(costChartState.itemLocFilter || 'ALL');
             const curSub = String(costChartState.itemSublocFilter || 'ALL');
             const fd = (costChartState && costChartState.filterData && typeof costChartState.filterData === 'object') ? costChartState.filterData : null;
-            const hasItemFilter = !!(fd && ((fd.itemCode && String(fd.itemCode).trim()) || (Array.isArray(fd.itemCodes) && fd.itemCodes.length > 0)));
+            const hasItemFilter = !!(
+                (fd && ((fd.itemCode && String(fd.itemCode).trim()) || (Array.isArray(fd.itemCodes) && fd.itemCodes.length > 0))) ||
+                (costChartState && String(costChartState.itemSublocItemCode || '').trim())
+            );
 
 	            // Location toggles (scrollable)
 	            container.appendChild(_mkToggleBar(map.locations, curLoc, (val)=>{

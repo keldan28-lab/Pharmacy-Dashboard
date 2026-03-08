@@ -2763,12 +2763,14 @@ body.dark-mode .opt-subloc-btn{ color: rgba(240,240,240,0.80); }
   background: transparent;
   box-shadow: none;
 }
-.chart-toggle-bar-subloc .opt-subloc-btn.active{
+.chart-toggle-bar-subloc .opt-subloc-btn.active,
+.chart-toggle-bar-loc .opt-subloc-btn.active{
   background: transparent;
   color: rgba(32, 200, 181, 0.98);
-  font-weight: 700;
+  font-weight: 600;
 }
-body.dark-mode .chart-toggle-bar-subloc .opt-subloc-btn.active{
+body.dark-mode .chart-toggle-bar-subloc .opt-subloc-btn.active,
+body.dark-mode .chart-toggle-bar-loc .opt-subloc-btn.active{
   color: rgba(70, 220, 202, 0.98);
 }
 .chart-minmax-pill{
