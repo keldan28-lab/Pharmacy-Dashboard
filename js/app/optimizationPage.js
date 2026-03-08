@@ -279,6 +279,21 @@ function _locationLabelForSubloc(subloc, ref){
   return subloc || 'UNKNOWN';
 }
 
+function _getVisibleLocationChoices(ref){
+  const out = new Set();
+  const src = (ref && typeof ref === 'object') ? ref : null;
+  if (!src) return [];
+  for (const k of Object.keys(src)){
+    const row = src[k] || {};
+    const loc = String(row.mainLocation || row.location || '').trim().toUpperCase();
+    const dep = String(row.department || '').trim().toUpperCase();
+    if (!loc) continue;
+    if (_isHiddenPharmacyLocationLabel(loc) || dep === 'PHARMACY') continue;
+    out.add(loc);
+  }
+  return Array.from(out).sort((a,b)=>a.localeCompare(b, undefined, { sensitivity:'base' }));
+}
+
 // Build an index of itemCodes that currently have inventory remaining past expiry.
 // Used for the "unused" (translucent teal) segment in Optimization.
 //
@@ -1518,6 +1533,16 @@ function _render(){
   const metaByCode = window.__optMetaByCode || (window.__optMetaByCode = _buildItemMetaByCode());
   const ref = window.__optSubMap || (window.__optSubMap = _getSublocationMap());
 
+  // Item view always exposes location + sublocation toggle bars.
+  // Ensure we have a location scope selected when entering Item view.
+  if (viewBy === 'item' && (!window.__optDrillScope || window.__optDrillScope.type !== 'location')){
+    const locChoices = _getVisibleLocationChoices(ref);
+    if (locChoices.length){
+      window.__optDrillScope = { type: 'location', key: locChoices[0] };
+      window.__optItemSublocFilter = 'ALL';
+    }
+  }
+
   const raw = window.__optLastRaw || null;
   const computed = window.__optLastComputed || null;
 
@@ -2476,7 +2501,8 @@ const meta = metaByCode[code] || {};
 
   const _mkArrowToggleBar = (values, currentValue, onPick, typeClass) => {
     const bar = document.createElement('div');
-    bar.className = 'chart-toggle-bar ' + typeClass;
+    const controlsClass = (typeClass === 'chart-toggle-bar-loc') ? 'loc-controls' : 'subloc-controls';
+    bar.className = 'chart-toggle-bar ' + typeClass + ' ' + controlsClass;
 
     const left = document.createElement('button');
     left.className = 'chart-toggle-arrow left toggle-arrow-left';
@@ -2491,10 +2517,7 @@ const meta = metaByCode[code] || {};
     right.innerHTML = `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
 
     const scroller = document.createElement('div');
-    scroller.className = 'chart-toggle-scroll';
-
-    const group = document.createElement('div');
-    group.className = 'opt-subloc-toggle ' + (typeClass === 'chart-toggle-bar-loc' ? 'loc-toggles' : 'subloc-toggles');
+    scroller.className = 'opt-subloc-toggle chart-toggle-scroll ' + (typeClass === 'chart-toggle-bar-loc' ? 'loc-toggles' : 'subloc-toggles');
 
     const list = ['ALL'].concat(Array.isArray(values) ? values.filter(Boolean) : []);
     const seen = new Set();
@@ -2509,22 +2532,11 @@ const meta = metaByCode[code] || {};
       btn.setAttribute('tabindex', '0');
       btn.addEventListener('click', (e)=>{ e.stopPropagation(); onPick(val); });
       btn.addEventListener('keydown', (e)=>{ if (e.key === 'Enter' || e.key === ' ') btn.click(); });
-      group.appendChild(btn);
+      scroller.appendChild(btn);
     }
 
-    scroller.appendChild(group);
-
-    const updateArrows = ()=>{
-      const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-      const x = scroller.scrollLeft;
-      left.classList.toggle('hidden', x <= 2);
-      right.classList.toggle('hidden', x >= (max - 2));
-    };
-
-    left.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: -220, behavior: 'smooth' }); setTimeout(updateArrows, 220); });
-    right.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: 220, behavior: 'smooth' }); setTimeout(updateArrows, 220); });
-    scroller.addEventListener('scroll', updateArrows, { passive: true });
-    try { requestAnimationFrame(()=>requestAnimationFrame(updateArrows)); } catch(_){ updateArrows(); }
+    left.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: -220, behavior: 'smooth' }); });
+    right.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: 220, behavior: 'smooth' }); });
 
     bar.appendChild(left);
     bar.appendChild(scroller);
@@ -2534,19 +2546,8 @@ const meta = metaByCode[code] || {};
 
   // Item view controls: location + sublocation segmented toggles (with left/right arrows)
   if (viewBy === 'item' && window.__optDrillScope && window.__optDrillScope.type === 'location'){
-    const refLocChoices = new Set();
-    try {
-      for (const r of Array.isArray(ref) ? ref : []){
-        const loc = String((r && (r['Patient Care Area'] || r.location || r.loc || '')) || '').trim();
-        const dep = String((r && (r['Pyxis Name'] || r.department || '')) || '').trim();
-        if (!loc) continue;
-        if (_isHiddenPharmacyLocationLabel(loc) || dep.toUpperCase() === 'PHARMACY') continue;
-        refLocChoices.add(loc.toUpperCase());
-      }
-    } catch(_){}
-
     const currentLoc = String(window.__optDrillScope.key || '').toUpperCase();
-    const locChoices = Array.from(refLocChoices).sort((a,b)=>a.localeCompare(b, undefined, { sensitivity:'base' }));
+    const locChoices = _getVisibleLocationChoices(ref);
     if (locChoices.length){
       leftGroup.appendChild(_mkArrowToggleBar(locChoices, currentLoc || 'ALL', (val)=>{
         if (val === 'ALL') return;
