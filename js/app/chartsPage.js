@@ -11857,7 +11857,6 @@ const drawProjectionDividerAndLabel = () => {
                     if (i === 0) ctx.moveTo(xCenter, y);
                     else ctx.lineTo(xCenter, y);
                 }
-                ctx.stroke();
 
                 // Fill down to baseline for subtle shaded backdrop
                 ctx.lineTo(padding.left + (weekCount - 1) * barGroupWidth + barGroupWidth / 2, baseY);

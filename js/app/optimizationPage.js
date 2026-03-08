@@ -2518,6 +2518,19 @@ const meta = metaByCode[code] || {};
 
     const scroller = document.createElement('div');
     scroller.className = 'opt-subloc-toggle chart-toggle-scroll ' + (typeClass === 'chart-toggle-bar-loc' ? 'loc-toggles' : 'subloc-toggles');
+    const kind = (typeClass === 'chart-toggle-bar-loc') ? 'loc' : 'subloc';
+
+    try {
+      window.__optToggleScroll = window.__optToggleScroll || {};
+      const saved = window.__optToggleScroll[kind];
+      if (typeof saved === 'number' && isFinite(saved)) scroller.scrollLeft = Math.max(0, saved);
+    } catch(_) {}
+    scroller.addEventListener('scroll', ()=>{
+      try {
+        window.__optToggleScroll = window.__optToggleScroll || {};
+        window.__optToggleScroll[kind] = scroller.scrollLeft;
+      } catch(_) {}
+    }, { passive: true });
 
     const list = (includeAll === false ? [] : ['ALL']).concat(Array.isArray(values) ? values.filter(Boolean) : []);
     const seen = new Set();
@@ -2530,7 +2543,7 @@ const meta = metaByCode[code] || {};
       btn.textContent = (val === 'ALL') ? 'All' : val;
       btn.setAttribute('role', 'button');
       btn.setAttribute('tabindex', '0');
-      btn.addEventListener('click', (e)=>{ e.stopPropagation(); onPick(val); });
+      btn.addEventListener('click', (e)=>{ try { window.__optToggleScroll = window.__optToggleScroll || {}; window.__optToggleScroll[kind] = scroller.scrollLeft; } catch(_) {} e.stopPropagation(); onPick(val); });
       btn.addEventListener('keydown', (e)=>{ if (e.key === 'Enter' || e.key === ' ') btn.click(); });
       scroller.appendChild(btn);
     }
@@ -2544,9 +2557,24 @@ const meta = metaByCode[code] || {};
       right.style.display = overflow ? 'flex' : 'none';
       bar.classList.toggle('no-arrows', !overflow);
     };
-    scroller.addEventListener('scroll', updateArrows, { passive: true });
+
+    const postMountAdjust = ()=>{
+      try {
+        const active = scroller.querySelector('.opt-subloc-btn.active');
+        if (!active) return;
+        const aLeft = active.offsetLeft;
+        const aRight = aLeft + active.offsetWidth;
+        const vLeft = scroller.scrollLeft;
+        const vRight = vLeft + scroller.clientWidth;
+        if (aLeft < vLeft) scroller.scrollLeft = Math.max(0, aLeft - 18);
+        else if (aRight > vRight) scroller.scrollLeft = aRight - scroller.clientWidth + 18;
+        window.__optToggleScroll = window.__optToggleScroll || {};
+        window.__optToggleScroll[kind] = scroller.scrollLeft;
+      } catch(_) {}
+    };
+
     try {
-      requestAnimationFrame(()=>requestAnimationFrame(updateArrows));
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{ postMountAdjust(); updateArrows(); }));
       if (typeof ResizeObserver !== 'undefined'){
         const ro = new ResizeObserver(updateArrows);
         ro.observe(scroller);
@@ -2554,7 +2582,7 @@ const meta = metaByCode[code] || {};
       } else {
         window.addEventListener('resize', updateArrows);
       }
-    } catch(_){ updateArrows(); }
+    } catch(_){ postMountAdjust(); updateArrows(); }
 
     bar.appendChild(left);
     bar.appendChild(scroller);
@@ -2644,7 +2672,7 @@ if (metric === 'min'){
   legend.className = 'opt-min-legend';
   const leg = (cls, label) => {
     const it = document.createElement('div');
-    it.className = 'opt-min-legend-item' + ((String(window.__optItemMinBucketFilter||'ALL')===cls)?' active':'');
+    it.className = 'opt-min-legend-item ' + cls + ((String(window.__optItemMinBucketFilter||'ALL')===cls)?' active':'');
     it.setAttribute('data-bucket', cls);
     it.setAttribute('role','button');
     it.setAttribute('tabindex','0');
@@ -2708,7 +2736,39 @@ if (metric === 'min'){
     rightGroup.appendChild(stdBtn);
   }
 
-  rightGroup.appendChild(legend);
+  const filterBtn = document.createElement('button');
+  filterBtn.type = 'button';
+  filterBtn.className = 'sort-toggle-btn opt-min-filter-btn';
+  filterBtn.title = 'Filter categories';
+  filterBtn.innerHTML = '<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z" fill="currentColor"></path></svg>';
+
+  const legendPop = document.createElement('div');
+  legendPop.className = 'opt-min-legend-pop';
+  legendPop.style.display = 'none';
+  legendPop.appendChild(legend);
+
+  const closePop = ()=>{ legendPop.style.display = 'none'; };
+  filterBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    legendPop.style.display = (legendPop.style.display === 'none' ? 'flex' : 'none');
+  });
+
+  window.__optMinLegendPopover = { pop: legendPop, btn: filterBtn };
+  if (!window.__optMinLegendPopoverBound){
+    window.__optMinLegendPopoverBound = true;
+    document.addEventListener('click', (ev)=>{
+      try {
+        const st = window.__optMinLegendPopover || null;
+        if (!st || !st.pop || !st.btn) return;
+        if (!st.pop.contains(ev.target) && ev.target !== st.btn && !st.btn.contains(ev.target)) {
+          st.pop.style.display = 'none';
+        }
+      } catch(_){ }
+    });
+  }
+
+  rightGroup.appendChild(filterBtn);
+  rightGroup.appendChild(legendPop);
 }
   // Build track content
   trackLeft.appendChild(leftGroup);
