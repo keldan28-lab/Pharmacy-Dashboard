@@ -3312,16 +3312,15 @@ function applyFlowOverrideFromVerticalBarSelection() {
                    r.location || r.fromLocation || r.from || r.sendFromLocation || r.sourceLocation || '';
         }
 
-        function computeSublocMapForItem(itemCode){
+        function computeSublocMapForCodes(itemCodes){
             try {
-                const code = String(itemCode || "").trim();
-                if (!code) return [];
+                const codes = Array.isArray(itemCodes) ? itemCodes.map(c=>String(c||'').trim()).filter(Boolean) : [];
+                if (!codes.length) return null;
                 const txRoot = (costChartState && costChartState.cachedMockData && costChartState.cachedMockData.transactions)
                     ? costChartState.cachedMockData.transactions
                     : ((typeof cachedMockData === "object" && cachedMockData && cachedMockData.transactions) ? cachedMockData.transactions : null);
-                if (!txRoot || typeof txRoot !== "object") return [];
+                if (!txRoot || typeof txRoot !== "object") return null;
 
-                // Robust lookup: transaction buckets may be keyed by padded/unpadded/dashed variants.
                 const _getTxnBucketForCode = (root, codeStr) => {
                     if (!root || !codeStr) return null;
                     const s = String(codeStr).trim();
@@ -3329,47 +3328,45 @@ function applyFlowOverrideFromVerticalBarSelection() {
                     const noLead = s.replace(/^0+/, '') || s;
                     const noDash = s.replace(/[\s-]/g, '');
                     const noDashNoLead = (noDash || '').replace(/^0+/, '') || noDash;
-                    return root[s]
-                        || root[noLead]
-                        || (noDash ? root[noDash] : null)
-                        || (noDashNoLead ? root[noDashNoLead] : null)
-                        || null;
+                    return root[s] || root[noLead] || (noDash ? root[noDash] : null) || (noDashNoLead ? root[noDashNoLead] : null) || null;
                 };
 
-                const bucket = _getTxnBucketForCode(txRoot, code);
-                const hist = bucket && (bucket.history || bucket.transactions || bucket.tx || []);
-                if (!Array.isArray(hist) || !hist.length) return [];
-
-                // locKey -> { label, sublocs: Map(canon -> display) }
                 const locMap = new Map();
-                for (let i = 0; i < hist.length; i++) {
-                    const r = hist[i] || {};
-                    const disp = String(_getTxnSublocRaw(r) || "").trim();
-                    if (!disp) continue;
-                    const canon = _canonSublocExact(disp);
-                    if (!canon) continue;
-
-                    // Prefer authoritative mapping (sublocation -> mainLocation) when present.
-                    // Fallback to heuristics if mapping is missing.
-                    const mappedMainLoc = _mainLocFromSublocToken(disp);
-                    const locKey = mappedMainLoc ? String(mappedMainLoc).trim().toUpperCase() : _locKeyFromCanon(_canonLocKey(canon));
-                    if (!locKey) continue;
-                    if (!locMap.has(locKey)) locMap.set(locKey, { label: locKey, sublocs: new Map() });
-                    const entry = locMap.get(locKey);
-                    if (!entry.sublocs.has(canon)) entry.sublocs.set(canon, disp);
+                for (let ci = 0; ci < codes.length; ci++) {
+                    const bucket = _getTxnBucketForCode(txRoot, codes[ci]);
+                    const hist = bucket && (bucket.history || bucket.transactions || bucket.tx || []);
+                    if (!Array.isArray(hist) || !hist.length) continue;
+                    for (let i = 0; i < hist.length; i++) {
+                        const r = hist[i] || {};
+                        const disp = String(_getTxnSublocRaw(r) || "").trim();
+                        if (!disp) continue;
+                        const canon = _canonSublocExact(disp);
+                        if (!canon) continue;
+                        const mappedMainLoc = _mainLocFromSublocToken(disp);
+                        const locKey = mappedMainLoc ? String(mappedMainLoc).trim().toUpperCase() : _locKeyFromCanon(_canonLocKey(canon));
+                        if (!locKey) continue;
+                        if (!locMap.has(locKey)) locMap.set(locKey, { label: locKey, sublocs: new Map() });
+                        const entry = locMap.get(locKey);
+                        if (!entry.sublocs.has(canon)) entry.sublocs.set(canon, disp);
+                    }
                 }
+
                 const out = { locations: [], byLocation: Object.create(null) };
                 const locKeys = Array.from(locMap.keys()).sort((a,b)=> String(a).localeCompare(String(b)));
                 out.locations = locKeys;
                 for (const lk of locKeys) {
                     const entry = locMap.get(lk);
-                    const sublocs = Array.from(entry.sublocs.values()).sort((a,b)=> String(a).localeCompare(String(b)));
-                    out.byLocation[lk] = sublocs;
+                    out.byLocation[lk] = Array.from(entry.sublocs.values()).sort((a,b)=> String(a).localeCompare(String(b)));
                 }
                 return out;
             } catch (e) {
-                return [];
+                return null;
             }
+        }
+
+        function computeSublocMapForItem(itemCode){
+            const out = computeSublocMapForCodes([itemCode]);
+            return out || [];
         }
 
         function computeSublocMapFromReference(){
@@ -3579,9 +3576,22 @@ function applyFlowOverrideFromVerticalBarSelection() {
         }
 
         function buildLocationAndSublocControls(){
+            const fd = (costChartState && costChartState.filterData && typeof costChartState.filterData === 'object') ? costChartState.filterData : null;
+            const scopedCodes = (() => {
+                const set = new Set();
+                try {
+                    if (fd && fd.itemCode) set.add(String(fd.itemCode).trim());
+                    if (fd && Array.isArray(fd.itemCodes)) fd.itemCodes.forEach(c=> set.add(String(c||'').trim()));
+                    if (costChartState && costChartState.itemSublocItemCode) set.add(String(costChartState.itemSublocItemCode).trim());
+                } catch (e) {}
+                return Array.from(set).filter(Boolean);
+            })();
+            const scopedMap = scopedCodes.length ? computeSublocMapForCodes(scopedCodes) : null;
             const map = (costChartState && costChartState.itemSublocMap && typeof costChartState.itemSublocMap === 'object' && Array.isArray(costChartState.itemSublocMap.locations) && costChartState.itemSublocMap.locations.length)
                 ? costChartState.itemSublocMap
-                : (computeSublocMapFromReference() || { locations: [], byLocation: Object.create(null) });
+                : ((scopedMap && Array.isArray(scopedMap.locations) && scopedMap.locations.length)
+                    ? scopedMap
+                    : (computeSublocMapFromReference() || { locations: [], byLocation: Object.create(null) }));
 
 	            // Single-row, side-by-side controls (Location bar + Sublocation bar)
 	            const container = document.createElement('div');
@@ -3590,7 +3600,6 @@ function applyFlowOverrideFromVerticalBarSelection() {
 
             const curLoc = String(costChartState.itemLocFilter || 'ALL');
             const curSub = String(costChartState.itemSublocFilter || 'ALL');
-            const fd = (costChartState && costChartState.filterData && typeof costChartState.filterData === 'object') ? costChartState.filterData : null;
             const hasItemFilter = !!(
                 (fd && ((fd.itemCode && String(fd.itemCode).trim()) || (Array.isArray(fd.itemCodes) && fd.itemCodes.length > 0))) ||
                 (costChartState && String(costChartState.itemSublocItemCode || '').trim())
