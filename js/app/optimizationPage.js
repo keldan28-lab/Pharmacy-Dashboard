@@ -2499,7 +2499,7 @@ const meta = metaByCode[code] || {};
   const rightGroup = document.createElement('div');
   rightGroup.className = 'opt-scale-right-group';
 
-  const _mkArrowToggleBar = (values, currentValue, onPick, typeClass) => {
+  const _mkArrowToggleBar = (values, currentValue, onPick, typeClass, includeAll) => {
     const bar = document.createElement('div');
     const controlsClass = (typeClass === 'chart-toggle-bar-loc') ? 'loc-controls' : 'subloc-controls';
     bar.className = 'chart-toggle-bar ' + typeClass + ' ' + controlsClass;
@@ -2519,7 +2519,7 @@ const meta = metaByCode[code] || {};
     const scroller = document.createElement('div');
     scroller.className = 'opt-subloc-toggle chart-toggle-scroll ' + (typeClass === 'chart-toggle-bar-loc' ? 'loc-toggles' : 'subloc-toggles');
 
-    const list = ['ALL'].concat(Array.isArray(values) ? values.filter(Boolean) : []);
+    const list = (includeAll === false ? [] : ['ALL']).concat(Array.isArray(values) ? values.filter(Boolean) : []);
     const seen = new Set();
     for (const rawVal of list){
       const val = String(rawVal || '').trim().toUpperCase();
@@ -2538,6 +2538,24 @@ const meta = metaByCode[code] || {};
     left.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: -220, behavior: 'smooth' }); });
     right.addEventListener('click', (e)=>{ e.stopPropagation(); scroller.scrollBy({ left: 220, behavior: 'smooth' }); });
 
+    const updateArrows = ()=>{
+      const overflow = (scroller.scrollWidth - scroller.clientWidth) > 2;
+      left.style.display = overflow ? 'flex' : 'none';
+      right.style.display = overflow ? 'flex' : 'none';
+      bar.classList.toggle('no-arrows', !overflow);
+    };
+    scroller.addEventListener('scroll', updateArrows, { passive: true });
+    try {
+      requestAnimationFrame(()=>requestAnimationFrame(updateArrows));
+      if (typeof ResizeObserver !== 'undefined'){
+        const ro = new ResizeObserver(updateArrows);
+        ro.observe(scroller);
+        ro.observe(bar);
+      } else {
+        window.addEventListener('resize', updateArrows);
+      }
+    } catch(_){ updateArrows(); }
+
     bar.appendChild(left);
     bar.appendChild(scroller);
     bar.appendChild(right);
@@ -2550,12 +2568,11 @@ const meta = metaByCode[code] || {};
     const locChoices = _getVisibleLocationChoices(ref);
     if (locChoices.length){
       leftGroup.appendChild(_mkArrowToggleBar(locChoices, currentLoc || 'ALL', (val)=>{
-        if (val === 'ALL') return;
         if (String(window.__optDrillScope.key || '').toUpperCase() === val) return;
         window.__optDrillScope = { type: 'location', key: val };
         window.__optItemSublocFilter = 'ALL';
         _render();
-      }, 'chart-toggle-bar-loc'));
+      }, 'chart-toggle-bar-loc', false));
     }
 
     const choices = Array.isArray(window.__optItemSublocChoices) ? window.__optItemSublocChoices : [];
@@ -2564,7 +2581,7 @@ const meta = metaByCode[code] || {};
       leftGroup.appendChild(_mkArrowToggleBar(choices, cur, (val)=>{
         window.__optItemSublocFilter = val;
         _render();
-      }, 'chart-toggle-bar-subloc'));
+      }, 'chart-toggle-bar-subloc', true));
     }
   }
 
@@ -3205,20 +3222,11 @@ if (metric === 'min'){
                 if (metric === 'iur'){
                   _drillToItemScope(drillType, drillKey, { sublocation: subKey, iurRate: String(tierCls||'') });
                 } else if (metric === 'min'){
-                  // Min Suggestions filtering is by bucket category (Increase/No-demand/Decrease/OK)
-                  // rather than IUR tiers. Apply a hard bucket filter in Item view.
                   _drillToItemScope(drillType, drillKey, { sublocation: subKey, minBucket: String(tierCls||'') });
                 } else {
-                  const members = r.tierItems ? (r.tierItems[tierCls] || []) : [];
-                  const pocketKeys = members
-                    .map(m => {
-                      if (m && m.pocketKey) return String(m.pocketKey);
-                      const c = (m && m.itemCode) ? String(m.itemCode) : '';
-                      const s = (m && m.sublocation) ? String(m.sublocation) : subKey;
-                      return (c ? _normPocketKey(c, s) : '');
-                    })
-                    .filter(Boolean);
-                  _drillToItemScope(drillType, drillKey, { bucket: String(tierCls||''), sublocation: subKey, pocketKeys });
+                  // Reorder: move to item view with location/sublocation scope only.
+                  // Do not hard-filter by member pockets from segment clicks.
+                  _drillToItemScope(drillType, drillKey, { sublocation: subKey });
                 }
                 return;
               }
@@ -3365,21 +3373,11 @@ if (metric === 'min'){
 
         if (metric === 'iur'){
           _drillToItemScope(drillType, drillKey, { sublocation: subKey, iurRate: String(tierCls||'') });
+        } else if (metric === 'min'){
+          _drillToItemScope(drillType, drillKey, { sublocation: subKey, minBucket: String(tierCls||'') });
         } else {
-          const members = rowObj.tierItems[tierCls] || [];
-          const pocketKeys = members
-            .map(m => {
-              if (m && m.pocketKey) return String(m.pocketKey);
-              // Fallback (defensive): reconstruct from itemCode+sublocation.
-              const c = (m && m.itemCode) ? String(m.itemCode) : '';
-              const s = (m && m.sublocation) ? String(m.sublocation) : subKey;
-              return (c ? _normPocketKey(c, s) : '');
-            })
-            .filter(Boolean);
-          // IMPORTANT: pass bucket for UI state; filter applies based on pocketKeys even if tier is missing.
-          // NOTE: Min Suggestions / Reorder use bucket categories (Increase/No demand/etc.).
-          // We pass pocketKeys and bucket; no IUR tier filter should be involved.
-          _drillToItemScope(drillType, drillKey, { bucket: String(tierCls||''), sublocation: subKey, pocketKeys });
+          // Reorder: only scope to toggle context; do not apply pocket-level hard filters.
+          _drillToItemScope(drillType, drillKey, { sublocation: subKey });
         }
       });;
     };
