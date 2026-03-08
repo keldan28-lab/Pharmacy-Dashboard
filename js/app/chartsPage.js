@@ -3372,6 +3372,32 @@ function applyFlowOverrideFromVerticalBarSelection() {
             }
         }
 
+        function computeSublocMapFromReference(){
+            try {
+                const g = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : this);
+                const m = g && g.SUBLOCATION_MAP;
+                if (!m || typeof m !== 'object') return null;
+                const out = { locations: [], byLocation: Object.create(null) };
+                const locMap = new Map();
+                Object.keys(m).forEach((k) => {
+                    const row = m[k] || {};
+                    const sub = String(k || '').trim();
+                    const loc = String((row && row.mainLocation) || '').trim().toUpperCase();
+                    if (!sub || !loc) return;
+                    if (!locMap.has(loc)) locMap.set(loc, new Set());
+                    locMap.get(loc).add(sub);
+                });
+                const locs = Array.from(locMap.keys()).sort((a,b)=> String(a).localeCompare(String(b)));
+                out.locations = locs;
+                locs.forEach((lk) => {
+                    out.byLocation[lk] = Array.from(locMap.get(lk) || []).sort((a,b)=> String(a).localeCompare(String(b)));
+                });
+                return out;
+            } catch (e) {
+                return null;
+            }
+        }
+
 	        function _mkToggleBar(items, curVal, onPick, kind){
 	            // Inline, scrollable toggle bar with arrows + drag scrolling.
 	            // kind: 'loc' | 'subloc'
@@ -3409,7 +3435,7 @@ function applyFlowOverrideFromVerticalBarSelection() {
 
 	            const mkBtn = (text, val) => {
 	                const b = document.createElement('div');
-	                b.className = 'opt-subloc-btn' + ((String(curVal) === String(val)) ? ' active' : '');
+	                b.className = 'opt-subloc-btn opt-subloc-btn-' + String(kind || 'loc') + ((String(curVal) === String(val)) ? ' active' : '');
 	                b.textContent = String(text);
 	                b.setAttribute('role','button');
 	                b.setAttribute('tabindex','0');
@@ -3553,10 +3579,9 @@ function applyFlowOverrideFromVerticalBarSelection() {
         }
 
         function buildLocationAndSublocControls(){
-            const map = (costChartState && costChartState.itemSublocMap && typeof costChartState.itemSublocMap === 'object')
+            const map = (costChartState && costChartState.itemSublocMap && typeof costChartState.itemSublocMap === 'object' && Array.isArray(costChartState.itemSublocMap.locations) && costChartState.itemSublocMap.locations.length)
                 ? costChartState.itemSublocMap
-                : null;
-            if (!map || !Array.isArray(map.locations) || !map.locations.length) return null;
+                : (computeSublocMapFromReference() || { locations: [], byLocation: Object.create(null) });
 
 	            // Single-row, side-by-side controls (Location bar + Sublocation bar)
 	            const container = document.createElement('div');
@@ -3584,24 +3609,26 @@ function applyFlowOverrideFromVerticalBarSelection() {
                     }
 }, 'loc'));
 
-            // Keep sublocation toggle visible in vertical view.
-            const subChoices = (curLoc && curLoc !== 'ALL' && map.byLocation && map.byLocation[curLoc]) ? map.byLocation[curLoc] : ['ALL'];
-            container.appendChild(_mkToggleBar(subChoices, curSub, (val)=>{
-                        costChartState.itemSublocFilter = String(val);
-                        try {
-                            console.log('🧭 Toggle pick (Sublocation):', {
-                                itemCode: costChartState.itemSublocItemCode || '',
-                                itemLocFilter: costChartState.itemLocFilter,
-                                itemSublocFilter: costChartState.itemSublocFilter,
-                                chartType: costChartState.chartType
-                            });
-                        } catch (e) {}
-                        try { refreshLocationAndSublocControls(); } catch(e) {}
-                        if (costChartState.chartType === 'bar-chart') {
-                            try { scheduleChartsRedraw('sublocFilter'); } catch(e) {}
-                        }
-}, 'subloc'));
-            if (String(curSub).toUpperCase() !== 'ALL') container.appendChild(_mkMinMaxTogglePill());
+            // Hide sublocation toggle when location is ALL.
+            if (curLoc && String(curLoc).toUpperCase() !== 'ALL') {
+                const subChoices = (map.byLocation && map.byLocation[curLoc]) ? map.byLocation[curLoc] : [];
+                container.appendChild(_mkToggleBar(subChoices, curSub, (val)=>{
+                            costChartState.itemSublocFilter = String(val);
+                            try {
+                                console.log('🧭 Toggle pick (Sublocation):', {
+                                    itemCode: costChartState.itemSublocItemCode || '',
+                                    itemLocFilter: costChartState.itemLocFilter,
+                                    itemSublocFilter: costChartState.itemSublocFilter,
+                                    chartType: costChartState.chartType
+                                });
+                            } catch (e) {}
+                            try { refreshLocationAndSublocControls(); } catch(e) {}
+                            if (costChartState.chartType === 'bar-chart') {
+                                try { scheduleChartsRedraw('sublocFilter'); } catch(e) {}
+                            }
+    }, 'subloc'));
+                if (String(curSub).toUpperCase() !== 'ALL') container.appendChild(_mkMinMaxTogglePill());
+            }
             return container;
         }
 
@@ -3738,9 +3765,9 @@ const holder = document.createElement('div');
             holder.className = 'scale-context-controls';
             holder.style.display = 'flex';
             holder.style.alignItems = 'center';
-            holder.style.gap = '14px';
+            holder.style.gap = '6px';
             holder.style.maxWidth = '100%';
-            holder.style.flexWrap = 'wrap';
+            holder.style.flexWrap = 'nowrap';
             holder.style.justifyContent = 'flex-end';
             holder.style.overflow = 'visible';
 
@@ -4798,11 +4825,15 @@ const nav = e.target && e.target.closest ? e.target.closest('.chart-cal-nav-btn'
             const slider = document.getElementById('chartDrillSlider');
             if (!slider) return;
 
+            const decBtn = document.getElementById('chartDrillOutBtn');
+            const incBtn = document.getElementById('chartDrillInBtn');
+
             // Initialize from state
             let lvl = costChartState.verticalDrillLevel;
             if (!Number.isFinite(lvl)) lvl = 1;
             lvl = Math.max(0, Math.min(2, lvl));
             slider.value = String(lvl);
+            costChartState.verticalDrillLevel = lvl;
 
             const persist = () => {
                 try {
@@ -4811,25 +4842,44 @@ const nav = e.target && e.target.closest ? e.target.closest('.chart-cal-nav-btn'
                 } catch (e) {}
             };
 
-                        if (slider.dataset && slider.dataset.boundInput === '1') {
-                // already bound
-            } else {
-                if (slider.dataset) slider.dataset.boundInput = '1';
-                slider.addEventListener('input', (e) => {
-                const next = parseInt(slider.value, 10);
-                costChartState.verticalDrillLevel = Math.max(0, Math.min(2, next));
-                // When moving "up" to month, clear week scope; when moving "down" to day, keep last week scope if present
+            const syncButtons = () => {
+                const cur = Math.max(0, Math.min(2, parseInt(slider.value, 10) || 0));
+                if (decBtn) decBtn.classList.toggle('is-disabled', cur <= 0);
+                if (incBtn) incBtn.classList.toggle('is-disabled', cur >= 2);
+            };
+
+            const applyLevel = (next) => {
+                const clamped = Math.max(0, Math.min(2, Number(next) || 0));
+                slider.value = String(clamped);
+                costChartState.verticalDrillLevel = clamped;
                 if (costChartState.verticalDrillLevel === 0) {
                     costChartState.verticalDrillContext = null;
                 }
                 persist();
+                syncButtons();
                 if (costChartState.chartType === 'bar-chart') {
-	                    if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
-	                    scheduleChartsRedraw('dateRange');
+                    if (costChartState && costChartState.chartType === 'flow-chart') invalidateFlowCache();
+                    scheduleChartsRedraw('dateRange');
                 }
-            });
+            };
+
+            if (slider.dataset && slider.dataset.boundInput !== '1') {
+                slider.dataset.boundInput = '1';
+                slider.addEventListener('input', () => applyLevel(parseInt(slider.value, 10)));
+            } else if (!slider.dataset) {
+                slider.addEventListener('input', () => applyLevel(parseInt(slider.value, 10)));
             }
 
+            if (decBtn && decBtn.dataset.boundClick !== '1') {
+                decBtn.dataset.boundClick = '1';
+                decBtn.addEventListener('click', (e) => { e.stopPropagation(); applyLevel((parseInt(slider.value, 10) || 0) - 1); });
+            }
+            if (incBtn && incBtn.dataset.boundClick !== '1') {
+                incBtn.dataset.boundClick = '1';
+                incBtn.addEventListener('click', (e) => { e.stopPropagation(); applyLevel((parseInt(slider.value, 10) || 0) + 1); });
+            }
+
+            syncButtons();
             persist();
         }
 

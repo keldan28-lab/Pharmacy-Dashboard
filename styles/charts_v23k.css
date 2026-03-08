@@ -1787,29 +1787,45 @@
 .chart-drill{
   display:flex;
   align-items:center;
-  gap:8px;
-  margin-left:10px;
-  flex-wrap: wrap;
-}
-.chart-drill-label{
-  font-size:12px;
-  font-weight:600;
-  opacity:0.85;
+  margin-left:0;
 }
 .chart-drill-controls{
   display:flex;
   align-items:center;
-  gap:8px;
+  gap:6px;
 }
-.chart-drill-text{
-  font-size:12px;
-  font-weight:600;
-  opacity:0.75;
-  color:#6f6f6f;
+.chart-drill-compact{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.chart-drill-btn{
+  min-width: 36px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(120,120,120,0.25);
+  background: transparent;
+  color: rgba(90,90,90,0.85);
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 500;
+  cursor: pointer;
+}
+.chart-drill-btn.is-disabled{
+  opacity: 0.35;
+  pointer-events: none;
 }
 .chart-drill-slider{
-  width:110px;
-  max-width: 140px;
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+body.dark-mode .chart-drill-btn{
+  border-color: rgba(220,220,220,0.24);
+  color: rgba(230,230,230,0.88);
 }
 
 /* When the date/drill controls are mounted into the scale strip, remove the extra left margins
@@ -1821,6 +1837,16 @@
 .cost-chart-scale-container .scale-context-controls{
   box-sizing: border-box;
   max-width: 100%;
+  border: 2px solid rgba(120,120,120,0.22);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -2px 5px rgba(0,0,0,0.06);
+  padding: 2px 4px;
+}
+body.dark-mode .cost-chart-scale-container .scale-context-controls{
+  border-color: rgba(220,220,220,0.18);
+  background: rgba(0,0,0,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -2px 6px rgba(0,0,0,0.22);
 }
 .cost-chart-scale-container .chart-date-input{
   min-width: 128px;
@@ -2728,6 +2754,26 @@ body.dark-mode .opt-subloc-btn{ color: rgba(240,240,240,0.80); }
 .opt-subloc-btn.active{
   background: rgba(32, 200, 181, 0.20);
   color: rgba(32, 200, 181, 0.98);
+}
+.chart-loc-subloc-controls{
+  border: 2px solid rgba(120,120,120,0.22);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -2px 6px rgba(0,0,0,0.06);
+  padding: 3px 6px;
+}
+body.dark-mode .chart-loc-subloc-controls{
+  border-color: rgba(220,220,220,0.18);
+  background: rgba(0,0,0,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -2px 6px rgba(0,0,0,0.22);
+}
+.chart-toggle-bar-subloc .opt-subloc-btn.active{
+  background: transparent;
+  color: rgba(32, 200, 181, 0.98);
+  font-weight: 700;
+}
+body.dark-mode .chart-toggle-bar-subloc .opt-subloc-btn.active{
+  color: rgba(70, 220, 202, 0.98);
 }
 .chart-minmax-pill{
   min-width: 82px;
