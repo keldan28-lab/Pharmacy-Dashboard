@@ -756,6 +756,66 @@ body.dark-mode .chart-type-icons .chart-icon-btn.active{
 .opt-min-dot.blue{ background: rgba(120,220,210,0.85); }
 .opt-min-dot.coral{ background: rgba(255,120,120,0.9); }
 
+
+/* Min legend filter popover (icon near print + view-by style popup frame) */
+.opt-min-filter-control{
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.opt-min-filter-btn{
+  background: transparent;
+  border: none;
+  padding: 4px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.opt-min-filter-btn .ui-icon{ width: 18px; height: 18px; }
+
+.opt-min-filter-pop{
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 140;
+}
+
+.opt-min-legend-pop{
+  display: block;
+  min-width: 220px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(17,153,142,0.70);
+  background: rgba(255,255,255,0.92);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.18);
+  overflow: hidden;
+}
+.dark-mode .opt-min-legend-pop{
+  border-color: rgba(70,220,202,0.65);
+  background: rgba(26,32,40,0.96);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.40);
+}
+
+.opt-min-legend-pop .opt-min-legend{ display:block; gap:0; }
+.opt-min-legend-pop .opt-min-legend-item{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid rgba(0,0,0,0.10);
+  background: transparent;
+}
+.dark-mode .opt-min-legend-pop .opt-min-legend-item{ border-bottom-color: rgba(255,255,255,0.10); }
+.opt-min-legend-pop .opt-min-legend-item:last-child{ border-bottom:none; }
+.opt-min-legend-pop .opt-min-legend-item.active.gray{ background: rgba(150,160,170,0.28); }
+.opt-min-legend-pop .opt-min-legend-item.active.blue{ background: rgba(120,220,210,0.28); }
+.opt-min-legend-pop .opt-min-legend-item.active.green{ background: rgba(0,200,170,0.28); }
+.opt-min-legend-pop .opt-min-legend-item.active.coral{ background: rgba(255,120,120,0.28); }
+
 /* Scale strip alignment without spacer columns */
 .opt-scale-track{ margin-left: 298px; }
 
