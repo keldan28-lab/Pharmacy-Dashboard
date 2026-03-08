@@ -786,14 +786,14 @@ body.dark-mode .chart-type-icons .chart-icon-btn.active{
   display: block;
   min-width: 220px;
   border-radius: 14px;
-  border: 1.5px solid rgba(17,153,142,0.70);
-  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(17,153,142,0.85);
+  background: rgba(255,255,255,1);
   box-shadow: 0 8px 18px rgba(0,0,0,0.18);
   overflow: hidden;
 }
 .dark-mode .opt-min-legend-pop{
-  border-color: rgba(70,220,202,0.65);
-  background: rgba(26,32,40,0.96);
+  border-color: rgba(70,220,202,0.75);
+  background: rgba(26,32,40,1);
   box-shadow: 0 10px 20px rgba(0,0,0,0.40);
 }
 

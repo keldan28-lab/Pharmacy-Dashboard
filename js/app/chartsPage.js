@@ -4187,6 +4187,7 @@ const applyPreset = (preset) => {
 
             const openPopover = () => {
                 if (!popover) return;
+                closeChartsTransientPopups('date');
                 popover.classList.add('is-open');
                 popover.setAttribute('aria-hidden', 'false');
                 document.body.classList.add('chart-range-popover-open');
@@ -13867,6 +13868,8 @@ if (view === 'all') {
             // Toggle dropdown
             dropdownHeader.addEventListener('click', function(e) {
                 e.stopPropagation();
+                const willOpen = !dropdown.classList.contains('open');
+                if (willOpen) closeChartsTransientPopups('dropdown');
                 dropdown.classList.toggle('open');
             });
             
@@ -13926,6 +13929,24 @@ if (view === 'all') {
             console.log('✓ Custom dropdown initialized');
         }
         
+
+        function closeChartsTransientPopups(except){
+            const keep = String(except || '');
+            try {
+                if (keep !== 'dropdown') {
+                    const dropdown = document.getElementById('customDropdown');
+                    if (dropdown) dropdown.classList.remove('open');
+                }
+            } catch(e) {}
+            try {
+                if (keep !== 'date') {
+                    if (costChartState && typeof costChartState._closeRangePopover === 'function') costChartState._closeRangePopover();
+                    const pop = document.getElementById('chartRangePopover');
+                    if (pop) { pop.classList.remove('is-open'); pop.setAttribute('aria-hidden','true'); }
+                }
+            } catch(e) {}
+        }
+
         // Initialize
         console.log('🚀 Charts: Script executing...');
         

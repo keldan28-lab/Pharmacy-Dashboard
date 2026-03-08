@@ -294,6 +294,41 @@ function _getVisibleLocationChoices(ref){
   return Array.from(out).sort((a,b)=>a.localeCompare(b, undefined, { sensitivity:'base' }));
 }
 
+
+function _getTxLocationChoicesForItems(txRoot, itemCodes, ref){
+  const out = new Set();
+  const codes = Array.isArray(itemCodes) ? itemCodes.filter(Boolean) : [];
+  if (!txRoot || !codes.length) return [];
+
+  const getBucket = (root, codeStr) => {
+    const s = String(codeStr || '').trim();
+    if (!s || !root) return null;
+    const noLead = s.replace(/^0+/, '') || s;
+    const noDash = s.replace(/[\s-]/g, '');
+    const noDashNoLead = (noDash || '').replace(/^0+/, '') || noDash;
+    return root[s] || root[noLead] || (noDash ? root[noDash] : null) || (noDashNoLead ? root[noDashNoLead] : null) || null;
+  };
+
+  for (const code of codes){
+    const bucket = getBucket(txRoot, code);
+    const hist = bucket && (bucket.history || bucket.transactions || bucket.tx || []);
+    if (!Array.isArray(hist)) continue;
+    for (const row of hist){
+      const t = String((row && (row.transactionType || row.type || row.transType || '')) || '').toLowerCase();
+      const isWasteTxn = (t.indexOf('waste') >= 0 || t.indexOf('expire') >= 0 || t.indexOf('return') >= 0 || t.indexOf('discard') >= 0 || t.indexOf('adjust') >= 0);
+      const destRaw = String((row && (row.sendToLocation || row.toLocation || row.destinationLocation || row.destLocation || '')) || '').trim();
+      const srcRaw = String((row && (row.sublocation || row.location || row.fromLocation || row.sourceLocation || row.device || '')) || '').trim();
+      const raw = destRaw || (isWasteTxn ? srcRaw : '');
+      if (!raw) continue;
+      const loc = String(_locationLabelForSubloc(raw, ref) || raw).trim().toUpperCase();
+      if (!loc) continue;
+      if (_isHiddenPharmacyLocationLabel(loc)) continue;
+      out.add(loc);
+    }
+  }
+  return Array.from(out).sort((a,b)=>a.localeCompare(b, undefined, { sensitivity:'base' }));
+}
+
 // Build an index of itemCodes that currently have inventory remaining past expiry.
 // Used for the "unused" (translucent teal) segment in Optimization.
 //
@@ -1398,6 +1433,23 @@ function _normPocketKeyFromAny(pk){
   return _normPocketKey(c, sub);
 }
 
+function _closeOptTransientPopups(except){
+  const keep = String(except || '');
+  try {
+    const dd = document.getElementById('optDropdown');
+    const opts = document.getElementById('optDropdownOptions');
+    if (keep !== 'dropdown' && dd && opts) { dd.classList.remove('open'); opts.style.display = 'none'; }
+  } catch(_) {}
+  try {
+    const pop = document.getElementById('optMinFilterPopover');
+    if (keep !== 'minFilter' && pop) pop.style.display = 'none';
+  } catch(_) {}
+  try {
+    const rangePop = document.getElementById('chartRangePopover');
+    if (keep !== 'date' && rangePop) rangePop.setAttribute('aria-hidden', 'true');
+  } catch(_) {}
+}
+
 
 function _wireDropdown(){
   const dd = document.getElementById('optDropdown');
@@ -1406,7 +1458,7 @@ function _wireDropdown(){
   if (!dd || !head || !opts) return;
 
   function close(){ dd.classList.remove('open'); opts.style.display='none'; }
-  function open(){ dd.classList.add('open'); opts.style.display='block'; }
+  function open(){ _closeOptTransientPopups('dropdown'); dd.classList.add('open'); opts.style.display='block'; }
 
   close();
 
@@ -2599,7 +2651,23 @@ const meta = metaByCode[code] || {};
   // Item view controls: location + sublocation segmented toggles (with left/right arrows)
   if (viewBy === 'item' && window.__optDrillScope && window.__optDrillScope.type === 'location'){
     const currentLoc = String(window.__optDrillScope.key || '').toUpperCase();
-    const locChoices = _getVisibleLocationChoices(ref);
+    const __itemCodesForScope = (()=>{
+      const out = new Set();
+      try {
+        if (window.__optItemFilterSet && window.__optItemFilterSet.size) {
+          for (const c of window.__optItemFilterSet) out.add(String(c || '').trim());
+        }
+        if (window.__optPocketFilterSet && window.__optPocketFilterSet.size) {
+          for (const pk of window.__optPocketFilterSet) {
+            const c = String(pk || '').split('|')[0] || '';
+            if (c) out.add(c);
+          }
+        }
+      } catch(_) {}
+      return Array.from(out).filter(Boolean);
+    })();
+    const txLocChoices = _getTxLocationChoicesForItems(tx, __itemCodesForScope, ref);
+    const locChoices = txLocChoices.length ? txLocChoices : _getVisibleLocationChoices(ref);
     if (locChoices.length){
       leftGroup.appendChild(_mkArrowToggleBar(locChoices, currentLoc || 'ALL', (val)=>{
         if (String(window.__optDrillScope.key || '').toUpperCase() === val) return;
@@ -2758,7 +2826,7 @@ if (metric === 'min'){
       filterBtn.__optBound = true;
       filterBtn.addEventListener('click', (e)=>{
         e.stopPropagation();
-        legendPop.style.display = (legendPop.style.display === 'none' ? 'block' : 'none');
+        if (legendPop.style.display === 'none') { _closeOptTransientPopups('minFilter'); legendPop.style.display = 'block'; } else legendPop.style.display = 'none';
       });
     }
 
@@ -4607,7 +4675,7 @@ function _setupOptDateRange(){
   };
 
   const closePopover = ()=>{ popover.setAttribute('aria-hidden','true'); };
-  const openPopover = ()=>{ popover.setAttribute('aria-hidden','false'); };
+  const openPopover = ()=>{ _closeOptTransientPopups('date'); popover.setAttribute('aria-hidden','false'); };
   const togglePopover = ()=>{
     const isOpen = popover.getAttribute('aria-hidden') !== 'true';
     if (isOpen) closePopover(); else openPopover();
