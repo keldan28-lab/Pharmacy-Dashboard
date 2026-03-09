@@ -121,6 +121,37 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  if (action === "itemStatusWrite") {
+    try {
+      const sheetId = requireString_(p.sheetId || body.sheetId, "sheetId");
+      const tabName = String(p.tabName || body.tabName || 'itemStatus').trim() || 'itemStatus';
+      const rowObj = {
+        updatedAt: p.updatedAt || body.updatedAt || new Date().toISOString(),
+        itemCode: p.itemCode || body.itemCode || '',
+        description: p.description || body.description || '',
+        availability: p.availability || body.availability || '',
+        status: p.status || body.status || '',
+        notes: p.notes || body.notes || '',
+        SBARnotes: p.SBARnotes || body.SBARnotes || '',
+        filePath: p.filePath || body.filePath || '',
+        etaDate: p.etaDate || body.etaDate || '',
+        date: p.date || body.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      };
+
+      const result = itemStatusWrite_(sheetId, tabName, rowObj);
+      if (callback) return jsonOrJsonp_(Object.assign({ action }, result), callback);
+      return ContentService
+        .createTextOutput(JSON.stringify(Object.assign({ action }, result)))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      const out = { ok: false, action, error: String((err && err.message) || err || "Unknown error") };
+      if (callback) return jsonOrJsonp_(out, callback);
+      return ContentService
+        .createTextOutput(JSON.stringify(out))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   return ContentService
     .createTextOutput(JSON.stringify({ ok: false, error: "unknown op" }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -358,6 +389,42 @@ function spikeReadLatest_(sheetId, tabName) {
     tabName,
     calculatedAt: latestTs
   };
+}
+
+function itemStatusWrite_(sheetId, tabName, rowObj) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  let sh = ss.getSheetByName(tabName);
+  if (!sh) sh = ss.insertSheet(tabName);
+
+  const header = ['updatedAt', 'date', 'itemCode', 'description', 'availability', 'status', 'notes', 'SBARnotes', 'filePath', 'etaDate'];
+  const lastRow = sh.getLastRow();
+
+  if (lastRow < 1) {
+    sh.getRange(1, 1, 1, header.length).setValues([header]);
+  } else {
+    const existingHeader = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), header.length)).getValues()[0].slice(0, header.length);
+    let same = true;
+    for (let i = 0; i < header.length; i++) {
+      if (String(existingHeader[i] || '').trim() !== header[i]) { same = false; break; }
+    }
+    if (!same) sh.getRange(1, 1, 1, header.length).setValues([header]);
+  }
+
+  const row = [
+    String(rowObj.updatedAt || new Date().toISOString()),
+    String(rowObj.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')),
+    String(rowObj.itemCode || ''),
+    String(rowObj.description || ''),
+    String(rowObj.availability || ''),
+    String(rowObj.status || ''),
+    String(rowObj.notes || ''),
+    String(rowObj.SBARnotes || ''),
+    String(rowObj.filePath || ''),
+    String(rowObj.etaDate || '')
+  ];
+
+  sh.appendRow(row);
+  return { ok: true, written: 1, tabName };
 }
 
 function parsePostBody_(e) {

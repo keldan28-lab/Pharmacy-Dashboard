@@ -140,6 +140,17 @@
         const emptyState = document.getElementById('emptyState');
         let currentFilePath = '';  // Store the current file path for the modal
         let currentHasSBAR = false;  // Store whether SBAR document is available
+        let etaStatusDraftByItem = {}; // Persist ETA/status draft values per item while modal is open
+
+        function getItemStatusSheetConfig() {
+            const webAppUrl = String(
+                (window.ITEM_STATUS_WEBAPP_URL || localStorage.getItem('itemStatusWebAppUrl') || localStorage.getItem('spike_webAppUrl') || '')
+            ).trim();
+            const sheetId = String(
+                (window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || '')
+            ).trim();
+            return { webAppUrl, sheetId, tabName: 'itemStatus' };
+        }
 
         // Cookie utility functions
         function setCookie(name, value, days = 365) {
@@ -242,7 +253,7 @@
                 nonZero.sort((a, b) => String(a.code).localeCompare(String(b.code)));
                 for (let i = 0; i < nonZero.length; i++) {
                     const l = nonZero[i];
-                    const badgeText = `${l.code} (${l.qty})`;
+                    const badgeText = `${l.code}  <span class="inv-loc-sep">|</span>  <span class="inv-loc-qty">${l.qty}</span>`;
                     const standardClass = l.standard ? ' is-standard' : '';
                     html += `<button type="button" class="inv-loc-badge${standardClass}" data-sublocation="${String(l.code)}" data-item-code="${String(itemCode || '')}" title="View ${String(l.code)} in Charts">${badgeText}</button>`;
                 }
@@ -260,6 +271,258 @@
             if (phxEl) phxEl.textContent = String(pharmacyQty || 0);
             if (pyxCapEl) pyxCapEl.textContent = pyxCaption || '';
             if (phxCapEl) phxCapEl.textContent = phxCaption || '';
+        }
+
+
+        function submitItemStatusViaFormPost(scriptUrl, payload, timeoutMs = 1600) {
+            return new Promise((resolve) => {
+                try {
+                    const iframeName = 'itemStatusFormTarget_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                    const iframe = document.createElement('iframe');
+                    iframe.name = iframeName;
+                    iframe.style.display = 'none';
+                    document.body.appendChild(iframe);
+
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = scriptUrl;
+                    form.target = iframeName;
+                    form.style.display = 'none';
+
+                    Object.keys(payload || {}).forEach((k) => {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = k;
+                        input.value = String(payload[k] == null ? '' : payload[k]);
+                        form.appendChild(input);
+                    });
+
+                    document.body.appendChild(form);
+                    form.submit();
+
+                    setTimeout(() => {
+                        try { form.remove(); } catch (_) {}
+                        try { iframe.remove(); } catch (_) {}
+                        resolve(true);
+                    }, timeoutMs);
+                } catch (err) {
+                    console.warn('⚠️ Form-post fallback failed', err);
+                    resolve(false);
+                }
+            });
+        }
+
+
+        function initEtaExpansionControls() {
+            const modalRoot = document.getElementById('detailsModal');
+            if (!modalRoot) return;
+            const etaCard = modalRoot.querySelector('#etaInfoCard');
+            const expandBtn = modalRoot.querySelector('#etaExpandBtn');
+            const saveBtn = modalRoot.querySelector('#etaSaveBtn');
+            const expansion = modalRoot.querySelector('#etaExpansion');
+            const dateRow = modalRoot.querySelector('#etaDateRow');
+            const dateInput = modalRoot.querySelector('#etaDateInput');
+            const notesInput = modalRoot.querySelector('#etaNotesInput');
+            const statusButtons = modalRoot.querySelectorAll('#etaStatusToggleGroup .eta-toggle-btn[data-eta-status]');
+            const notesButtons = modalRoot.querySelectorAll('#etaNotesToggleGroup .eta-toggle-btn[data-notes-type]');
+            const severityButtons = modalRoot.querySelectorAll('#etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity]');
+            const severityGroup = modalRoot.querySelector('#etaSeverityToggleGroup');
+            const fileInput = modalRoot.querySelector('#etaFileInput');
+            const fileBtn = modalRoot.querySelector('#etaFileBtn');
+            const filePath = modalRoot.querySelector('#etaFilePath');
+            const savingOverlay = modalRoot.querySelector('#etaSavingOverlay');
+            if (!etaCard || !expandBtn || !saveBtn || !expansion || !savingOverlay || !severityGroup) return;
+
+            let activeNotesType = 'general';
+
+            function getSelectedItem() {
+                return (Array.isArray(currentModalItems) && currentModalItems[currentSelectedIndex]) ? currentModalItems[currentSelectedIndex] : null;
+            }
+
+            function getDraftForSelectedItem() {
+                const selected = getSelectedItem() || {};
+                const key = String(selected.itemCode || selected.description || selected.drugName || 'unknown');
+                if (!etaStatusDraftByItem[key]) {
+                    etaStatusDraftByItem[key] = {
+                        availability: 'available',
+                        status: 'moderate',
+                        etaDate: '',
+                        notes: '',
+                        SBARnotes: '',
+                        filePath: ''
+                    };
+                }
+                return etaStatusDraftByItem[key];
+            }
+
+            function setExpanded(isOpen) {
+                etaCard.classList.toggle('is-expanded', isOpen);
+                expandBtn.setAttribute('aria-expanded', String(isOpen));
+                expansion.setAttribute('aria-hidden', String(!isOpen));
+            }
+
+            function updateDateVisibility() {
+                const active = modalRoot.querySelector('#etaStatusToggleGroup .eta-toggle-btn.active[data-eta-status]');
+                const state = active ? active.getAttribute('data-eta-status') : 'available';
+                const showExpandedFields = (state === 'watchlist' || state === 'backordered');
+                dateRow.hidden = !showExpandedFields;
+                severityGroup.hidden = !showExpandedFields;
+            }
+
+            function setSavingOverlay(isSaving) {
+                etaCard.classList.toggle('is-saving', !!isSaving);
+                savingOverlay.setAttribute('aria-hidden', String(!isSaving));
+            }
+
+            async function saveItemStatusToSheet() {
+                const cfg = getItemStatusSheetConfig();
+                if (!cfg.webAppUrl || !cfg.sheetId) {
+                    console.warn('⚠️ Missing itemStatus web app configuration');
+                    setSavingOverlay(true);
+                    setTimeout(() => setSavingOverlay(false), 700);
+                    return;
+                }
+
+                const selected = getSelectedItem() || {};
+                const draft = getDraftForSelectedItem();
+                const payload = {
+                    action: 'itemStatusWrite',
+                    sheetId: cfg.sheetId,
+                    tabName: cfg.tabName,
+                    itemCode: String(selected.itemCode || ''),
+                    description: String(selected.description || selected.drugName || ''),
+                    availability: String(draft.availability || 'available'),
+                    status: String(draft.status || 'moderate'),
+                    notes: String(draft.notes || ''),
+                    SBARnotes: String(draft.SBARnotes || ''),
+                    filePath: String(draft.filePath || ''),
+                    etaDate: String(draft.etaDate || ''),
+                    updatedAt: new Date().toISOString(),
+                    date: new Date().toISOString().slice(0, 10)
+                };
+
+                setSavingOverlay(true);
+                saveBtn.disabled = true;
+                try {
+                    const resp = await fetch(cfg.webAppUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!resp.ok) {
+                        console.warn('⚠️ Failed to persist item status via fetch, HTTP', resp.status, '- trying form-post fallback');
+                        await submitItemStatusViaFormPost(cfg.webAppUrl, payload);
+                    }
+                } catch (err) {
+                    console.warn('⚠️ Fetch save failed; trying form-post fallback', err);
+                    await submitItemStatusViaFormPost(cfg.webAppUrl, payload);
+                } finally {
+                    saveBtn.disabled = false;
+                    setSavingOverlay(false);
+                }
+            }
+
+            function syncNotesInputFromDraft() {
+                if (!notesInput) return;
+                const draft = getDraftForSelectedItem();
+                notesInput.value = activeNotesType === 'sbar' ? (draft.SBARnotes || '') : (draft.notes || '');
+            }
+
+            function writeNotesToDraft() {
+                if (!notesInput) return;
+                const draft = getDraftForSelectedItem();
+                if (activeNotesType === 'sbar') draft.SBARnotes = notesInput.value || '';
+                else draft.notes = notesInput.value || '';
+            }
+
+            function setActiveButton(buttons, attr, value) {
+                buttons.forEach((btn) => {
+                    const isActive = btn.getAttribute(attr) === value;
+                    btn.classList.toggle('active', isActive);
+                });
+            }
+
+            function hydrateControlsFromDraft() {
+                const draft = getDraftForSelectedItem();
+                setActiveButton(statusButtons, 'data-eta-status', String(draft.availability || 'available'));
+                setActiveButton(severityButtons, 'data-eta-severity', String(draft.status || 'moderate'));
+                if (dateInput) dateInput.value = String(draft.etaDate || '');
+                if (filePath) filePath.textContent = draft.filePath || 'No file selected';
+                setActiveButton(notesButtons, 'data-notes-type', activeNotesType);
+                syncNotesInputFromDraft();
+                updateDateVisibility();
+            }
+
+            expandBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setExpanded(!etaCard.classList.contains('is-expanded'));
+            });
+
+            statusButtons.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    statusButtons.forEach((node) => node.classList.remove('active'));
+                    btn.classList.add('active');
+                    const draft = getDraftForSelectedItem();
+                    draft.availability = btn.getAttribute('data-eta-status') || 'available';
+                    updateDateVisibility();
+                });
+            });
+
+            severityButtons.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    severityButtons.forEach((node) => node.classList.remove('active'));
+                    btn.classList.add('active');
+                    const draft = getDraftForSelectedItem();
+                    draft.status = btn.getAttribute('data-eta-severity') || 'moderate';
+                });
+            });
+
+            notesButtons.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    writeNotesToDraft();
+                    notesButtons.forEach((node) => node.classList.remove('active'));
+                    btn.classList.add('active');
+                    activeNotesType = btn.getAttribute('data-notes-type') || 'general';
+                    syncNotesInputFromDraft();
+                });
+            });
+
+            if (notesInput) {
+                notesInput.addEventListener('input', () => {
+                    writeNotesToDraft();
+                });
+            }
+
+            if (dateInput) {
+                dateInput.addEventListener('change', () => {
+                    const draft = getDraftForSelectedItem();
+                    draft.etaDate = dateInput.value || '';
+                });
+            }
+
+            if (fileInput && fileBtn && filePath) {
+                fileBtn.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', () => {
+                    const files = Array.from(fileInput.files || []);
+                    const selectedFile = files.length ? files[0] : null;
+                    const resolvedPath = selectedFile
+                        ? String(fileInput.value || selectedFile.webkitRelativePath || selectedFile.name || '')
+                        : '';
+                    filePath.textContent = resolvedPath || 'No file selected';
+                    const draft = getDraftForSelectedItem();
+                    draft.filePath = resolvedPath;
+                });
+            }
+
+
+            saveBtn.addEventListener('click', async () => {
+                writeNotesToDraft();
+                await saveItemStatusToSheet();
+            });
+
+            window.__shortageHydrateEtaDraft = hydrateControlsFromDraft;
+            hydrateControlsFromDraft();
         }
 
         function wireInventoryBadgeActions(itemCode) {
@@ -1390,6 +1653,7 @@
             if (oldNotesSection) oldNotesSection.remove();
             
             // Store items globally for selection handling
+            etaStatusDraftByItem = {};
             currentModalItems = items;
             currentSelectedIndex = initialIndex;
             
@@ -1476,9 +1740,56 @@
             
             // Build top summary info (NO STATUS CARD)
             modalDrugInfo.innerHTML = `
-                <div class="modal-info-item">
-                    <div class="modal-info-label">Earliest ETA</div>
-                    <div class="modal-info-value" id="displayETA">${firstItemETA}</div>
+                <div class="modal-info-item modal-info-item-eta" id="etaInfoCard">
+                    <div class="eta-summary-row">
+                        <div>
+                            <div class="modal-info-label">Earliest ETA</div>
+                            <div class="modal-info-value" id="displayETA">${firstItemETA}</div>
+                        </div>
+                        <div class="eta-summary-actions">
+                            <button type="button" class="eta-expand-btn" id="etaExpandBtn" aria-label="Expand ETA details" aria-expanded="false">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <circle cx="5" cy="12" r="2"></circle>
+                                    <circle cx="12" cy="12" r="2"></circle>
+                                    <circle cx="19" cy="12" r="2"></circle>
+                                </svg>
+                            </button>
+                            <button type="button" class="eta-save-btn" id="etaSaveBtn" aria-label="Save ETA status">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="eta-expansion" id="etaExpansion" aria-hidden="true">
+                        <div class="eta-status-toggle-group" id="etaStatusToggleGroup" role="group" aria-label="ETA status">
+                            <button type="button" class="eta-toggle-btn active" data-eta-status="available">Available</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-status="watchlist">Watchlist</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-status="backordered">Backordered</button>
+                        </div>
+                        <div class="eta-status-toggle-group" id="etaSeverityToggleGroup" role="group" aria-label="Severity status">
+                            <button type="button" class="eta-toggle-btn active" data-eta-severity="moderate">Moderate</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-severity="severe">Severe</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-severity="critical">Critical</button>
+                        </div>
+                        <div class="eta-date-row" id="etaDateRow" hidden>
+                            <label for="etaDateInput" class="eta-field-label">Expected Date</label>
+                            <input type="date" id="etaDateInput" class="eta-date-input">
+                        </div>
+                        <div class="eta-notes-wrap">
+                            <div class="eta-notes-toggle-group" id="etaNotesToggleGroup" role="group" aria-label="Notes type">
+                                <button type="button" class="eta-toggle-btn active" data-notes-type="general">General Notes</button>
+                                <button type="button" class="eta-toggle-btn" data-notes-type="sbar">SBAR Notes</button>
+                            </div>
+                            <textarea id="etaNotesInput" class="eta-notes-input" rows="3" placeholder="Add notes"></textarea>
+                        </div>
+                        <div class="eta-file-row">
+                            <input type="file" id="etaFileInput" class="eta-file-input">
+                            <button type="button" class="eta-file-btn" id="etaFileBtn">Select File</button>
+                            <span class="eta-file-path" id="etaFilePath">No file selected</span>
+                        </div>
+                    </div>
+                    <div class="eta-saving-overlay" id="etaSavingOverlay" aria-hidden="true">Saving...</div>
                 </div>
             `;
             
@@ -1661,6 +1972,8 @@
             notesSection.insertAdjacentHTML('beforebegin', usageRateHTML);
             notesSection.insertAdjacentHTML('beforebegin', chartHTML);
 
+            initEtaExpansionControls();
+
             // Enable Pyxis inventory expansion (locations badges)
             (function initPyxisInventoryExpansion() {
                 const pyxisCard = document.getElementById('pyxisInvCard');
@@ -1839,6 +2152,9 @@
             
             // Update display elements
             document.getElementById('displayETA').textContent = eta;
+            if (typeof window.__shortageHydrateEtaDraft === 'function') {
+                window.__shortageHydrateEtaDraft();
+            }
 
             const selectedInvEntry = (cachedMockData && cachedMockData.inventory && cachedMockData.inventory[selectedItem.itemCode])
                 ? cachedMockData.inventory[selectedItem.itemCode]

@@ -197,7 +197,7 @@
         
         .empty-state-text {
             font-size: 2em;
-            font-weight: 600;
+            font-weight: 500;
             color: var(--text-primary);
             text-align: left;
         }
@@ -1875,6 +1875,171 @@
             font-weight: 700;
         }
 
+        .modal-info-item-eta {
+            position: relative;
+        }
+
+        .modal-info-item-eta .eta-summary-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: var(--spacing-sm);
+        }
+
+        .eta-summary-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .eta-expand-btn,
+        .eta-save-btn {
+            border: 1px solid rgba(17, 153, 142, 0.35);
+            background: rgba(17, 153, 142, 0.08);
+            color: var(--teal-primary);
+            border-radius: 8px;
+            width: 36px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .eta-save-btn {
+            display: none;
+        }
+
+        .modal-info-item-eta.is-expanded .eta-save-btn {
+            display: inline-flex;
+        }
+
+        .eta-expand-btn svg,
+        .eta-save-btn svg {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+        }
+
+        .eta-saving-overlay {
+            position: absolute;
+            inset: 0;
+            border-radius: 8px;
+            background: rgba(225, 228, 231, 0.86);
+            color: var(--teal-primary);
+            font-weight: 700;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 4;
+            pointer-events: none;
+            letter-spacing: 0.2px;
+        }
+
+        .modal-info-item-eta.is-saving .eta-saving-overlay {
+            display: flex;
+        }
+
+        .eta-expansion {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transform: translateY(-8px);
+            transition: max-height 220ms ease, opacity 180ms ease, transform 180ms ease, margin-top 180ms ease;
+            margin-top: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .modal-info-item-eta.is-expanded .eta-expansion {
+            max-height: 560px;
+            opacity: 1;
+            transform: translateY(0);
+            margin-top: 12px;
+        }
+
+        .eta-status-toggle-group,
+        .eta-notes-toggle-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .eta-toggle-btn {
+            border: 1px solid rgba(17, 153, 142, 0.35);
+            background: var(--modal-card-bg-alt);
+            color: var(--text-primary);
+            border-radius: 999px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .eta-toggle-btn.active {
+            background: rgba(17, 153, 142, 0.16);
+            border-color: rgba(17, 153, 142, 0.55);
+            color: var(--teal-primary);
+        }
+
+        .eta-field-label {
+            font-size: 0.82em;
+            color: var(--teal-primary);
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .eta-date-input,
+        .eta-notes-input {
+            width: 100%;
+            border: 1px solid var(--modal-card-border);
+            background: var(--modal-card-bg-alt);
+            border-radius: 8px;
+            color: var(--text-primary);
+            padding: 8px 10px;
+            font: inherit;
+            box-sizing: border-box;
+        }
+
+        .eta-notes-input {
+            resize: vertical;
+            min-height: 88px;
+            max-height: 180px;
+        }
+
+        .eta-notes-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .eta-file-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .eta-file-input {
+            display: none;
+        }
+
+        .eta-file-btn {
+            border: 1px solid rgba(17, 153, 142, 0.4);
+            background: rgba(17, 153, 142, 0.1);
+            color: var(--teal-primary);
+            border-radius: 8px;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .eta-file-path {
+            font-size: 0.82em;
+            color: var(--text-secondary);
+            word-break: break-all;
+        }
+
         /* Item list styles */
         .item-list-container {
             background: var(--modal-card-bg);
@@ -2175,6 +2340,9 @@
             margin-top: 0;
             margin-bottom: 0;
             padding: 12px;
+            max-height: 190px;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
 
         .inventory-locations-group {
@@ -2210,8 +2378,16 @@
             background: rgba(17, 153, 142, 0.06);
             color: var(--text-primary);
             font-size: 0.85em;
-            font-weight: 600;
+            font-weight: 500;
             letter-spacing: 0.2px;
+        }
+
+        .inv-loc-sep {
+            opacity: 0.75;
+        }
+
+        .inv-loc-qty {
+            font-weight: 700;
         }
 
 
