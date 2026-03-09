@@ -1959,6 +1959,13 @@
             color: var(--text-primary);
             padding: 8px 10px;
             font: inherit;
+            box-sizing: border-box;
+        }
+
+        .eta-notes-input {
+            resize: vertical;
+            min-height: 88px;
+            max-height: 180px;
         }
 
         .eta-notes-wrap {
@@ -2334,6 +2341,14 @@
             font-size: 0.85em;
             font-weight: 500;
             letter-spacing: 0.2px;
+        }
+
+        .inv-loc-sep {
+            opacity: 0.75;
+        }
+
+        .inv-loc-qty {
+            font-weight: 700;
         }
 
 

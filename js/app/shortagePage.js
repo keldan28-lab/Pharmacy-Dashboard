@@ -242,7 +242,7 @@
                 nonZero.sort((a, b) => String(a.code).localeCompare(String(b.code)));
                 for (let i = 0; i < nonZero.length; i++) {
                     const l = nonZero[i];
-                    const badgeText = `${l.code}  |  ${l.qty}`;
+                    const badgeText = `${l.code}  <span class="inv-loc-sep">|</span>  <span class="inv-loc-qty">${l.qty}</span>`;
                     const standardClass = l.standard ? ' is-standard' : '';
                     html += `<button type="button" class="inv-loc-badge${standardClass}" data-sublocation="${String(l.code)}" data-item-code="${String(itemCode || '')}" title="View ${String(l.code)} in Charts">${badgeText}</button>`;
                 }
@@ -270,6 +270,7 @@
             const dateRow = document.getElementById('etaDateRow');
             const statusButtons = document.querySelectorAll('#etaStatusToggleGroup .eta-toggle-btn[data-eta-status]');
             const notesButtons = document.querySelectorAll('#etaNotesToggleGroup .eta-toggle-btn[data-notes-type]');
+            const severityButtons = document.querySelectorAll('#etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity]');
             const fileInput = document.getElementById('etaFileInput');
             const fileBtn = document.getElementById('etaFileBtn');
             const filePath = document.getElementById('etaFilePath');
@@ -304,6 +305,13 @@
             notesButtons.forEach((btn) => {
                 btn.addEventListener('click', () => {
                     notesButtons.forEach((node) => node.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+            });
+
+            severityButtons.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    severityButtons.forEach((node) => node.classList.remove('active'));
                     btn.classList.add('active');
                 });
             });
@@ -1559,6 +1567,11 @@
                             <button type="button" class="eta-toggle-btn active" data-eta-status="available">Available</button>
                             <button type="button" class="eta-toggle-btn" data-eta-status="watchlist">Watchlist</button>
                             <button type="button" class="eta-toggle-btn" data-eta-status="backordered">Backordered</button>
+                        </div>
+                        <div class="eta-status-toggle-group" id="etaSeverityToggleGroup" role="group" aria-label="Severity status">
+                            <button type="button" class="eta-toggle-btn active" data-eta-severity="moderate">Moderate</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-severity="severe">Severe</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-severity="critical">Critical</button>
                         </div>
                         <div class="eta-date-row" id="etaDateRow" hidden>
                             <label for="etaDateInput" class="eta-field-label">Expected Date</label>
