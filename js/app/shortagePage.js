@@ -144,10 +144,10 @@
 
         function getItemStatusSheetConfig() {
             const webAppUrl = String(
-                (window.ITEM_STATUS_WEBAPP_URL || localStorage.getItem('itemStatusWebAppUrl') || '')
+                (window.ITEM_STATUS_WEBAPP_URL || localStorage.getItem('itemStatusWebAppUrl') || localStorage.getItem('spike_webAppUrl') || '')
             ).trim();
             const sheetId = String(
-                (window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || '')
+                (window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || '')
             ).trim();
             return { webAppUrl, sheetId, tabName: 'itemStatus' };
         }
@@ -274,6 +274,45 @@
         }
 
 
+        function submitItemStatusViaFormPost(scriptUrl, payload, timeoutMs = 1600) {
+            return new Promise((resolve) => {
+                try {
+                    const iframeName = 'itemStatusFormTarget_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                    const iframe = document.createElement('iframe');
+                    iframe.name = iframeName;
+                    iframe.style.display = 'none';
+                    document.body.appendChild(iframe);
+
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = scriptUrl;
+                    form.target = iframeName;
+                    form.style.display = 'none';
+
+                    Object.keys(payload || {}).forEach((k) => {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = k;
+                        input.value = String(payload[k] == null ? '' : payload[k]);
+                        form.appendChild(input);
+                    });
+
+                    document.body.appendChild(form);
+                    form.submit();
+
+                    setTimeout(() => {
+                        try { form.remove(); } catch (_) {}
+                        try { iframe.remove(); } catch (_) {}
+                        resolve(true);
+                    }, timeoutMs);
+                } catch (err) {
+                    console.warn('⚠️ Form-post fallback failed', err);
+                    resolve(false);
+                }
+            });
+        }
+
+
         function initEtaExpansionControls() {
             const modalRoot = document.getElementById('detailsModal');
             if (!modalRoot) return;
@@ -371,10 +410,12 @@
                         body: JSON.stringify(payload)
                     });
                     if (!resp.ok) {
-                        console.warn('⚠️ Failed to persist item status, HTTP', resp.status);
+                        console.warn('⚠️ Failed to persist item status via fetch, HTTP', resp.status, '- trying form-post fallback');
+                        await submitItemStatusViaFormPost(cfg.webAppUrl, payload);
                     }
                 } catch (err) {
-                    console.warn('⚠️ Failed to persist item status', err);
+                    console.warn('⚠️ Fetch save failed; trying form-post fallback', err);
+                    await submitItemStatusViaFormPost(cfg.webAppUrl, payload);
                 } finally {
                     saveBtn.disabled = false;
                     setSavingOverlay(false);
