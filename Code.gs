@@ -134,7 +134,8 @@ function doPost(e) {
         notes: p.notes || body.notes || '',
         SBARnotes: p.SBARnotes || body.SBARnotes || '',
         filePath: p.filePath || body.filePath || '',
-        etaDate: p.etaDate || body.etaDate || ''
+        etaDate: p.etaDate || body.etaDate || '',
+        date: p.date || body.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
       };
 
       const result = itemStatusWrite_(sheetId, tabName, rowObj);
@@ -395,7 +396,7 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
   let sh = ss.getSheetByName(tabName);
   if (!sh) sh = ss.insertSheet(tabName);
 
-  const header = ['updatedAt', 'itemCode', 'description', 'availability', 'status', 'notes', 'SBARnotes', 'filePath', 'etaDate'];
+  const header = ['updatedAt', 'date', 'itemCode', 'description', 'availability', 'status', 'notes', 'SBARnotes', 'filePath', 'etaDate'];
   const lastRow = sh.getLastRow();
 
   if (lastRow < 1) {
@@ -411,6 +412,7 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
   const row = [
     String(rowObj.updatedAt || new Date().toISOString()),
+    String(rowObj.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')),
     String(rowObj.itemCode || ''),
     String(rowObj.description || ''),
     String(rowObj.availability || ''),

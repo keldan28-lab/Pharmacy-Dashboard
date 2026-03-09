@@ -277,6 +277,7 @@
         function initEtaExpansionControls() {
             const etaCard = document.getElementById('etaInfoCard');
             const expandBtn = document.getElementById('etaExpandBtn');
+            const saveBtn = document.getElementById('etaSaveBtn');
             const expansion = document.getElementById('etaExpansion');
             const dateRow = document.getElementById('etaDateRow');
             const dateInput = document.getElementById('etaDateInput');
@@ -287,10 +288,9 @@
             const fileInput = document.getElementById('etaFileInput');
             const fileBtn = document.getElementById('etaFileBtn');
             const filePath = document.getElementById('etaFilePath');
-            if (!etaCard || !expandBtn || !expansion) return;
+            if (!etaCard || !expandBtn || !saveBtn || !expansion) return;
 
             let activeNotesType = 'general';
-            let notesSaveTimer = null;
 
             function getSelectedItem() {
                 return (Array.isArray(currentModalItems) && currentModalItems[currentSelectedIndex]) ? currentModalItems[currentSelectedIndex] : null;
@@ -342,7 +342,8 @@
                     SBARnotes: String(draft.SBARnotes || ''),
                     filePath: String(draft.filePath || ''),
                     etaDate: String(draft.etaDate || ''),
-                    updatedAt: new Date().toISOString()
+                    updatedAt: new Date().toISOString(),
+                    date: new Date().toISOString().slice(0, 10)
                 };
 
                 try {
@@ -400,7 +401,6 @@
                     const draft = getDraftForSelectedItem();
                     draft.availability = btn.getAttribute('data-eta-status') || 'available';
                     updateDateVisibility();
-                    saveItemStatusToSheet();
                 });
             });
 
@@ -410,7 +410,6 @@
                     btn.classList.add('active');
                     const draft = getDraftForSelectedItem();
                     draft.status = btn.getAttribute('data-eta-severity') || 'moderate';
-                    saveItemStatusToSheet();
                 });
             });
 
@@ -427,8 +426,6 @@
             if (notesInput) {
                 notesInput.addEventListener('input', () => {
                     writeNotesToDraft();
-                    if (notesSaveTimer) clearTimeout(notesSaveTimer);
-                    notesSaveTimer = setTimeout(() => saveItemStatusToSheet(), 350);
                 });
             }
 
@@ -436,7 +433,6 @@
                 dateInput.addEventListener('change', () => {
                     const draft = getDraftForSelectedItem();
                     draft.etaDate = dateInput.value || '';
-                    saveItemStatusToSheet();
                 });
             }
 
@@ -451,13 +447,17 @@
                     filePath.textContent = resolvedPath || 'No file selected';
                     const draft = getDraftForSelectedItem();
                     draft.filePath = resolvedPath;
-                    saveItemStatusToSheet();
                 });
             }
 
+
+            saveBtn.addEventListener('click', () => {
+                writeNotesToDraft();
+                saveItemStatusToSheet();
+            });
+
             window.__shortageHydrateEtaDraft = hydrateControlsFromDraft;
             hydrateControlsFromDraft();
-            saveItemStatusToSheet();
         }
 
         function wireInventoryBadgeActions(itemCode) {
@@ -1681,13 +1681,20 @@
                             <div class="modal-info-label">Earliest ETA</div>
                             <div class="modal-info-value" id="displayETA">${firstItemETA}</div>
                         </div>
-                        <button type="button" class="eta-expand-btn" id="etaExpandBtn" aria-label="Expand ETA details" aria-expanded="false">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <circle cx="5" cy="12" r="2"></circle>
-                                <circle cx="12" cy="12" r="2"></circle>
-                                <circle cx="19" cy="12" r="2"></circle>
-                            </svg>
-                        </button>
+                        <div class="eta-summary-actions">
+                            <button type="button" class="eta-expand-btn" id="etaExpandBtn" aria-label="Expand ETA details" aria-expanded="false">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <circle cx="5" cy="12" r="2"></circle>
+                                    <circle cx="12" cy="12" r="2"></circle>
+                                    <circle cx="19" cy="12" r="2"></circle>
+                                </svg>
+                            </button>
+                            <button type="button" class="eta-save-btn" id="etaSaveBtn" aria-label="Save ETA status">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"></path>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     <div class="eta-expansion" id="etaExpansion" aria-hidden="true">
                         <div class="eta-status-toggle-group" id="etaStatusToggleGroup" role="group" aria-label="ETA status">

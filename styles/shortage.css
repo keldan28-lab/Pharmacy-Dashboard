@@ -1882,7 +1882,14 @@
             gap: var(--spacing-sm);
         }
 
-        .eta-expand-btn {
+        .eta-summary-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .eta-expand-btn,
+        .eta-save-btn {
             border: 1px solid rgba(17, 153, 142, 0.35);
             background: rgba(17, 153, 142, 0.08);
             color: var(--teal-primary);
@@ -1895,7 +1902,16 @@
             cursor: pointer;
         }
 
-        .eta-expand-btn svg {
+        .eta-save-btn {
+            display: none;
+        }
+
+        .modal-info-item-eta.is-expanded .eta-save-btn {
+            display: inline-flex;
+        }
+
+        .eta-expand-btn svg,
+        .eta-save-btn svg {
             width: 18px;
             height: 18px;
             fill: currentColor;
