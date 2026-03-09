@@ -775,7 +775,7 @@
             return new Promise((resolve) => {
                 const callbackName = '__analyticsItemStatusCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
                 const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
-                const url = `${cleanUrl}?action=itemStatusRead&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}&callback=${encodeURIComponent(callbackName)}`;
+                const url = `${cleanUrl}?action=read&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}&callback=${encodeURIComponent(callbackName)}`;
                 const script = document.createElement('script');
                 let done = false;
                 const finish = (rows) => {
@@ -802,7 +802,7 @@
                 itemStatusOverlayPromise = (async () => {
                     try {
                         const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
-                        const url = `${cleanUrl}?action=itemStatusRead&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}`;
+                        const url = `${cleanUrl}?action=read&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}`;
                         const resp = await fetch(url, { method: 'GET' });
                         if (!resp.ok) throw new Error('HTTP ' + resp.status);
                         const payload = await resp.json();
