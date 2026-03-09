@@ -198,6 +198,7 @@
                 item.notes = String(getItemStatusField(statusRow, ['notes']) || item.notes || '');
                 item.assessment = String(getItemStatusField(statusRow, ['SBARnotes', 'sbarNotes', 'assessment']) || item.assessment || '');
                 item.status = String(getItemStatusField(statusRow, ['status']) || item.status || '');
+                item.SBAR = !!String(item.filePath || '').trim();
             });
 
             return data;
@@ -486,6 +487,13 @@
                 const showExpandedFields = (state === 'watchlist' || state === 'backordered');
                 dateRow.hidden = !showExpandedFields;
                 severityGroup.hidden = !showExpandedFields;
+                if (!showExpandedFields) {
+                    const draft = getDraftForSelectedItem();
+                    draft.status = '';
+                } else {
+                    const draft = getDraftForSelectedItem();
+                    if (!String(draft.status || '').trim()) draft.status = 'moderate';
+                }
             }
 
             function setSavingOverlay(isSaving) {
@@ -511,7 +519,7 @@
                     itemCode: String(selected.itemCode || ''),
                     description: String(selected.description || selected.drugName || ''),
                     availability: String(draft.availability || 'available'),
-                    status: String(draft.status || 'moderate'),
+                    status: (String(draft.availability || 'available') === 'watchlist' || String(draft.availability || 'available') === 'backordered') ? String(draft.status || 'moderate') : '',
                     notes: String(draft.notes || ''),
                     SBARnotes: String(draft.SBARnotes || ''),
                     filePath: String(draft.filePath || ''),
@@ -546,12 +554,16 @@
                         selected.notes = payload.notes;
                         selected.assessment = payload.SBARnotes;
                         selected.filePath = payload.filePath;
+                        selected.SBAR = !!String(payload.filePath || '').trim();
                         if (typeof selectModalItem === 'function') {
                             selectModalItem(currentSelectedIndex);
                         }
                         await refreshItemStatusOverlay(true);
                         if (typeof selectModalItem === 'function') {
                             selectModalItem(currentSelectedIndex);
+                        }
+                        if (typeof applyCurrentFilter === 'function') {
+                            applyCurrentFilter();
                         }
                     }
                     saveBtn.disabled = false;
