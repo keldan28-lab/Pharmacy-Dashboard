@@ -156,7 +156,20 @@
         function parseItemStatusRows(raw) {
             if (Array.isArray(raw)) return raw;
             if (!raw || typeof raw !== 'object') return [];
-            return raw.rows || raw.items || raw.data || raw.values || [];
+            return raw.rows || raw.items || raw.data || raw.values || (raw.result && (raw.result.rows || raw.result.items || raw.result.values)) || [];
+        }
+
+        function getItemStatusField(row, keys) {
+            if (!row || typeof row !== 'object') return '';
+            const keyMap = {};
+            Object.keys(row).forEach((k) => {
+                keyMap[String(k).trim().toLowerCase()] = row[k];
+            });
+            for (let i = 0; i < keys.length; i++) {
+                const val = keyMap[String(keys[i]).trim().toLowerCase()];
+                if (val !== undefined && val !== null) return val;
+            }
+            return '';
         }
 
         function mergeItemStatusIntoData(data, rawRows) {
@@ -165,11 +178,11 @@
             const latestByCode = new Map();
             rawRows.forEach(row => {
                 if (!row || typeof row !== 'object') return;
-                const code = String(row.itemCode || '').trim();
+                const code = String(getItemStatusField(row, ['itemCode', 'item_code', 'code'])).trim();
                 if (!code) return;
                 const prior = latestByCode.get(code);
-                const priorAt = prior && prior.updatedAt ? Date.parse(prior.updatedAt) : NaN;
-                const rowAt = row.updatedAt ? Date.parse(row.updatedAt) : NaN;
+                const priorAt = prior ? Date.parse(String(getItemStatusField(prior, ['updatedAt', 'updated_at', 'timestamp']))) : NaN;
+                const rowAt = Date.parse(String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp'])));
                 if (!prior || (Number.isFinite(rowAt) && (!Number.isFinite(priorAt) || rowAt >= priorAt))) {
                     latestByCode.set(code, row);
                 }
@@ -180,11 +193,11 @@
                 const statusRow = latestByCode.get(String(item.itemCode));
                 if (!statusRow) return;
 
-                item.ETA = String(statusRow.etaDate || item.ETA || '');
-                item.filePath = String(statusRow.filePath || item.filePath || '');
-                item.notes = String(statusRow.notes || item.notes || '');
-                item.assessment = String(statusRow.SBARnotes || item.assessment || '');
-                item.status = String(statusRow.status || item.status || '');
+                item.ETA = String(getItemStatusField(statusRow, ['etaDate', 'eta_date', 'eta']) || item.ETA || '');
+                item.filePath = String(getItemStatusField(statusRow, ['filePath', 'file_path']) || item.filePath || '');
+                item.notes = String(getItemStatusField(statusRow, ['notes']) || item.notes || '');
+                item.assessment = String(getItemStatusField(statusRow, ['SBARnotes', 'sbarNotes', 'assessment']) || item.assessment || '');
+                item.status = String(getItemStatusField(statusRow, ['status']) || item.status || '');
             });
 
             return data;
@@ -251,6 +264,11 @@
                     });
             }
             return itemStatusOverlayPromise;
+        }
+
+        async function refreshItemStatusOverlay(forceReload) {
+            if (forceReload) itemStatusOverlayPromise = null;
+            return ensureItemStatusOverlayLoaded();
         }
 
         // Cookie utility functions
@@ -504,6 +522,7 @@
 
                 setSavingOverlay(true);
                 saveBtn.disabled = true;
+                let persisted = false;
                 try {
                     const resp = await fetch(cfg.webAppUrl, {
                         method: 'POST',
@@ -513,11 +532,28 @@
                     if (!resp.ok) {
                         console.warn('⚠️ Failed to persist item status via fetch, HTTP', resp.status, '- trying form-post fallback');
                         await submitItemStatusViaFormPost(cfg.webAppUrl, payload);
+                    } else {
+                        persisted = true;
                     }
                 } catch (err) {
                     console.warn('⚠️ Fetch save failed; trying form-post fallback', err);
                     await submitItemStatusViaFormPost(cfg.webAppUrl, payload);
+                    persisted = true;
                 } finally {
+                    if (persisted) {
+                        selected.status = payload.status;
+                        selected.ETA = payload.etaDate;
+                        selected.notes = payload.notes;
+                        selected.assessment = payload.SBARnotes;
+                        selected.filePath = payload.filePath;
+                        if (typeof selectModalItem === 'function') {
+                            selectModalItem(currentSelectedIndex);
+                        }
+                        await refreshItemStatusOverlay(true);
+                        if (typeof selectModalItem === 'function') {
+                            selectModalItem(currentSelectedIndex);
+                        }
+                    }
                     saveBtn.disabled = false;
                     setSavingOverlay(false);
                 }
