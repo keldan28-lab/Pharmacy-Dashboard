@@ -710,10 +710,10 @@
 
         async function ensureItemStatusOverlayLoaded() {
             if (!cachedMockData || !Array.isArray(cachedMockData.items)) return cachedMockData;
+            const cfg = getItemStatusSheetConfig();
+            if (!cfg.webAppUrl || !cfg.sheetId) return cachedMockData;
             if (!itemStatusOverlayPromise) {
                 itemStatusOverlayPromise = (async () => {
-                    const cfg = getItemStatusSheetConfig();
-                    if (!cfg.webAppUrl || !cfg.sheetId) return cachedMockData;
                     try {
                         const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
                         const url = `${cleanUrl}?action=itemStatusRead&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}`;

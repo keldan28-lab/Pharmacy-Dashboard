@@ -253,6 +253,8 @@
 
         function ensureItemStatusOverlayLoaded() {
             if (!cachedMockData || !Array.isArray(cachedMockData.items)) return Promise.resolve(cachedMockData);
+            const cfg = getItemStatusSheetConfig();
+            if (!cfg.webAppUrl || !cfg.sheetId) return Promise.resolve(cachedMockData);
             if (!itemStatusOverlayPromise) {
                 itemStatusOverlayPromise = fetchAndMergeItemStatusData(cachedMockData)
                     .then((merged) => {
