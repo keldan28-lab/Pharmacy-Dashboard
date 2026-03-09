@@ -173,32 +173,72 @@
         }
 
         function mergeItemStatusIntoData(data, rawRows) {
-            if (!data || !Array.isArray(data.items) || !Array.isArray(rawRows)) return data;
+            if (!data || !Array.isArray(data.items)) return data;
 
-            const latestByCode = new Map();
-            rawRows.forEach(row => {
-                if (!row || typeof row !== 'object') return;
-                const code = String(getItemStatusField(row, ['itemCode', 'item_code', 'code'])).trim();
+            function pickLatest(current, candidate) {
+                if (!current) return candidate;
+                const curDate = Date.parse(String(current.date || current.updatedAt || ''));
+                const canDate = Date.parse(String(candidate.date || candidate.updatedAt || ''));
+                if (Number.isFinite(canDate) && !Number.isFinite(curDate)) return candidate;
+                if (Number.isFinite(canDate) && Number.isFinite(curDate) && canDate > curDate) return candidate;
+                return current;
+            }
+
+            const aggregatedByCode = new Map();
+
+            // Base fallback from item_details_mockdata fields (always available)
+            data.items.forEach((item) => {
+                if (!item || !item.itemCode) return;
+                const code = String(item.itemCode).trim();
                 if (!code) return;
-                const prior = latestByCode.get(code);
-                const priorAt = prior ? Date.parse(String(getItemStatusField(prior, ['updatedAt', 'updated_at', 'timestamp']))) : NaN;
-                const rowAt = Date.parse(String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp'])));
-                if (!prior || (Number.isFinite(rowAt) && (!Number.isFinite(priorAt) || rowAt >= priorAt))) {
-                    latestByCode.set(code, row);
-                }
+                const base = {
+                    source: 'mock',
+                    itemCode: code,
+                    date: String(data.lastUpdated || item.lastUpdated || ''),
+                    updatedAt: String(item.updatedAt || data.lastUpdated || ''),
+                    status: String(item.status || ''),
+                    ETA: String(item.ETA || ''),
+                    filePath: String(item.filePath || ''),
+                    notes: String(item.notes || ''),
+                    assessment: String(item.assessment || ''),
+                    SBAR: !!item.SBAR || !!String(item.filePath || '').trim()
+                };
+                aggregatedByCode.set(code, pickLatest(aggregatedByCode.get(code), base));
             });
 
-            data.items.forEach(item => {
-                if (!item || !item.itemCode) return;
-                const statusRow = latestByCode.get(String(item.itemCode));
-                if (!statusRow) return;
+            // Overlay from Google Sheets rows; latest by (itemCode, date/updatedAt)
+            if (Array.isArray(rawRows)) {
+                rawRows.forEach((row) => {
+                    if (!row || typeof row !== 'object') return;
+                    const code = String(getItemStatusField(row, ['itemCode', 'item_code', 'code'])).trim();
+                    if (!code) return;
+                    const filePath = String(getItemStatusField(row, ['filePath', 'file_path']) || '');
+                    const candidate = {
+                        source: 'sheet',
+                        itemCode: code,
+                        date: String(getItemStatusField(row, ['date', 'etaDate', 'eta_date']) || ''),
+                        updatedAt: String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp']) || ''),
+                        status: String(getItemStatusField(row, ['status']) || ''),
+                        ETA: String(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
+                        filePath,
+                        notes: String(getItemStatusField(row, ['notes']) || ''),
+                        assessment: String(getItemStatusField(row, ['SBARnotes', 'sbarNotes', 'assessment']) || ''),
+                        SBAR: !!filePath.trim()
+                    };
+                    aggregatedByCode.set(code, pickLatest(aggregatedByCode.get(code), candidate));
+                });
+            }
 
-                item.ETA = String(getItemStatusField(statusRow, ['etaDate', 'eta_date', 'eta']) || item.ETA || '');
-                item.filePath = String(getItemStatusField(statusRow, ['filePath', 'file_path']) || item.filePath || '');
-                item.notes = String(getItemStatusField(statusRow, ['notes']) || item.notes || '');
-                item.assessment = String(getItemStatusField(statusRow, ['SBARnotes', 'sbarNotes', 'assessment']) || item.assessment || '');
-                item.status = String(getItemStatusField(statusRow, ['status']) || item.status || '');
-                item.SBAR = !!String(item.filePath || '').trim();
+            data.items.forEach((item) => {
+                if (!item || !item.itemCode) return;
+                const agg = aggregatedByCode.get(String(item.itemCode).trim());
+                if (!agg) return;
+                item.status = String(agg.status || '');
+                item.ETA = String(agg.ETA || '');
+                item.filePath = String(agg.filePath || '');
+                item.notes = String(agg.notes || '');
+                item.assessment = String(agg.assessment || '');
+                item.SBAR = !!agg.SBAR || !!String(item.filePath || '').trim();
             });
 
             return data;
