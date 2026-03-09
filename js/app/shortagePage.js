@@ -140,6 +140,17 @@
         const emptyState = document.getElementById('emptyState');
         let currentFilePath = '';  // Store the current file path for the modal
         let currentHasSBAR = false;  // Store whether SBAR document is available
+        let etaStatusDraftByItem = {}; // Persist ETA/status draft values per item while modal is open
+
+        function getItemStatusSheetConfig() {
+            const webAppUrl = String(
+                (window.ITEM_STATUS_WEBAPP_URL || localStorage.getItem('itemStatusWebAppUrl') || '')
+            ).trim();
+            const sheetId = String(
+                (window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || '')
+            ).trim();
+            return { webAppUrl, sheetId, tabName: 'itemStatus' };
+        }
 
         // Cookie utility functions
         function setCookie(name, value, days = 365) {
@@ -268,6 +279,8 @@
             const expandBtn = document.getElementById('etaExpandBtn');
             const expansion = document.getElementById('etaExpansion');
             const dateRow = document.getElementById('etaDateRow');
+            const dateInput = document.getElementById('etaDateInput');
+            const notesInput = document.getElementById('etaNotesInput');
             const statusButtons = document.querySelectorAll('#etaStatusToggleGroup .eta-toggle-btn[data-eta-status]');
             const notesButtons = document.querySelectorAll('#etaNotesToggleGroup .eta-toggle-btn[data-notes-type]');
             const severityButtons = document.querySelectorAll('#etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity]');
@@ -275,6 +288,29 @@
             const fileBtn = document.getElementById('etaFileBtn');
             const filePath = document.getElementById('etaFilePath');
             if (!etaCard || !expandBtn || !expansion) return;
+
+            let activeNotesType = 'general';
+            let notesSaveTimer = null;
+
+            function getSelectedItem() {
+                return (Array.isArray(currentModalItems) && currentModalItems[currentSelectedIndex]) ? currentModalItems[currentSelectedIndex] : null;
+            }
+
+            function getDraftForSelectedItem() {
+                const selected = getSelectedItem() || {};
+                const key = String(selected.itemCode || selected.description || selected.drugName || 'unknown');
+                if (!etaStatusDraftByItem[key]) {
+                    etaStatusDraftByItem[key] = {
+                        availability: 'available',
+                        status: 'moderate',
+                        etaDate: '',
+                        notes: '',
+                        SBARnotes: '',
+                        filePath: ''
+                    };
+                }
+                return etaStatusDraftByItem[key];
+            }
 
             function setExpanded(isOpen) {
                 etaCard.classList.toggle('is-expanded', isOpen);
@@ -288,6 +324,69 @@
                 dateRow.hidden = !(state === 'watchlist' || state === 'backordered');
             }
 
+            async function saveItemStatusToSheet() {
+                const cfg = getItemStatusSheetConfig();
+                if (!cfg.webAppUrl || !cfg.sheetId) return;
+
+                const selected = getSelectedItem() || {};
+                const draft = getDraftForSelectedItem();
+                const payload = {
+                    action: 'itemStatusWrite',
+                    sheetId: cfg.sheetId,
+                    tabName: cfg.tabName,
+                    itemCode: String(selected.itemCode || ''),
+                    description: String(selected.description || selected.drugName || ''),
+                    availability: String(draft.availability || 'available'),
+                    status: String(draft.status || 'moderate'),
+                    notes: String(draft.notes || ''),
+                    SBARnotes: String(draft.SBARnotes || ''),
+                    filePath: String(draft.filePath || ''),
+                    etaDate: String(draft.etaDate || ''),
+                    updatedAt: new Date().toISOString()
+                };
+
+                try {
+                    await fetch(cfg.webAppUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                } catch (err) {
+                    console.warn('⚠️ Failed to persist item status', err);
+                }
+            }
+
+            function syncNotesInputFromDraft() {
+                if (!notesInput) return;
+                const draft = getDraftForSelectedItem();
+                notesInput.value = activeNotesType === 'sbar' ? (draft.SBARnotes || '') : (draft.notes || '');
+            }
+
+            function writeNotesToDraft() {
+                if (!notesInput) return;
+                const draft = getDraftForSelectedItem();
+                if (activeNotesType === 'sbar') draft.SBARnotes = notesInput.value || '';
+                else draft.notes = notesInput.value || '';
+            }
+
+            function setActiveButton(buttons, attr, value) {
+                buttons.forEach((btn) => {
+                    const isActive = btn.getAttribute(attr) === value;
+                    btn.classList.toggle('active', isActive);
+                });
+            }
+
+            function hydrateControlsFromDraft() {
+                const draft = getDraftForSelectedItem();
+                setActiveButton(statusButtons, 'data-eta-status', String(draft.availability || 'available'));
+                setActiveButton(severityButtons, 'data-eta-severity', String(draft.status || 'moderate'));
+                if (dateInput) dateInput.value = String(draft.etaDate || '');
+                if (filePath) filePath.textContent = draft.filePath || 'No file selected';
+                setActiveButton(notesButtons, 'data-notes-type', activeNotesType);
+                syncNotesInputFromDraft();
+                updateDateVisibility();
+            }
+
             expandBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -298,14 +397,10 @@
                 btn.addEventListener('click', () => {
                     statusButtons.forEach((node) => node.classList.remove('active'));
                     btn.classList.add('active');
+                    const draft = getDraftForSelectedItem();
+                    draft.availability = btn.getAttribute('data-eta-status') || 'available';
                     updateDateVisibility();
-                });
-            });
-
-            notesButtons.forEach((btn) => {
-                btn.addEventListener('click', () => {
-                    notesButtons.forEach((node) => node.classList.remove('active'));
-                    btn.classList.add('active');
+                    saveItemStatusToSheet();
                 });
             });
 
@@ -313,25 +408,56 @@
                 btn.addEventListener('click', () => {
                     severityButtons.forEach((node) => node.classList.remove('active'));
                     btn.classList.add('active');
+                    const draft = getDraftForSelectedItem();
+                    draft.status = btn.getAttribute('data-eta-severity') || 'moderate';
+                    saveItemStatusToSheet();
                 });
             });
+
+            notesButtons.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    writeNotesToDraft();
+                    notesButtons.forEach((node) => node.classList.remove('active'));
+                    btn.classList.add('active');
+                    activeNotesType = btn.getAttribute('data-notes-type') || 'general';
+                    syncNotesInputFromDraft();
+                });
+            });
+
+            if (notesInput) {
+                notesInput.addEventListener('input', () => {
+                    writeNotesToDraft();
+                    if (notesSaveTimer) clearTimeout(notesSaveTimer);
+                    notesSaveTimer = setTimeout(() => saveItemStatusToSheet(), 350);
+                });
+            }
+
+            if (dateInput) {
+                dateInput.addEventListener('change', () => {
+                    const draft = getDraftForSelectedItem();
+                    draft.etaDate = dateInput.value || '';
+                    saveItemStatusToSheet();
+                });
+            }
 
             if (fileInput && fileBtn && filePath) {
                 fileBtn.addEventListener('click', () => fileInput.click());
                 fileInput.addEventListener('change', () => {
                     const files = Array.from(fileInput.files || []);
-                    if (!files.length) {
-                        filePath.textContent = 'No folder selected';
-                        return;
-                    }
-                    const first = files[0];
-                    const rel = first && first.webkitRelativePath ? first.webkitRelativePath : '';
-                    const rootFolder = rel ? rel.split('/')[0] : (first && first.name ? first.name : 'Selected');
-                    filePath.textContent = rootFolder;
+                    const selectedFile = files.length ? files[0] : null;
+                    const resolvedPath = selectedFile
+                        ? String(fileInput.value || selectedFile.webkitRelativePath || selectedFile.name || '')
+                        : '';
+                    filePath.textContent = resolvedPath || 'No file selected';
+                    const draft = getDraftForSelectedItem();
+                    draft.filePath = resolvedPath;
+                    saveItemStatusToSheet();
                 });
             }
 
-            updateDateVisibility();
+            window.__shortageHydrateEtaDraft = hydrateControlsFromDraft;
+            hydrateControlsFromDraft();
+            saveItemStatusToSheet();
         }
 
         function wireInventoryBadgeActions(itemCode) {
@@ -1462,6 +1588,7 @@
             if (oldNotesSection) oldNotesSection.remove();
             
             // Store items globally for selection handling
+            etaStatusDraftByItem = {};
             currentModalItems = items;
             currentSelectedIndex = initialIndex;
             
@@ -1585,9 +1712,9 @@
                             <textarea id="etaNotesInput" class="eta-notes-input" rows="3" placeholder="Add notes"></textarea>
                         </div>
                         <div class="eta-file-row">
-                            <input type="file" id="etaFileInput" class="eta-file-input" webkitdirectory directory>
-                            <button type="button" class="eta-file-btn" id="etaFileBtn">Select Folder</button>
-                            <span class="eta-file-path" id="etaFilePath">No folder selected</span>
+                            <input type="file" id="etaFileInput" class="eta-file-input">
+                            <button type="button" class="eta-file-btn" id="etaFileBtn">Select File</button>
+                            <span class="eta-file-path" id="etaFilePath">No file selected</span>
                         </div>
                     </div>
                 </div>
@@ -1952,6 +2079,9 @@
             
             // Update display elements
             document.getElementById('displayETA').textContent = eta;
+            if (typeof window.__shortageHydrateEtaDraft === 'function') {
+                window.__shortageHydrateEtaDraft();
+            }
 
             const selectedInvEntry = (cachedMockData && cachedMockData.inventory && cachedMockData.inventory[selectedItem.itemCode])
                 ? cachedMockData.inventory[selectedItem.itemCode]
