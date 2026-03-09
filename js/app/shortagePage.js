@@ -275,21 +275,24 @@
 
 
         function initEtaExpansionControls() {
-            const etaCard = document.getElementById('etaInfoCard');
-            const expandBtn = document.getElementById('etaExpandBtn');
-            const saveBtn = document.getElementById('etaSaveBtn');
-            const expansion = document.getElementById('etaExpansion');
-            const dateRow = document.getElementById('etaDateRow');
-            const dateInput = document.getElementById('etaDateInput');
-            const notesInput = document.getElementById('etaNotesInput');
-            const statusButtons = document.querySelectorAll('#etaStatusToggleGroup .eta-toggle-btn[data-eta-status]');
-            const notesButtons = document.querySelectorAll('#etaNotesToggleGroup .eta-toggle-btn[data-notes-type]');
-            const severityButtons = document.querySelectorAll('#etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity]');
-            const fileInput = document.getElementById('etaFileInput');
-            const fileBtn = document.getElementById('etaFileBtn');
-            const filePath = document.getElementById('etaFilePath');
-            const savingOverlay = document.getElementById('etaSavingOverlay');
-            if (!etaCard || !expandBtn || !saveBtn || !expansion || !savingOverlay) return;
+            const modalRoot = document.getElementById('detailsModal');
+            if (!modalRoot) return;
+            const etaCard = modalRoot.querySelector('#etaInfoCard');
+            const expandBtn = modalRoot.querySelector('#etaExpandBtn');
+            const saveBtn = modalRoot.querySelector('#etaSaveBtn');
+            const expansion = modalRoot.querySelector('#etaExpansion');
+            const dateRow = modalRoot.querySelector('#etaDateRow');
+            const dateInput = modalRoot.querySelector('#etaDateInput');
+            const notesInput = modalRoot.querySelector('#etaNotesInput');
+            const statusButtons = modalRoot.querySelectorAll('#etaStatusToggleGroup .eta-toggle-btn[data-eta-status]');
+            const notesButtons = modalRoot.querySelectorAll('#etaNotesToggleGroup .eta-toggle-btn[data-notes-type]');
+            const severityButtons = modalRoot.querySelectorAll('#etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity]');
+            const severityGroup = modalRoot.querySelector('#etaSeverityToggleGroup');
+            const fileInput = modalRoot.querySelector('#etaFileInput');
+            const fileBtn = modalRoot.querySelector('#etaFileBtn');
+            const filePath = modalRoot.querySelector('#etaFilePath');
+            const savingOverlay = modalRoot.querySelector('#etaSavingOverlay');
+            if (!etaCard || !expandBtn || !saveBtn || !expansion || !savingOverlay || !severityGroup) return;
 
             let activeNotesType = 'general';
 
@@ -320,9 +323,11 @@
             }
 
             function updateDateVisibility() {
-                const active = document.querySelector('#etaStatusToggleGroup .eta-toggle-btn.active[data-eta-status]');
+                const active = modalRoot.querySelector('#etaStatusToggleGroup .eta-toggle-btn.active[data-eta-status]');
                 const state = active ? active.getAttribute('data-eta-status') : 'available';
-                dateRow.hidden = !(state === 'watchlist' || state === 'backordered');
+                const showExpandedFields = (state === 'watchlist' || state === 'backordered');
+                dateRow.hidden = !showExpandedFields;
+                severityGroup.hidden = !showExpandedFields;
             }
 
             function setSavingOverlay(isSaving) {
@@ -334,6 +339,8 @@
                 const cfg = getItemStatusSheetConfig();
                 if (!cfg.webAppUrl || !cfg.sheetId) {
                     console.warn('⚠️ Missing itemStatus web app configuration');
+                    setSavingOverlay(true);
+                    setTimeout(() => setSavingOverlay(false), 700);
                     return;
                 }
 
