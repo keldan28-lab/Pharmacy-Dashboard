@@ -191,25 +191,6 @@
                 return current;
             }
 
-            const baseByCode = new Map();
-            data.items.forEach((item) => {
-                if (!item) return;
-                const keys = [normalizeCode(item.itemCode), normalizeCode(item.alt_itemCode || item.altItemCode)].filter(Boolean);
-                if (!keys.length) return;
-                const base = {
-                    source: 'mock',
-                    date: String(data.lastUpdated || item.lastUpdated || ''),
-                    updatedAt: String(item.updatedAt || data.lastUpdated || ''),
-                    status: String(item.status || ''),
-                    ETA: String(item.ETA || ''),
-                    filePath: String(item.filePath || ''),
-                    notes: String(item.notes || ''),
-                    assessment: String(item.assessment || ''),
-                    SBAR: !!item.SBAR || !!String(item.filePath || '').trim()
-                };
-                keys.forEach((k) => baseByCode.set(k, base));
-            });
-
             const sheetByCode = new Map();
             if (Array.isArray(rawRows)) {
                 rawRows.forEach((row) => {
@@ -245,23 +226,12 @@
                         break;
                     }
                 }
-                if (!agg) {
-                    for (let i = 0; i < codeKeys.length; i++) {
-                        const k = codeKeys[i];
-                        if (baseByCode.has(k)) {
-                            agg = baseByCode.get(k);
-                            break;
-                        }
-                    }
-                }
-                if (!agg) return;
-
-                item.status = String(agg.status || '');
-                item.ETA = String(agg.ETA || '');
-                item.filePath = String(agg.filePath || '');
-                item.notes = String(agg.notes || '');
-                item.assessment = String(agg.assessment || '');
-                item.SBAR = !!agg.SBAR || !!String(item.filePath || '').trim();
+                item.status = String((agg && agg.status) || '');
+                item.ETA = String((agg && agg.ETA) || '');
+                item.filePath = String((agg && agg.filePath) || '');
+                item.notes = String((agg && agg.notes) || '');
+                item.assessment = String((agg && agg.assessment) || '');
+                item.SBAR = !!(agg && agg.SBAR) || !!String(item.filePath || '').trim();
             });
 
             return data;
@@ -1692,6 +1662,11 @@
             return tooltips[status] || 'Status information unavailable';
         }
 
+
+        function getDisplayStatus(item) {
+            if (item && item.formulary === false) return 'non-formulary';
+            return String((item && item.status) || '').toLowerCase();
+        }
         /**
          * Extract display text from description by removing content in brackets
          * Keeps the brackets content for searching but hides it from display
@@ -1952,7 +1927,7 @@
                             <div class="item-list-item ${index === initialIndex ? 'active' : ''}" onclick="selectModalItem(${index})" data-index="${index}">
                                 <div class="item-list-radio"></div>
                                 <div class="item-list-description">${getDisplayDescription(item.description)}</div>
-                                <div class="item-list-badge ${item.status}">${item.status}</div>
+                                <div class="item-list-badge ${getDisplayStatus(item)}">${getDisplayStatus(item)}</div>
                             </div>
                         `).join('')}
                     </div>
@@ -2817,8 +2792,8 @@
                     </div>
                     <div class="modal-info-item">
                         <div class="modal-info-label">Status</div>
-                        <div class="modal-info-value" style="color: ${getStatusColor(firstItem.status)}; font-weight: 600;">
-                            ${firstItem.status.toUpperCase()}
+                        <div class="modal-info-value" style="color: ${getStatusColor(getDisplayStatus(firstItem))}; font-weight: 600;">
+                            ${getDisplayStatus(firstItem).toUpperCase()}
                         </div>
                     </div>
                     <div class="modal-info-item">

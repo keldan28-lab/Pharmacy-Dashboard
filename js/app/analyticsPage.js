@@ -678,25 +678,6 @@
                 return current;
             }
 
-            const baseByCode = new Map();
-            data.items.forEach((item) => {
-                if (!item) return;
-                const keys = [normalizeCode(item.itemCode), normalizeCode(item.alt_itemCode || item.altItemCode)].filter(Boolean);
-                if (!keys.length) return;
-                const base = {
-                    source: 'mock',
-                    date: String(data.lastUpdated || item.lastUpdated || ''),
-                    updatedAt: String(item.updatedAt || data.lastUpdated || ''),
-                    status: String(item.status || ''),
-                    ETA: String(item.ETA || ''),
-                    filePath: String(item.filePath || ''),
-                    notes: String(item.notes || ''),
-                    assessment: String(item.assessment || ''),
-                    SBAR: !!item.SBAR || !!String(item.filePath || '').trim()
-                };
-                keys.forEach((k) => baseByCode.set(k, base));
-            });
-
             const sheetByCode = new Map();
             if (Array.isArray(rawRows)) {
                 rawRows.forEach((row) => {
@@ -732,23 +713,12 @@
                         break;
                     }
                 }
-                if (!agg) {
-                    for (let i = 0; i < codeKeys.length; i++) {
-                        const k = codeKeys[i];
-                        if (baseByCode.has(k)) {
-                            agg = baseByCode.get(k);
-                            break;
-                        }
-                    }
-                }
-                if (!agg) return;
-
-                item.status = String(agg.status || '');
-                item.ETA = String(agg.ETA || '');
-                item.filePath = String(agg.filePath || '');
-                item.notes = String(agg.notes || '');
-                item.assessment = String(agg.assessment || '');
-                item.SBAR = !!agg.SBAR || !!String(item.filePath || '').trim();
+                item.status = String((agg && agg.status) || '');
+                item.ETA = String((agg && agg.ETA) || '');
+                item.filePath = String((agg && agg.filePath) || '');
+                item.notes = String((agg && agg.notes) || '');
+                item.assessment = String((agg && agg.assessment) || '');
+                item.SBAR = !!(agg && agg.SBAR) || !!String(item.filePath || '').trim();
             });
 
             return data;
