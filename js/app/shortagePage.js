@@ -242,7 +242,7 @@
                 nonZero.sort((a, b) => String(a.code).localeCompare(String(b.code)));
                 for (let i = 0; i < nonZero.length; i++) {
                     const l = nonZero[i];
-                    const badgeText = `${l.code} (${l.qty})`;
+                    const badgeText = `${l.code}  |  ${l.qty}`;
                     const standardClass = l.standard ? ' is-standard' : '';
                     html += `<button type="button" class="inv-loc-badge${standardClass}" data-sublocation="${String(l.code)}" data-item-code="${String(itemCode || '')}" title="View ${String(l.code)} in Charts">${badgeText}</button>`;
                 }
@@ -260,6 +260,70 @@
             if (phxEl) phxEl.textContent = String(pharmacyQty || 0);
             if (pyxCapEl) pyxCapEl.textContent = pyxCaption || '';
             if (phxCapEl) phxCapEl.textContent = phxCaption || '';
+        }
+
+
+        function initEtaExpansionControls() {
+            const etaCard = document.getElementById('etaInfoCard');
+            const expandBtn = document.getElementById('etaExpandBtn');
+            const expansion = document.getElementById('etaExpansion');
+            const dateRow = document.getElementById('etaDateRow');
+            const statusButtons = document.querySelectorAll('#etaStatusToggleGroup .eta-toggle-btn[data-eta-status]');
+            const notesButtons = document.querySelectorAll('#etaNotesToggleGroup .eta-toggle-btn[data-notes-type]');
+            const fileInput = document.getElementById('etaFileInput');
+            const fileBtn = document.getElementById('etaFileBtn');
+            const filePath = document.getElementById('etaFilePath');
+            if (!etaCard || !expandBtn || !expansion) return;
+
+            function setExpanded(isOpen) {
+                etaCard.classList.toggle('is-expanded', isOpen);
+                expandBtn.setAttribute('aria-expanded', String(isOpen));
+                expansion.setAttribute('aria-hidden', String(!isOpen));
+            }
+
+            function updateDateVisibility() {
+                const active = document.querySelector('#etaStatusToggleGroup .eta-toggle-btn.active[data-eta-status]');
+                const state = active ? active.getAttribute('data-eta-status') : 'available';
+                dateRow.hidden = !(state === 'watchlist' || state === 'backordered');
+            }
+
+            expandBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setExpanded(!etaCard.classList.contains('is-expanded'));
+            });
+
+            statusButtons.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    statusButtons.forEach((node) => node.classList.remove('active'));
+                    btn.classList.add('active');
+                    updateDateVisibility();
+                });
+            });
+
+            notesButtons.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    notesButtons.forEach((node) => node.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+            });
+
+            if (fileInput && fileBtn && filePath) {
+                fileBtn.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', () => {
+                    const files = Array.from(fileInput.files || []);
+                    if (!files.length) {
+                        filePath.textContent = 'No folder selected';
+                        return;
+                    }
+                    const first = files[0];
+                    const rel = first && first.webkitRelativePath ? first.webkitRelativePath : '';
+                    const rootFolder = rel ? rel.split('/')[0] : (first && first.name ? first.name : 'Selected');
+                    filePath.textContent = rootFolder;
+                });
+            }
+
+            updateDateVisibility();
         }
 
         function wireInventoryBadgeActions(itemCode) {
@@ -1476,9 +1540,43 @@
             
             // Build top summary info (NO STATUS CARD)
             modalDrugInfo.innerHTML = `
-                <div class="modal-info-item">
-                    <div class="modal-info-label">Earliest ETA</div>
-                    <div class="modal-info-value" id="displayETA">${firstItemETA}</div>
+                <div class="modal-info-item modal-info-item-eta" id="etaInfoCard">
+                    <div class="eta-summary-row">
+                        <div>
+                            <div class="modal-info-label">Earliest ETA</div>
+                            <div class="modal-info-value" id="displayETA">${firstItemETA}</div>
+                        </div>
+                        <button type="button" class="eta-expand-btn" id="etaExpandBtn" aria-label="Expand ETA details" aria-expanded="false">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <circle cx="5" cy="12" r="2"></circle>
+                                <circle cx="12" cy="12" r="2"></circle>
+                                <circle cx="19" cy="12" r="2"></circle>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="eta-expansion" id="etaExpansion" aria-hidden="true">
+                        <div class="eta-status-toggle-group" id="etaStatusToggleGroup" role="group" aria-label="ETA status">
+                            <button type="button" class="eta-toggle-btn active" data-eta-status="available">Available</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-status="watchlist">Watchlist</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-status="backordered">Backordered</button>
+                        </div>
+                        <div class="eta-date-row" id="etaDateRow" hidden>
+                            <label for="etaDateInput" class="eta-field-label">Expected Date</label>
+                            <input type="date" id="etaDateInput" class="eta-date-input">
+                        </div>
+                        <div class="eta-notes-wrap">
+                            <div class="eta-notes-toggle-group" id="etaNotesToggleGroup" role="group" aria-label="Notes type">
+                                <button type="button" class="eta-toggle-btn active" data-notes-type="general">General Notes</button>
+                                <button type="button" class="eta-toggle-btn" data-notes-type="sbar">SBAR Notes</button>
+                            </div>
+                            <textarea id="etaNotesInput" class="eta-notes-input" rows="3" placeholder="Add notes"></textarea>
+                        </div>
+                        <div class="eta-file-row">
+                            <input type="file" id="etaFileInput" class="eta-file-input" webkitdirectory directory>
+                            <button type="button" class="eta-file-btn" id="etaFileBtn">Select Folder</button>
+                            <span class="eta-file-path" id="etaFilePath">No folder selected</span>
+                        </div>
+                    </div>
                 </div>
             `;
             
@@ -1660,6 +1758,8 @@
             notesSection.insertAdjacentHTML('beforebegin', inventoryBreakdownHTML);
             notesSection.insertAdjacentHTML('beforebegin', usageRateHTML);
             notesSection.insertAdjacentHTML('beforebegin', chartHTML);
+
+            initEtaExpansionControls();
 
             // Enable Pyxis inventory expansion (locations badges)
             (function initPyxisInventoryExpansion() {
