@@ -662,25 +662,29 @@
         function mergeItemStatusIntoData(data, rawRows) {
             if (!data || !Array.isArray(data.items)) return data;
 
-            function pickLatest(current, candidate) {
+            function normalizeCode(v) {
+                const raw = String(v || '').trim();
+                if (!raw) return '';
+                if (/^\d+$/.test(raw)) return String(Number(raw));
+                return raw;
+            }
+
+            function newerByDate(current, candidate) {
                 if (!current) return candidate;
                 const curDate = Date.parse(String(current.date || current.updatedAt || ''));
                 const canDate = Date.parse(String(candidate.date || candidate.updatedAt || ''));
                 if (Number.isFinite(canDate) && !Number.isFinite(curDate)) return candidate;
-                if (Number.isFinite(canDate) && Number.isFinite(curDate) && canDate > curDate) return candidate;
+                if (Number.isFinite(canDate) && Number.isFinite(curDate) && canDate >= curDate) return candidate;
                 return current;
             }
 
-            const aggregatedByCode = new Map();
-
-            // Base fallback from item_details_mockdata fields (always available)
+            const baseByCode = new Map();
             data.items.forEach((item) => {
-                if (!item || !item.itemCode) return;
-                const code = String(item.itemCode).trim();
-                if (!code) return;
+                if (!item) return;
+                const keys = [normalizeCode(item.itemCode), normalizeCode(item.alt_itemCode || item.altItemCode)].filter(Boolean);
+                if (!keys.length) return;
                 const base = {
                     source: 'mock',
-                    itemCode: code,
                     date: String(data.lastUpdated || item.lastUpdated || ''),
                     updatedAt: String(item.updatedAt || data.lastUpdated || ''),
                     status: String(item.status || ''),
@@ -690,20 +694,19 @@
                     assessment: String(item.assessment || ''),
                     SBAR: !!item.SBAR || !!String(item.filePath || '').trim()
                 };
-                aggregatedByCode.set(code, pickLatest(aggregatedByCode.get(code), base));
+                keys.forEach((k) => baseByCode.set(k, base));
             });
 
-            // Overlay from Google Sheets rows; latest by (itemCode, date/updatedAt)
+            const sheetByCode = new Map();
             if (Array.isArray(rawRows)) {
                 rawRows.forEach((row) => {
                     if (!row || typeof row !== 'object') return;
-                    const code = String(getItemStatusField(row, ['itemCode', 'item_code', 'code'])).trim();
+                    const code = normalizeCode(getItemStatusField(row, ['itemCode', 'item_code', 'code']));
                     if (!code) return;
                     const filePath = String(getItemStatusField(row, ['filePath', 'file_path']) || '');
                     const candidate = {
                         source: 'sheet',
-                        itemCode: code,
-                        date: String(getItemStatusField(row, ['date', 'etaDate', 'eta_date']) || ''),
+                        date: String(getItemStatusField(row, ['date', 'updatedAt', 'updated_at', 'timestamp']) || ''),
                         updatedAt: String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp']) || ''),
                         status: String(getItemStatusField(row, ['status']) || ''),
                         ETA: String(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
@@ -712,14 +715,34 @@
                         assessment: String(getItemStatusField(row, ['SBARnotes', 'sbarNotes', 'assessment']) || ''),
                         SBAR: !!filePath.trim()
                     };
-                    aggregatedByCode.set(code, pickLatest(aggregatedByCode.get(code), candidate));
+                    sheetByCode.set(code, newerByDate(sheetByCode.get(code), candidate));
                 });
             }
 
             data.items.forEach((item) => {
-                if (!item || !item.itemCode) return;
-                const agg = aggregatedByCode.get(String(item.itemCode).trim());
+                if (!item) return;
+                const codeKeys = [normalizeCode(item.itemCode), normalizeCode(item.alt_itemCode || item.altItemCode)].filter(Boolean);
+                if (!codeKeys.length) return;
+
+                let agg = null;
+                for (let i = 0; i < codeKeys.length; i++) {
+                    const k = codeKeys[i];
+                    if (sheetByCode.has(k)) {
+                        agg = sheetByCode.get(k);
+                        break;
+                    }
+                }
+                if (!agg) {
+                    for (let i = 0; i < codeKeys.length; i++) {
+                        const k = codeKeys[i];
+                        if (baseByCode.has(k)) {
+                            agg = baseByCode.get(k);
+                            break;
+                        }
+                    }
+                }
                 if (!agg) return;
+
                 item.status = String(agg.status || '');
                 item.ETA = String(agg.ETA || '');
                 item.filePath = String(agg.filePath || '');
