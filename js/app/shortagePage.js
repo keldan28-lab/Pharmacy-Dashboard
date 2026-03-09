@@ -141,6 +141,7 @@
         let currentFilePath = '';  // Store the current file path for the modal
         let currentHasSBAR = false;  // Store whether SBAR document is available
         let etaStatusDraftByItem = {}; // Persist ETA/status draft values per item while modal is open
+        let itemStatusOverlayPromise = null;
 
         function getItemStatusSheetConfig() {
             const webAppUrl = String(
@@ -150,6 +151,106 @@
                 (window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || '')
             ).trim();
             return { webAppUrl, sheetId, tabName: 'itemStatus' };
+        }
+
+        function parseItemStatusRows(raw) {
+            if (Array.isArray(raw)) return raw;
+            if (!raw || typeof raw !== 'object') return [];
+            return raw.rows || raw.items || raw.data || raw.values || [];
+        }
+
+        function mergeItemStatusIntoData(data, rawRows) {
+            if (!data || !Array.isArray(data.items) || !Array.isArray(rawRows)) return data;
+
+            const latestByCode = new Map();
+            rawRows.forEach(row => {
+                if (!row || typeof row !== 'object') return;
+                const code = String(row.itemCode || '').trim();
+                if (!code) return;
+                const prior = latestByCode.get(code);
+                const priorAt = prior && prior.updatedAt ? Date.parse(prior.updatedAt) : NaN;
+                const rowAt = row.updatedAt ? Date.parse(row.updatedAt) : NaN;
+                if (!prior || (Number.isFinite(rowAt) && (!Number.isFinite(priorAt) || rowAt >= priorAt))) {
+                    latestByCode.set(code, row);
+                }
+            });
+
+            data.items.forEach(item => {
+                if (!item || !item.itemCode) return;
+                const statusRow = latestByCode.get(String(item.itemCode));
+                if (!statusRow) return;
+
+                item.ETA = String(statusRow.etaDate || item.ETA || '');
+                item.filePath = String(statusRow.filePath || item.filePath || '');
+                item.notes = String(statusRow.notes || item.notes || '');
+                item.assessment = String(statusRow.SBARnotes || item.assessment || '');
+                item.status = String(statusRow.status || item.status || '');
+            });
+
+            return data;
+        }
+
+        function fetchItemStatusRowsJsonp(cfg) {
+            return new Promise((resolve) => {
+                const callbackName = '__itemStatusReadCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
+                const url = `${cleanUrl}?action=itemStatusRead&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}&callback=${encodeURIComponent(callbackName)}`;
+                const script = document.createElement('script');
+                let done = false;
+
+                const finish = (rows) => {
+                    if (done) return;
+                    done = true;
+                    try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    resolve(Array.isArray(rows) ? rows : []);
+                };
+
+                window[callbackName] = function(payload) {
+                    finish(parseItemStatusRows(payload));
+                };
+
+                script.async = true;
+                script.src = url;
+                script.onerror = () => finish([]);
+                document.head.appendChild(script);
+                setTimeout(() => finish([]), 5000);
+            });
+        }
+
+        async function fetchAndMergeItemStatusData(baseData) {
+            if (!baseData || !Array.isArray(baseData.items)) return baseData;
+            const cfg = getItemStatusSheetConfig();
+            if (!cfg.webAppUrl || !cfg.sheetId) return baseData;
+
+            try {
+                const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
+                const url = `${cleanUrl}?action=itemStatusRead&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}`;
+                const resp = await fetch(url, { method: 'GET' });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const payload = await resp.json();
+                return mergeItemStatusIntoData(baseData, parseItemStatusRows(payload));
+            } catch (err) {
+                console.warn('⚠️ itemStatus GET read failed; trying JSONP fallback', err);
+                const rows = await fetchItemStatusRowsJsonp(cfg);
+                return mergeItemStatusIntoData(baseData, rows);
+            }
+        }
+
+        function ensureItemStatusOverlayLoaded() {
+            if (!cachedMockData || !Array.isArray(cachedMockData.items)) return Promise.resolve(cachedMockData);
+            if (!itemStatusOverlayPromise) {
+                itemStatusOverlayPromise = fetchAndMergeItemStatusData(cachedMockData)
+                    .then((merged) => {
+                        cachedMockData = merged || cachedMockData;
+                        return cachedMockData;
+                    })
+                    .catch((err) => {
+                        console.warn('⚠️ itemStatus overlay skipped', err);
+                        return cachedMockData;
+                    });
+            }
+            return itemStatusOverlayPromise;
         }
 
         // Cookie utility functions
@@ -345,11 +446,11 @@
                 if (!etaStatusDraftByItem[key]) {
                     etaStatusDraftByItem[key] = {
                         availability: 'available',
-                        status: 'moderate',
-                        etaDate: '',
-                        notes: '',
-                        SBARnotes: '',
-                        filePath: ''
+                        status: String(selected.status || 'moderate') || 'moderate',
+                        etaDate: String(selected.ETA || ''),
+                        notes: String(selected.notes || ''),
+                        SBARnotes: String(selected.assessment || ''),
+                        filePath: String(selected.filePath || '')
                     };
                 }
                 return etaStatusDraftByItem[key];
@@ -690,7 +791,7 @@
                 // If we already have cached data, return it immediately
                 if (cachedMockData) {
                     console.log('✓ Returning cached mock data');
-                    resolve(cachedMockData);
+                    ensureItemStatusOverlayLoaded().then(() => resolve(cachedMockData));
                     return;
                 }
 
@@ -699,7 +800,7 @@
                     window.InventoryApp.postMessage.requestMockData(({ computed }) => {
                         const fallback = { lastUpdated: new Date().toISOString().split('T')[0], items: [] };
                         cachedMockData = computed || fallback;
-                        resolve(cachedMockData);
+                        ensureItemStatusOverlayLoaded().then(() => resolve(cachedMockData));
                     });
                     return;
                 }
@@ -747,10 +848,11 @@
                     ? window.InventoryApp.postMessage.pickPayload(event.data)
                     : { computed: event.data.data, raw: null };
                 cachedMockData = payload.computed;
-                
-                // Resolve all pending callbacks
-                dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
-                dataRequestCallbacks = [];
+                ensureItemStatusOverlayLoaded().then(() => {
+                    // Resolve all pending callbacks
+                    dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
+                    dataRequestCallbacks = [];
+                });
                 
                 console.log('✓ Mock data cached:', cachedMockData.items.length, 'items');
             }
