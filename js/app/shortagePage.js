@@ -288,7 +288,8 @@
             const fileInput = document.getElementById('etaFileInput');
             const fileBtn = document.getElementById('etaFileBtn');
             const filePath = document.getElementById('etaFilePath');
-            if (!etaCard || !expandBtn || !saveBtn || !expansion) return;
+            const savingOverlay = document.getElementById('etaSavingOverlay');
+            if (!etaCard || !expandBtn || !saveBtn || !expansion || !savingOverlay) return;
 
             let activeNotesType = 'general';
 
@@ -324,9 +325,17 @@
                 dateRow.hidden = !(state === 'watchlist' || state === 'backordered');
             }
 
+            function setSavingOverlay(isSaving) {
+                etaCard.classList.toggle('is-saving', !!isSaving);
+                savingOverlay.setAttribute('aria-hidden', String(!isSaving));
+            }
+
             async function saveItemStatusToSheet() {
                 const cfg = getItemStatusSheetConfig();
-                if (!cfg.webAppUrl || !cfg.sheetId) return;
+                if (!cfg.webAppUrl || !cfg.sheetId) {
+                    console.warn('⚠️ Missing itemStatus web app configuration');
+                    return;
+                }
 
                 const selected = getSelectedItem() || {};
                 const draft = getDraftForSelectedItem();
@@ -346,14 +355,22 @@
                     date: new Date().toISOString().slice(0, 10)
                 };
 
+                setSavingOverlay(true);
+                saveBtn.disabled = true;
                 try {
-                    await fetch(cfg.webAppUrl, {
+                    const resp = await fetch(cfg.webAppUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
+                    if (!resp.ok) {
+                        console.warn('⚠️ Failed to persist item status, HTTP', resp.status);
+                    }
                 } catch (err) {
                     console.warn('⚠️ Failed to persist item status', err);
+                } finally {
+                    saveBtn.disabled = false;
+                    setSavingOverlay(false);
                 }
             }
 
@@ -451,9 +468,9 @@
             }
 
 
-            saveBtn.addEventListener('click', () => {
+            saveBtn.addEventListener('click', async () => {
                 writeNotesToDraft();
-                saveItemStatusToSheet();
+                await saveItemStatusToSheet();
             });
 
             window.__shortageHydrateEtaDraft = hydrateControlsFromDraft;
@@ -1724,6 +1741,7 @@
                             <span class="eta-file-path" id="etaFilePath">No file selected</span>
                         </div>
                     </div>
+                    <div class="eta-saving-overlay" id="etaSavingOverlay" aria-hidden="true">Saving...</div>
                 </div>
             `;
             

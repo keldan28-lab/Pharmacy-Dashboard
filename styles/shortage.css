@@ -1875,6 +1875,10 @@
             font-weight: 700;
         }
 
+        .modal-info-item-eta {
+            position: relative;
+        }
+
         .modal-info-item-eta .eta-summary-row {
             display: flex;
             align-items: flex-start;
@@ -1915,6 +1919,25 @@
             width: 18px;
             height: 18px;
             fill: currentColor;
+        }
+
+        .eta-saving-overlay {
+            position: absolute;
+            inset: 0;
+            border-radius: 8px;
+            background: rgba(225, 228, 231, 0.86);
+            color: var(--teal-primary);
+            font-weight: 700;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 4;
+            pointer-events: none;
+            letter-spacing: 0.2px;
+        }
+
+        .modal-info-item-eta.is-saving .eta-saving-overlay {
+            display: flex;
         }
 
         .eta-expansion {
