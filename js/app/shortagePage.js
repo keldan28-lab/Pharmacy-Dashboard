@@ -154,26 +154,53 @@
         }
 
         function parseItemStatusRows(raw) {
-            if (Array.isArray(raw)) return raw;
+            function normalizeRows(rows) {
+                if (!Array.isArray(rows)) return [];
+                if (!rows.length) return [];
+                const first = rows[0];
+                const headerLike = Array.isArray(first) && first.some((cell) => {
+                    const key = String(cell || '').trim().toLowerCase();
+                    return key === 'itemcode' || key === 'item_code' || key === 'status';
+                });
+                if (!headerLike) return rows;
+                const headers = first.map((h) => String(h || '').trim());
+                return rows.slice(1).map((row) => {
+                    if (!Array.isArray(row)) return row;
+                    const out = {};
+                    headers.forEach((h, i) => { out[h] = row[i]; });
+                    return out;
+                });
+            }
+
+            if (typeof raw === 'string') {
+                const text = raw.trim();
+                if (!text) return [];
+                try {
+                    return parseItemStatusRows(JSON.parse(text));
+                } catch (_) {
+                    return [];
+                }
+            }
+            if (Array.isArray(raw)) return normalizeRows(raw);
             if (!raw || typeof raw !== 'object') return [];
-            if (Array.isArray(raw.rows)) return raw.rows;
-            if (Array.isArray(raw.items)) return raw.items;
-            if (Array.isArray(raw.values)) return raw.values;
-            if (Array.isArray(raw.data)) return raw.data;
+            if (Array.isArray(raw.rows)) return normalizeRows(raw.rows);
+            if (Array.isArray(raw.items)) return normalizeRows(raw.items);
+            if (Array.isArray(raw.values)) return normalizeRows(raw.values);
+            if (Array.isArray(raw.data)) return normalizeRows(raw.data);
             if (raw.data && typeof raw.data === 'object') {
-                if (Array.isArray(raw.data.rows)) return raw.data.rows;
-                if (Array.isArray(raw.data.items)) return raw.data.items;
-                if (Array.isArray(raw.data.values)) return raw.data.values;
+                if (Array.isArray(raw.data.rows)) return normalizeRows(raw.data.rows);
+                if (Array.isArray(raw.data.items)) return normalizeRows(raw.data.items);
+                if (Array.isArray(raw.data.values)) return normalizeRows(raw.data.values);
             }
             if (raw.result && typeof raw.result === 'object') {
-                if (Array.isArray(raw.result.rows)) return raw.result.rows;
-                if (Array.isArray(raw.result.items)) return raw.result.items;
-                if (Array.isArray(raw.result.values)) return raw.result.values;
-                if (Array.isArray(raw.result.data)) return raw.result.data;
+                if (Array.isArray(raw.result.rows)) return normalizeRows(raw.result.rows);
+                if (Array.isArray(raw.result.items)) return normalizeRows(raw.result.items);
+                if (Array.isArray(raw.result.values)) return normalizeRows(raw.result.values);
+                if (Array.isArray(raw.result.data)) return normalizeRows(raw.result.data);
                 if (raw.result.data && typeof raw.result.data === 'object') {
-                    if (Array.isArray(raw.result.data.rows)) return raw.result.data.rows;
-                    if (Array.isArray(raw.result.data.items)) return raw.result.data.items;
-                    if (Array.isArray(raw.result.data.values)) return raw.result.data.values;
+                    if (Array.isArray(raw.result.data.rows)) return normalizeRows(raw.result.data.rows);
+                    if (Array.isArray(raw.result.data.items)) return normalizeRows(raw.result.data.items);
+                    if (Array.isArray(raw.result.data.values)) return normalizeRows(raw.result.data.values);
                 }
             }
             return [];
