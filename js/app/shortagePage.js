@@ -447,6 +447,7 @@
             const notesButtons = modalRoot.querySelectorAll('#etaNotesToggleGroup .eta-toggle-btn[data-notes-type]');
             const severityButtons = modalRoot.querySelectorAll('#etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity]');
             const severityGroup = modalRoot.querySelector('#etaSeverityToggleGroup');
+            const severitySuggestion = modalRoot.querySelector('#etaSeveritySuggestion');
             const fileInput = modalRoot.querySelector('#etaFileInput');
             const fileBtn = modalRoot.querySelector('#etaFileBtn');
             const filePath = modalRoot.querySelector('#etaFilePath');
@@ -494,6 +495,47 @@
                     const draft = getDraftForSelectedItem();
                     if (!String(draft.status || '').trim()) draft.status = 'moderate';
                 }
+            }
+
+
+            function updateSeveritySuggestion() {
+                if (!severitySuggestion) return;
+                const draft = getDraftForSelectedItem();
+                const selected = getSelectedItem() || {};
+                const availability = String(draft.availability || 'available');
+                if (availability !== 'backordered') {
+                    severitySuggestion.hidden = true;
+                    severitySuggestion.textContent = '';
+                    return;
+                }
+
+                const effectiveInv = getEffectiveInventory(selected);
+                const totalQty = Number(effectiveInv && effectiveInv.effectiveQuantity) || 0;
+                let usageRateCurrent = selected.usageRate || 0;
+                if (Array.isArray(selected.usageRate) && selected.usageRate.length > 0) {
+                    const analysis = calculateTrueUsageRate(selected.usageRate, selected.status);
+                    usageRateCurrent = Number(analysis.dailyBaseline) || 0;
+                }
+                if (!(usageRateCurrent > 0)) {
+                    severitySuggestion.hidden = true;
+                    severitySuggestion.textContent = '';
+                    return;
+                }
+
+                const daysRemaining = totalQty / usageRateCurrent;
+                let suggested = '';
+                if (daysRemaining < 14) suggested = 'critical';
+                else if (daysRemaining < 21) suggested = 'severe';
+                else if (daysRemaining < 28) suggested = 'moderate';
+
+                if (!suggested) {
+                    severitySuggestion.hidden = true;
+                    severitySuggestion.textContent = '';
+                    return;
+                }
+
+                severitySuggestion.hidden = false;
+                severitySuggestion.textContent = `Suggestion: ${suggested.toUpperCase()} severity (${daysRemaining.toFixed(1)} days remaining).`;
             }
 
             function setSavingOverlay(isSaving) {
@@ -562,8 +604,10 @@
                         if (typeof selectModalItem === 'function') {
                             selectModalItem(currentSelectedIndex);
                         }
-                        if (typeof applyCurrentFilter === 'function') {
+                        if (typeof applyCurrentFilter === 'function' && currentFilter && currentFilter.type) {
                             applyCurrentFilter();
+                        } else if (cachedMockData && Array.isArray(cachedMockData.items) && typeof displayData === 'function') {
+                            displayData(cachedMockData);
                         }
                     }
                     saveBtn.disabled = false;
@@ -600,6 +644,7 @@
                 setActiveButton(notesButtons, 'data-notes-type', activeNotesType);
                 syncNotesInputFromDraft();
                 updateDateVisibility();
+                updateSeveritySuggestion();
             }
 
             expandBtn.addEventListener('click', (e) => {
@@ -615,6 +660,7 @@
                     const draft = getDraftForSelectedItem();
                     draft.availability = btn.getAttribute('data-eta-status') || 'available';
                     updateDateVisibility();
+                    updateSeveritySuggestion();
                 });
             });
 
@@ -624,6 +670,7 @@
                     btn.classList.add('active');
                     const draft = getDraftForSelectedItem();
                     draft.status = btn.getAttribute('data-eta-severity') || 'moderate';
+                    updateSeveritySuggestion();
                 });
             });
 
@@ -671,6 +718,7 @@
             });
 
             window.__shortageHydrateEtaDraft = hydrateControlsFromDraft;
+            window.__shortageUpdateSeveritySuggestion = updateSeveritySuggestion;
             hydrateControlsFromDraft();
         }
 
@@ -1922,6 +1970,7 @@
                             <button type="button" class="eta-toggle-btn" data-eta-severity="severe">Severe</button>
                             <button type="button" class="eta-toggle-btn" data-eta-severity="critical">Critical</button>
                         </div>
+                        <div class="eta-severity-suggestion" id="etaSeveritySuggestion" hidden></div>
                         <div class="eta-date-row" id="etaDateRow" hidden>
                             <label for="etaDateInput" class="eta-field-label">Expected Date</label>
                             <input type="date" id="etaDateInput" class="eta-date-input">
@@ -2304,6 +2353,9 @@
             document.getElementById('displayETA').textContent = eta;
             if (typeof window.__shortageHydrateEtaDraft === 'function') {
                 window.__shortageHydrateEtaDraft();
+            }
+            if (typeof window.__shortageUpdateSeveritySuggestion === 'function') {
+                window.__shortageUpdateSeveritySuggestion();
             }
 
             const selectedInvEntry = (cachedMockData && cachedMockData.inventory && cachedMockData.inventory[selectedItem.itemCode])

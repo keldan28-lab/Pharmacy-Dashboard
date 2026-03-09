@@ -634,6 +634,103 @@
         
         let cachedMockData = null;
         let dataRequestCallbacks = [];
+        let itemStatusOverlayPromise = null;
+
+        function getItemStatusSheetConfig() {
+            const webAppUrl = String((window.ITEM_STATUS_WEBAPP_URL || localStorage.getItem('itemStatusWebAppUrl') || localStorage.getItem('spike_webAppUrl') || '')).trim();
+            const sheetId = String((window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || '')).trim();
+            return { webAppUrl, sheetId, tabName: 'itemStatus' };
+        }
+
+        function parseItemStatusRows(raw) {
+            if (Array.isArray(raw)) return raw;
+            if (!raw || typeof raw !== 'object') return [];
+            return raw.rows || raw.items || raw.data || raw.values || (raw.result && (raw.result.rows || raw.result.items || raw.result.values)) || [];
+        }
+
+        function getItemStatusField(row, keys) {
+            if (!row || typeof row !== 'object') return '';
+            const keyMap = {};
+            Object.keys(row).forEach((k) => { keyMap[String(k).trim().toLowerCase()] = row[k]; });
+            for (let i = 0; i < keys.length; i++) {
+                const v = keyMap[String(keys[i]).trim().toLowerCase()];
+                if (v !== undefined && v !== null) return v;
+            }
+            return '';
+        }
+
+        function mergeItemStatusIntoData(data, rawRows) {
+            if (!data || !Array.isArray(data.items) || !Array.isArray(rawRows)) return data;
+            const latestByCode = new Map();
+            rawRows.forEach((row) => {
+                if (!row || typeof row !== 'object') return;
+                const code = String(getItemStatusField(row, ['itemCode', 'item_code', 'code'])).trim();
+                if (!code) return;
+                const prev = latestByCode.get(code);
+                const prevAt = prev ? Date.parse(String(getItemStatusField(prev, ['updatedAt', 'updated_at', 'timestamp']))) : NaN;
+                const rowAt = Date.parse(String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp'])));
+                if (!prev || (Number.isFinite(rowAt) && (!Number.isFinite(prevAt) || rowAt >= prevAt))) latestByCode.set(code, row);
+            });
+            data.items.forEach((item) => {
+                if (!item || !item.itemCode) return;
+                const row = latestByCode.get(String(item.itemCode));
+                if (!row) return;
+                item.ETA = String(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || item.ETA || '');
+                item.filePath = String(getItemStatusField(row, ['filePath', 'file_path']) || item.filePath || '');
+                item.notes = String(getItemStatusField(row, ['notes']) || item.notes || '');
+                item.assessment = String(getItemStatusField(row, ['SBARnotes', 'sbarNotes', 'assessment']) || item.assessment || '');
+                item.status = String(getItemStatusField(row, ['status']) || item.status || '');
+                item.SBAR = !!String(item.filePath || '').trim();
+            });
+            return data;
+        }
+
+        function fetchItemStatusRowsJsonp(cfg) {
+            return new Promise((resolve) => {
+                const callbackName = '__analyticsItemStatusCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
+                const url = `${cleanUrl}?action=itemStatusRead&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}&callback=${encodeURIComponent(callbackName)}`;
+                const script = document.createElement('script');
+                let done = false;
+                const finish = (rows) => {
+                    if (done) return;
+                    done = true;
+                    try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    resolve(Array.isArray(rows) ? rows : []);
+                };
+                window[callbackName] = function(payload) { finish(parseItemStatusRows(payload)); };
+                script.async = true;
+                script.src = url;
+                script.onerror = () => finish([]);
+                document.head.appendChild(script);
+                setTimeout(() => finish([]), 5000);
+            });
+        }
+
+        async function ensureItemStatusOverlayLoaded() {
+            if (!cachedMockData || !Array.isArray(cachedMockData.items)) return cachedMockData;
+            if (!itemStatusOverlayPromise) {
+                itemStatusOverlayPromise = (async () => {
+                    const cfg = getItemStatusSheetConfig();
+                    if (!cfg.webAppUrl || !cfg.sheetId) return cachedMockData;
+                    try {
+                        const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
+                        const url = `${cleanUrl}?action=itemStatusRead&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}`;
+                        const resp = await fetch(url, { method: 'GET' });
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        const payload = await resp.json();
+                        cachedMockData = mergeItemStatusIntoData(cachedMockData, parseItemStatusRows(payload));
+                        return cachedMockData;
+                    } catch (err) {
+                        const rows = await fetchItemStatusRowsJsonp(cfg);
+                        cachedMockData = mergeItemStatusIntoData(cachedMockData, rows);
+                        return cachedMockData;
+                    }
+                })();
+            }
+            return itemStatusOverlayPromise;
+        }
         
         /**
          * Request mock data from parent Dashboard container
@@ -642,7 +739,7 @@
         function requestMockDataFromParent() {
             return new Promise((resolve, reject) => {
                 if (cachedMockData) {
-                    resolve(cachedMockData);
+                    ensureItemStatusOverlayLoaded().then(() => resolve(cachedMockData));
                     return;
                 }
 
@@ -651,8 +748,9 @@
                     window.InventoryApp.postMessage.requestMockData(({ computed }) => {
                         const fallback = { lastUpdated: new Date().toISOString().split('T')[0], items: [] };
                         cachedMockData = computed || fallback;
+                        itemStatusOverlayPromise = null;
                         window.mockData = cachedMockData;
-                        resolve(cachedMockData);
+                        ensureItemStatusOverlayLoaded().then(() => resolve(cachedMockData));
                     });
                     return;
                 }
@@ -1246,6 +1344,7 @@
                 const _rawMD = payload.raw || null;
                 const _computedMD = payload.computed || null;
                 cachedMockData = _computedMD || _rawMD;
+                itemStatusOverlayPromise = null;
 
                 // Always keep a reference to raw
                 window.rawMockData = _rawMD;
@@ -1382,8 +1481,10 @@
                 }
                 
                 // Resolve all pending callbacks
-                dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
-                dataRequestCallbacks = [];
+                ensureItemStatusOverlayLoaded().then(() => {
+                    dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
+                    dataRequestCallbacks = [];
+                });
                 
                 console.log('✓ Analytics: Mock data cached:', cachedMockData.items.length, 'items');
                 
