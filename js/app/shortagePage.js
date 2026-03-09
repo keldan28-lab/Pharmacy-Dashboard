@@ -156,7 +156,27 @@
         function parseItemStatusRows(raw) {
             if (Array.isArray(raw)) return raw;
             if (!raw || typeof raw !== 'object') return [];
-            return raw.rows || raw.items || raw.data || raw.values || (raw.result && (raw.result.rows || raw.result.items || raw.result.values)) || [];
+            if (Array.isArray(raw.rows)) return raw.rows;
+            if (Array.isArray(raw.items)) return raw.items;
+            if (Array.isArray(raw.values)) return raw.values;
+            if (Array.isArray(raw.data)) return raw.data;
+            if (raw.data && typeof raw.data === 'object') {
+                if (Array.isArray(raw.data.rows)) return raw.data.rows;
+                if (Array.isArray(raw.data.items)) return raw.data.items;
+                if (Array.isArray(raw.data.values)) return raw.data.values;
+            }
+            if (raw.result && typeof raw.result === 'object') {
+                if (Array.isArray(raw.result.rows)) return raw.result.rows;
+                if (Array.isArray(raw.result.items)) return raw.result.items;
+                if (Array.isArray(raw.result.values)) return raw.result.values;
+                if (Array.isArray(raw.result.data)) return raw.result.data;
+                if (raw.result.data && typeof raw.result.data === 'object') {
+                    if (Array.isArray(raw.result.data.rows)) return raw.result.data.rows;
+                    if (Array.isArray(raw.result.data.items)) return raw.result.data.items;
+                    if (Array.isArray(raw.result.data.values)) return raw.result.data.values;
+                }
+            }
+            return [];
         }
 
         function getItemStatusField(row, keys) {
