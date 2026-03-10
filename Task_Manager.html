@@ -10,155 +10,102 @@
         .tasks-page {
             height: 100%;
             box-sizing: border-box;
-            padding: 16px;
+            padding: 12px;
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            background: transparent;
+            gap: 10px;
             color: var(--text-primary);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
-        .tasks-header-card { padding: 12px; }
-        .tasks-toolbar {
-            display: grid;
-            grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
-            gap: 8px;
-            align-items: center;
-            margin-top: 8px;
+        .tasks-top-card {
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            overflow: hidden;
+            background: var(--card-bg);
+            box-shadow: 0 8px 28px rgba(0,0,0,0.16);
         }
-        .tasks-input,
-        .tasks-select,
-        .tasks-button {
+        .tasks-top-accent {
+            background: linear-gradient(135deg, rgba(42,184,173,0.92), rgba(64,208,130,0.86));
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.15);
+        }
+        .tasks-top-title { font-size: 21px; font-weight: 800; color: #f7ffff; letter-spacing: .01em; }
+        .tasks-top-subtitle { color: rgba(245,255,255,0.82); font-size: 12px; margin-top: 2px; }
+        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto; gap: 8px; }
+
+        .tasks-input, .tasks-select, .tasks-button {
             min-height: 38px;
             border-radius: 10px;
             border: 1px solid var(--card-border);
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(255,255,255,0.03);
             color: var(--text-primary);
             font-size: 13px;
-            letter-spacing: 0.01em;
-            transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
         }
-        .tasks-input,
-        .tasks-select { padding: 8px 10px; }
-        .tasks-input:focus,
-        .tasks-select:focus {
+        .tasks-input, .tasks-select { padding: 8px 10px; }
+        .tasks-input:focus, .tasks-select:focus {
             outline: none;
-            border-color: rgba(17, 153, 142, 0.7);
-            box-shadow: 0 0 0 3px rgba(17, 153, 142, 0.18);
+            border-color: rgba(42,184,173,0.75);
+            box-shadow: 0 0 0 3px rgba(42,184,173,0.16);
         }
-        .tasks-button {
-            padding: 8px 12px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        .tasks-button:hover { background: rgba(255, 255, 255, 0.08); }
-        .tasks-button.primary {
-            background: linear-gradient(135deg, #11998e, #38ef7d);
-            color: #fff;
-            border: 0;
-            box-shadow: 0 8px 20px rgba(17, 153, 142, 0.2);
-        }
-        .tasks-button.primary:hover { filter: brightness(1.05); }
+        .tasks-button { padding: 8px 12px; cursor: pointer; font-weight: 700; }
+        .tasks-button:hover { background: rgba(255,255,255,0.08); }
+        .tasks-button.primary { background: linear-gradient(135deg, #11998e, #38ef7d); color: #fff; border: 0; }
+
         .tasks-filter-panel {
-            margin-top: 8px;
+            margin: 0 14px 12px;
             border: 1px solid var(--card-border);
             border-radius: 12px;
             background: rgba(255,255,255,0.02);
-            padding: 10px;
             display: none;
-            grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
+            padding: 10px;
+            grid-template-columns: repeat(4, minmax(120px,1fr)) auto;
             gap: 8px;
         }
         .tasks-filter-panel.open { display: grid; }
 
-        .tasks-shell {
-            flex: 1;
-            min-height: 0;
-            display: grid;
-            gap: 12px;
-            grid-template-columns: minmax(420px, 1.2fr) minmax(520px, 1.8fr);
-        }
+        .tasks-shell { flex: 1; min-height: 0; display: grid; gap: 10px; grid-template-columns: minmax(320px, 1fr) minmax(520px, 2fr); }
         .tasks-card {
             border-radius: 14px;
             border: 1px solid var(--card-border);
             background: var(--card-bg);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-            padding: 10px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+            min-height: 0;
             display: flex;
             flex-direction: column;
-            min-height: 0;
         }
-        .tasks-card-title {
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            letter-spacing: 0.02em;
-            margin: 2px 0 8px;
-        }
-        .tasks-list-header,
+        .tasks-card-title { padding: 10px 12px; font-size: 12px; font-weight: 800; letter-spacing: .08em; color: var(--text-secondary); border-bottom: 1px solid var(--card-border); }
+
+        .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; }
         .tasks-row {
             display: grid;
-            grid-template-columns: 30px 1fr 90px 90px 70px 96px 112px;
-            gap: 6px;
+            grid-template-columns: 24px 1fr;
+            gap: 8px;
             align-items: center;
-        }
-        .tasks-list-header {
-            padding: 6px 4px;
-            border-bottom: 1px solid var(--card-border);
-            color: var(--text-secondary);
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .tasks-list-body { min-height: 0; overflow: auto; }
-        .tasks-row {
-            font-size: 13px;
-            padding: 7px 4px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            transition: background 0.14s ease;
-        }
-        .tasks-row:hover { background: rgba(255,255,255,0.04); }
-        .tree-toggle {
-            width: 22px;
-            height: 22px;
-            border: 0;
-            border-radius: 6px;
-            background: transparent;
-            color: var(--text-secondary);
+            padding: 7px 8px;
+            border-radius: 8px;
+            border: 1px solid transparent;
             cursor: pointer;
+            font-size: 13px;
         }
+        .tasks-row:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.09); }
+        .tree-toggle { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
         .tree-toggle:hover { background: rgba(255,255,255,0.08); }
-        .task-title-wrap {
-            display: flex;
-            align-items: center;
-            min-width: 0;
-        }
-        .task-title {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-weight: 500;
-        }
-        .chip {
-            display: inline-flex;
-            align-items: center;
-            border-radius: 999px;
-            border: 1px solid var(--card-border);
-            padding: 2px 8px;
-            font-size: 11px;
-            line-height: 1.2;
-        }
-        .status-open { background: rgba(17, 153, 142, 0.16); color: #7af4cd; }
-        .status-blocked { background: rgba(255, 84, 84, 0.16); color: #ffc0c0; }
-        .status-done { background: rgba(92, 184, 92, 0.18); color: #b0f5b0; }
+        .task-title-wrap { min-width: 0; }
+        .task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 
-        .gantt-wrap { min-height: 0; overflow: auto; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }
-        .gantt-head, .gantt-row { display: grid; min-width: 860px; }
+        .gantt-wrap {
+            min-height: 0;
+            overflow: auto;
+            border-top: 1px solid var(--card-border);
+            background:
+                linear-gradient(to right, rgba(140,140,140,0.12) 1px, transparent 1px) 0 0 / 42px 100%;
+        }
+        .gantt-head, .gantt-row { display: grid; min-width: 900px; }
         .gantt-head {
             position: sticky;
             top: 0;
             z-index: 2;
-            background: rgba(20, 24, 34, 0.88);
+            background: rgba(24, 30, 40, 0.86);
             backdrop-filter: blur(4px);
             border-bottom: 1px solid var(--card-border);
         }
@@ -166,104 +113,88 @@
             font-size: 11px;
             color: var(--text-secondary);
             text-align: center;
-            padding: 5px 2px;
-            border-right: 1px solid rgba(255,255,255,0.06);
+            padding: 6px 2px;
+            border-right: 1px solid rgba(160,160,160,0.18);
         }
-        .gantt-row {
-            position: relative;
-            min-height: 33px;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
+        .gantt-row { position: relative; min-height: 34px; border-bottom: 1px solid rgba(160,160,160,0.15); }
         .gantt-bar {
             position: absolute;
             top: 7px;
             height: 20px;
             border-radius: 999px;
-            border: 1px solid rgba(0,0,0,0.2);
-            cursor: pointer;
-            transition: transform 0.12s ease, filter 0.12s ease;
+            border: 1px solid rgba(0,0,0,0.22);
+            cursor: grab;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.2);
         }
-        .gantt-bar:hover { transform: translateY(-1px); filter: brightness(1.06); }
-        .priority-high { box-shadow: inset 0 0 0 1px rgba(255, 84, 84, 0.7); }
+        .gantt-bar:active { cursor: grabbing; }
+        .gantt-bar:hover { filter: brightness(1.06); }
+        .gantt-handle {
+            position: absolute;
+            top: 2px;
+            width: 8px;
+            height: 16px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.4);
+            cursor: ew-resize;
+        }
+        .gantt-handle.left { left: 3px; }
+        .gantt-handle.right { right: 3px; }
+        .priority-high { box-shadow: inset 0 0 0 1px rgba(255,84,84,0.72), 0 3px 12px rgba(0,0,0,0.22); }
 
-        .tasks-empty {
-            color: var(--text-secondary);
-            padding: 28px 16px;
-            text-align: center;
-            font-size: 13px;
-        }
+        .tasks-empty { color: var(--text-secondary); text-align: center; padding: 24px; font-size: 13px; }
 
-        .task-modal {
-            position: fixed;
-            inset: 0;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            background: rgba(0, 0, 0, 0.56);
-            backdrop-filter: blur(2px);
-            z-index: 80;
-        }
+        .task-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(10,16,20,0.56); backdrop-filter: blur(2px); z-index: 80; }
         .task-modal.open { display: flex; }
         .task-modal-card {
-            width: min(640px, 92vw);
+            width: min(720px, 92vw);
             max-height: 88vh;
             overflow: auto;
-            border-radius: 14px;
+            border-radius: 18px;
             border: 1px solid var(--card-border);
             background: var(--card-bg);
             box-shadow: 0 20px 40px rgba(0,0,0,0.35);
-            padding: 14px;
         }
-        .task-form-grid {
-            margin-top: 10px;
-            display: grid;
-            grid-template-columns: repeat(2, minmax(160px, 1fr));
-            gap: 8px;
+        .task-modal-header {
+            background: linear-gradient(135deg, rgba(255,105,105,0.92), rgba(236,170,170,0.8));
+            color: #fff;
+            padding: 16px 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.16);
+            font-size: 24px;
+            font-weight: 800;
         }
-        .task-form-grid textarea { grid-column: 1 / -1; min-height: 72px; resize: vertical; }
+        .task-modal-body { padding: 14px; }
+        .task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 8px; }
+        .task-form-grid textarea { grid-column: 1 / -1; min-height: 74px; resize: vertical; }
         .task-form-grid details { grid-column: 1 / -1; border: 1px solid var(--card-border); border-radius: 10px; padding: 8px; }
-        .task-form-grid summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); font-weight: 600; }
-        .task-optional-grid { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 8px; }
-        .task-modal-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-            margin-top: 12px;
-        }
+        .task-form-grid summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); font-weight: 700; }
+        .task-optional-grid { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(170px, 1fr)); gap: 8px; }
+        .task-modal-actions { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
 
-        @media (max-width: 1220px) {
-            .tasks-shell { grid-template-columns: 1fr; }
-        }
-        @media (max-width: 880px) {
-            .tasks-toolbar { grid-template-columns: 1fr 1fr; }
+        @media (max-width: 980px) {
+            .tasks-top-controls { grid-template-columns: 1fr 1fr; }
             .tasks-filter-panel { grid-template-columns: 1fr; }
+            .tasks-shell { grid-template-columns: 1fr; }
             .task-form-grid, .task-optional-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
     <div class="tasks-page">
-        <div class="analytics-card tasks-header-card">
-            <div class="card-header">
-                <div class="card-title-group">
-                    <div>
-                        <div class="card-title">Tasks</div>
-                        <div class="card-subtitle">Hierarchical planning in a minimal timeline workspace</div>
-                    </div>
-                </div>
+        <div class="tasks-top-card">
+            <div class="tasks-top-accent">
+                <div class="tasks-top-title">Tasks</div>
+                <div class="tasks-top-subtitle">Plan hierarchy + timeline in one workspace</div>
             </div>
-
-            <div class="tasks-toolbar">
+            <div class="tasks-top-controls">
                 <input id="tasksSearch" class="tasks-input" placeholder="Search tasks" />
                 <select id="tasksZoom" class="tasks-select">
                     <option value="week">Week View</option>
                     <option value="month">Month View</option>
                 </select>
-                <button id="tasksExpandAll" class="tasks-button">Expand/Collapse</button>
-                <button id="tasksFilterToggle" class="tasks-button">Filters</button>
-                <button id="tasksAddBtn" class="tasks-button primary">+ Add Task</button>
+                <button id="tasksExpandAll" class="tasks-button" type="button">Expand/Collapse</button>
+                <button id="tasksFilterToggle" class="tasks-button" type="button">Filters</button>
+                <button id="tasksAddBtn" class="tasks-button primary" type="button">+ Add Task</button>
             </div>
-
             <div id="tasksFiltersPanel" class="tasks-filter-panel">
                 <select id="tasksStatusFilter" class="tasks-select"></select>
                 <select id="tasksAssigneeFilter" class="tasks-select"></select>
@@ -275,15 +206,11 @@
 
         <div class="tasks-shell">
             <div class="tasks-card">
-                <div class="tasks-card-title">Hierarchy</div>
-                <div class="tasks-list-header">
-                    <div></div><div>Task</div><div>Status</div><div>Priority</div><div>%</div><div>Owner</div><div>Linked</div>
-                </div>
+                <div class="tasks-card-title">HIERARCHY</div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>
-
             <div class="tasks-card">
-                <div class="tasks-card-title">Timeline</div>
+                <div class="tasks-card-title">TIMELINE</div>
                 <div id="tasksGanttWrap" class="gantt-wrap"></div>
             </div>
         </div>
@@ -291,31 +218,33 @@
 
     <div id="taskModal" class="task-modal">
         <div class="task-modal-card">
-            <h3 id="taskModalTitle" style="margin:0;">Task</h3>
-            <div class="task-form-grid">
-                <input id="taskTitle" class="tasks-input" placeholder="Title" />
-                <select id="taskParentId" class="tasks-select"></select>
-                <select id="taskStatus" class="tasks-select"></select>
-                <input id="taskAssignee" class="tasks-input" placeholder="Assignee" />
-                <input id="taskStartDate" type="date" class="tasks-input" />
-                <input id="taskDueDate" type="date" class="tasks-input" />
-                <textarea id="taskDescription" class="tasks-input" placeholder="Description (optional)"></textarea>
-                <details>
-                    <summary>Optional fields</summary>
-                    <div class="task-optional-grid">
-                        <select id="taskPriority" class="tasks-select"></select>
-                        <input id="taskPercent" type="number" min="0" max="100" class="tasks-input" placeholder="Percent Complete" />
-                        <input id="taskItemCode" class="tasks-input" placeholder="Item Code" />
-                        <input id="taskItemName" class="tasks-input" placeholder="Item Name" />
-                        <input id="taskLocation" class="tasks-input" placeholder="Location" />
-                        <input id="taskSublocation" class="tasks-input" placeholder="Sublocation" />
-                    </div>
-                </details>
-            </div>
-            <div class="task-modal-actions">
-                <button id="taskArchiveBtn" class="tasks-button" type="button">Archive</button>
-                <button id="taskCancelBtn" class="tasks-button" type="button">Cancel</button>
-                <button id="taskSaveBtn" class="tasks-button primary" type="button">Save</button>
+            <div id="taskModalTitle" class="task-modal-header">Task</div>
+            <div class="task-modal-body">
+                <div class="task-form-grid">
+                    <input id="taskTitle" class="tasks-input" placeholder="Task title" />
+                    <select id="taskParentId" class="tasks-select"></select>
+                    <select id="taskStatus" class="tasks-select"></select>
+                    <input id="taskAssignee" class="tasks-input" placeholder="Assignee" />
+                    <input id="taskStartDate" type="date" class="tasks-input" />
+                    <input id="taskDueDate" type="date" class="tasks-input" />
+                    <textarea id="taskDescription" class="tasks-input" placeholder="Description (optional)"></textarea>
+                    <details>
+                        <summary>Optional fields</summary>
+                        <div class="task-optional-grid">
+                            <select id="taskPriority" class="tasks-select"></select>
+                            <input id="taskPercent" type="number" min="0" max="100" class="tasks-input" placeholder="Percent Complete" />
+                            <input id="taskItemCode" class="tasks-input" placeholder="Item Code" />
+                            <input id="taskItemName" class="tasks-input" placeholder="Item Name" />
+                            <input id="taskLocation" class="tasks-input" placeholder="Location" />
+                            <input id="taskSublocation" class="tasks-input" placeholder="Sublocation" />
+                        </div>
+                    </details>
+                </div>
+                <div class="task-modal-actions">
+                    <button id="taskArchiveBtn" class="tasks-button" type="button">Archive</button>
+                    <button id="taskCancelBtn" class="tasks-button" type="button">Cancel</button>
+                    <button id="taskSaveBtn" class="tasks-button primary" type="button">Save</button>
+                </div>
             </div>
         </div>
     </div>

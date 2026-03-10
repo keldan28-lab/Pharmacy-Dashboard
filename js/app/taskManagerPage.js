@@ -4,6 +4,8 @@
     const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
+    const DAY_MS = 86400000;
+
     const state = {
         loading: true,
         usingMock: false,
@@ -14,7 +16,10 @@
         editingId: null,
         zoom: 'week',
         showArchived: false,
-        filtersOpen: false
+        filtersOpen: false,
+        drag: null,
+        range: null,
+        colPx: 42
     };
 
     const els = {};
@@ -24,6 +29,24 @@
     function toDate(v) { if (!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d; }
     function toISODate(v) { const d = toDate(v); return d ? d.toISOString().slice(0, 10) : ''; }
     function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]; }); }
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function shiftIsoDate(iso, days) {
+        const base = toDate(iso) || new Date();
+        return new Date(base.getTime() + (days * DAY_MS)).toISOString().slice(0, 10);
+    }
+
+    function ensureTaskDates(task) {
+        if (!task.startDate && !task.dueDate) {
+            const now = new Date();
+            task.startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().slice(0, 10);
+            task.dueDate = shiftIsoDate(task.startDate, 2);
+        } else if (!task.startDate && task.dueDate) {
+            task.startDate = shiftIsoDate(task.dueDate, -1);
+        } else if (task.startDate && !task.dueDate) {
+            task.dueDate = shiftIsoDate(task.startDate, 1);
+        }
+    }
 
     function getActiveFilterCount() {
         let c = 0;
@@ -64,7 +87,7 @@
     }
 
     function postForm(webAppUrl, payload) {
-        return new Promise(function (resolve, reject) {
+        return new Promise(function (resolve) {
             const form = document.createElement('form');
             const targetName = 'taskWriteFrame_' + Date.now();
             const iframe = document.createElement('iframe');
@@ -114,7 +137,7 @@
         out.taskId = String(out.taskId || ('TASK-' + Date.now() + '-' + idx));
         out.parentId = String(out.parentId || '');
         out.sortOrder = Number(out.sortOrder || ((idx + 1) * 10));
-        out.title = String(out.title || 'Untitled Task');
+        out.title = String(out.title || 'New Task');
         out.status = String(out.status || 'Not Started');
         out.priority = String(out.priority || 'Medium');
         out.percentComplete = Math.max(0, Math.min(100, Number(out.percentComplete || 0)));
@@ -124,6 +147,7 @@
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
         out.children = [];
+        ensureTaskDates(out);
         return out;
     }
 
@@ -138,6 +162,7 @@
             applyFilters();
             return;
         }
+
         try {
             const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
             const url = webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
@@ -150,6 +175,7 @@
             state.usingMock = true;
             state.tasks = sampleTasks().map(normalizeTask);
         }
+
         state.loading = false;
         applyFilters();
     }
@@ -162,7 +188,11 @@
             if (t.parentId && byIdMap[t.parentId]) byIdMap[t.parentId].children.push(t);
             else roots.push(t);
         });
-        function sortChildren(arr) { arr.sort(function (a,b){ return a.sortOrder - b.sortOrder; }); arr.forEach(function (c){ sortChildren(c.children); }); }
+
+        function sortChildren(arr) {
+            arr.sort(function (a, b) { return a.sortOrder - b.sortOrder; });
+            arr.forEach(function (child) { sortChildren(child.children); });
+        }
         sortChildren(roots);
         return roots;
     }
@@ -175,6 +205,15 @@
         });
     }
 
+    function hasFilteredDescendant(task) {
+        if (!task.children || !task.children.length) return false;
+        for (let i = 0; i < task.children.length; i++) {
+            const child = task.children[i];
+            if (state.filtered.some(function (f) { return f.taskId === child.taskId; }) || hasFilteredDescendant(child)) return true;
+        }
+        return false;
+    }
+
     function applyFilters() {
         const q = (els.search.value || '').toLowerCase();
         const status = els.statusFilter.value;
@@ -182,53 +221,55 @@
         const itemTerm = (els.itemFilter.value || '').toLowerCase();
         const locTerm = (els.locationFilter.value || '').toLowerCase();
 
-        state.filtered = state.tasks.filter(function (t) {
-            if (!state.showArchived && t.archived) return false;
-            if (status !== 'all' && t.status !== status) return false;
-            if (assignee !== 'all' && t.assignee !== assignee) return false;
-            const hay = [t.title, t.description, t.itemCode, t.itemName, t.location, t.sublocation].join(' ').toLowerCase();
+        state.filtered = state.tasks.filter(function (task) {
+            if (!state.showArchived && task.archived) return false;
+            if (status !== 'all' && task.status !== status) return false;
+            if (assignee !== 'all' && task.assignee !== assignee) return false;
+            const hay = [task.title, task.description, task.itemCode, task.itemName, task.location, task.sublocation].join(' ').toLowerCase();
             if (q && hay.indexOf(q) === -1) return false;
-            if (itemTerm && (String(t.itemCode).toLowerCase().indexOf(itemTerm) === -1 && String(t.itemName).toLowerCase().indexOf(itemTerm) === -1)) return false;
-            if (locTerm && (String(t.location).toLowerCase().indexOf(locTerm) === -1 && String(t.sublocation).toLowerCase().indexOf(locTerm) === -1)) return false;
+            if (itemTerm && (String(task.itemCode).toLowerCase().indexOf(itemTerm) === -1 && String(task.itemName).toLowerCase().indexOf(itemTerm) === -1)) return false;
+            if (locTerm && (String(task.location).toLowerCase().indexOf(locTerm) === -1 && String(task.sublocation).toLowerCase().indexOf(locTerm) === -1)) return false;
             return true;
         });
 
         populateFilters();
-        const treeRoots = buildTree().filter(function (r) { return state.filtered.some(function (f) { return f.taskId === r.taskId; }) || hasFilteredDescendant(r); });
+        const roots = buildTree().filter(function (root) {
+            return state.filtered.some(function (f) { return f.taskId === root.taskId; }) || hasFilteredDescendant(root);
+        });
+
         const flat = [];
-        flattenVisible(treeRoots, 0, flat);
-        state.flatRows = flat.filter(function (x) { return state.filtered.some(function (f) { return f.taskId === x.task.taskId; }) || hasFilteredDescendant(x.task); });
+        flattenVisible(roots, 0, flat);
+        state.flatRows = flat.filter(function (row) {
+            return state.filtered.some(function (f) { return f.taskId === row.task.taskId; }) || hasFilteredDescendant(row.task);
+        });
 
         syncFilterPanelUi();
         renderList();
         requestAnimationFrame(renderGantt);
     }
 
-    function hasFilteredDescendant(task) {
-        if (!task.children || !task.children.length) return false;
-        for (let i = 0; i < task.children.length; i++) {
-            const c = task.children[i];
-            if (state.filtered.some(function (f) { return f.taskId === c.taskId; }) || hasFilteredDescendant(c)) return true;
-        }
-        return false;
-    }
-
     function populateFilters() {
+        const currentAssignee = els.assigneeFilter.value || 'all';
         const assignees = ['all'].concat(Array.from(new Set(state.tasks.map(function (t) { return t.assignee || ''; }).filter(Boolean))).sort());
-        if (els.assigneeFilter.options.length !== assignees.length) {
-            els.assigneeFilter.innerHTML = assignees.map(function (a) { return '<option value="' + esc(a) + '">' + esc(a === 'all' ? 'All Assignees' : a) + '</option>'; }).join('');
-        }
-        if (!els.statusFilter.options.length) {
-            els.statusFilter.innerHTML = DEFAULT_STATUS.map(function (s) { return '<option value="' + esc(s) + '">' + esc(s === 'all' ? 'All Statuses' : s) + '</option>'; }).join('');
-        }
-        byId('taskStatus').innerHTML = DEFAULT_STATUS.filter(function (s) { return s !== 'all'; }).map(function (s) { return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
-        byId('taskPriority').innerHTML = DEFAULT_PRIORITY.map(function (s) { return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
-    }
 
-    function statusClass(status) {
-        if (status === 'Done') return 'status-done';
-        if (status === 'Blocked') return 'status-blocked';
-        return 'status-open';
+        els.assigneeFilter.innerHTML = assignees.map(function (a) {
+            return '<option value="' + esc(a) + '">' + esc(a === 'all' ? 'All Assignees' : a) + '</option>';
+        }).join('');
+        if (assignees.indexOf(currentAssignee) >= 0) els.assigneeFilter.value = currentAssignee;
+
+        if (!els.statusFilter.options.length) {
+            els.statusFilter.innerHTML = DEFAULT_STATUS.map(function (s) {
+                return '<option value="' + esc(s) + '">' + esc(s === 'all' ? 'All Statuses' : s) + '</option>';
+            }).join('');
+        }
+
+        byId('taskStatus').innerHTML = DEFAULT_STATUS.filter(function (s) { return s !== 'all'; }).map(function (s) {
+            return '<option value="' + esc(s) + '">' + esc(s) + '</option>';
+        }).join('');
+
+        byId('taskPriority').innerHTML = DEFAULT_PRIORITY.map(function (p) {
+            return '<option value="' + esc(p) + '">' + esc(p) + '</option>';
+        }).join('');
     }
 
     function renderList() {
@@ -240,27 +281,25 @@
             els.listBody.innerHTML = '<div class="tasks-empty">No tasks match the current filters.</div>';
             return;
         }
+
         els.listBody.innerHTML = state.flatRows.map(function (row) {
-            const t = row.task;
-            const hasChildren = t.children && t.children.length;
-            const expanded = state.expanded[t.taskId] !== false;
-            const indent = row.depth * 16;
-            return '<div class="tasks-row" data-task-id="' + esc(t.taskId) + '">' +
-                '<button class="tree-toggle" data-toggle="' + esc(t.taskId) + '">' + (hasChildren ? (expanded ? '▾' : '▸') : '•') + '</button>' +
-                '<div class="task-title-wrap" style="padding-left:' + indent + 'px"><span class="task-title" title="' + esc(t.title) + '">' + esc(t.title) + '</span></div>' +
-                '<div><span class="chip ' + statusClass(t.status) + '">' + esc(t.status) + '</span></div>' +
-                '<div><span class="chip">' + esc(t.priority) + '</span></div>' +
-                '<div>' + esc(t.percentComplete) + '%</div>' +
-                '<div>' + esc(t.assignee || '—') + '</div>' +
-                '<div><span class="chip" data-item-filter="' + esc(t.itemCode) + '">' + esc(t.itemCode || 'none') + '</span></div>' +
+            const task = row.task;
+            const hasChildren = task.children && task.children.length;
+            const expanded = state.expanded[task.taskId] !== false;
+            const indent = row.depth * 14;
+            return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
+                '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '">' + (hasChildren ? (expanded ? '▾' : '▸') : '•') + '</button>' +
+                '<div class="task-title-wrap" style="padding-left:' + indent + 'px"><span class="task-title" title="' + esc(task.title) + '">' + esc(task.title) + '</span></div>' +
             '</div>';
         }).join('');
     }
 
     function computeRange(rows) {
-        let start = null; let end = null;
+        let start = null;
+        let end = null;
         rows.forEach(function (row) {
-            const s = toDate(row.task.startDate); const d = toDate(row.task.dueDate);
+            const s = toDate(row.task.startDate);
+            const d = toDate(row.task.dueDate);
             if (s && (!start || s < start)) start = s;
             if (d && (!end || d > end)) end = d;
         });
@@ -270,55 +309,71 @@
         return { start: start, end: end };
     }
 
+    function ganttColor(status) {
+        if (status === 'Done') return 'rgba(92,184,92,0.86)';
+        if (status === 'Blocked') return 'rgba(255,84,84,0.82)';
+        if (status === 'Not Started') return 'rgba(126,136,150,0.82)';
+        return 'rgba(42,184,173,0.88)';
+    }
+
     function renderGantt() {
         const rows = state.flatRows;
-        if (!rows.length) { els.ganttWrap.innerHTML = '<div class="tasks-empty">No scheduled tasks to display.</div>'; return; }
+        if (!rows.length) {
+            els.ganttWrap.innerHTML = '<div class="tasks-empty">No scheduled tasks to display.</div>';
+            return;
+        }
+
         const range = computeRange(rows);
-        const dayMs = 86400000;
-        const days = Math.max(1, Math.ceil((range.end - range.start) / dayMs) + 1);
-        const colPx = state.zoom === 'month' ? 28 : 44;
+        const days = Math.max(1, Math.ceil((range.end - range.start) / DAY_MS) + 1);
+        const colPx = state.zoom === 'month' ? 32 : 42;
+        state.colPx = colPx;
+        state.range = range;
+
         const cols = [];
         for (let i = 0; i < days; i++) {
-            const dt = new Date(range.start.getTime() + (i * dayMs));
+            const dt = new Date(range.start.getTime() + (i * DAY_MS));
             if (state.zoom === 'month' && dt.getDay() !== 1) continue;
             cols.push(dt);
         }
+
         const gridCols = 'repeat(' + cols.length + ',' + colPx + 'px)';
-        const head = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) { return '<div class="gantt-cell">' + esc((d.getMonth() + 1) + '/' + d.getDate()) + '</div>'; }).join('') + '</div>';
+        const head = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+            return '<div class="gantt-cell">' + esc((d.getMonth() + 1) + '/' + d.getDate()) + '</div>';
+        }).join('') + '</div>';
+
         const body = rows.map(function (row) {
             const t = row.task;
             const sDate = toDate(t.startDate);
             const dDate = toDate(t.dueDate);
-            const hasDates = sDate && dDate;
             let bar = '';
-            if (hasDates) {
-                const startOffsetDays = Math.max(0, Math.floor((sDate - range.start) / dayMs));
-                const durDays = Math.max(1, Math.floor((dDate - sDate) / dayMs) + 1);
-                const left = (state.zoom === 'month' ? Math.floor(startOffsetDays / 7) : startOffsetDays) * colPx;
-                const width = (state.zoom === 'month' ? Math.max(1, Math.ceil(durDays / 7)) : durDays) * colPx - 6;
-                bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-open="' + esc(t.taskId) + '" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t.status) + '"></div>';
+            if (sDate && dDate) {
+                const startOffsetDays = Math.max(0, Math.floor((sDate - range.start) / DAY_MS));
+                const durationDays = Math.max(1, Math.floor((dDate - sDate) / DAY_MS) + 1);
+                const leftUnits = state.zoom === 'month' ? Math.floor(startOffsetDays / 7) : startOffsetDays;
+                const widthUnits = state.zoom === 'month' ? Math.max(1, Math.ceil(durationDays / 7)) : durationDays;
+                const left = leftUnits * colPx;
+                const width = Math.max(18, (widthUnits * colPx) - 6);
+                bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t.status) + '">' +
+                    '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
+                    '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
+                '</div>';
             }
             return '<div class="gantt-row" style="grid-template-columns:' + gridCols + '">' + cols.map(function () { return '<div class="gantt-cell"></div>'; }).join('') + bar + '</div>';
         }).join('');
-        els.ganttWrap.innerHTML = head + body;
-    }
 
-    function ganttColor(status) {
-        if (status === 'Done') return 'rgba(92,184,92,0.85)';
-        if (status === 'Blocked') return 'rgba(255,84,84,0.82)';
-        if (status === 'Not Started') return 'rgba(102,126,234,0.75)';
-        return 'rgba(17,153,142,0.82)';
+        els.ganttWrap.innerHTML = head + body;
     }
 
     function openModal(taskId) {
         const task = state.tasks.find(function (t) { return t.taskId === taskId; });
         state.editingId = task ? task.taskId : null;
-        byId('taskModalTitle').textContent = task ? ('Edit ' + task.title) : 'Add Task';
+        byId('taskModalTitle').textContent = task ? task.title : 'New Task';
+
         byId('taskTitle').value = task ? task.title : '';
         byId('taskDescription').value = task ? task.description : '';
         byId('taskAssignee').value = task ? task.assignee : '';
-        byId('taskStartDate').value = task ? task.startDate : '';
-        byId('taskDueDate').value = task ? task.dueDate : '';
+        byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
+        byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
         byId('taskPercent').value = task ? task.percentComplete : 0;
         byId('taskItemCode').value = task ? task.itemCode : '';
         byId('taskItemName').value = task ? task.itemName : '';
@@ -326,13 +381,20 @@
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
-        byId('taskParentId').innerHTML = ['<option value="">No parent (group)</option>'].concat(state.tasks.filter(function (t) { return !task || t.taskId !== task.taskId; }).map(function (t) { return '<option value="' + esc(t.taskId) + '">' + esc(t.title) + '</option>'; })).join('');
+
+        byId('taskParentId').innerHTML = ['<option value="">No parent (group)</option>'].concat(
+            state.tasks.filter(function (t) { return !task || t.taskId !== task.taskId; }).map(function (t) {
+                return '<option value="' + esc(t.taskId) + '">' + esc(t.title) + '</option>';
+            })
+        ).join('');
         byId('taskParentId').value = task ? task.parentId : '';
         byId('taskArchiveBtn').style.display = task ? 'inline-block' : 'none';
         byId('taskModal').classList.add('open');
     }
 
-    function closeModal() { byId('taskModal').classList.remove('open'); }
+    function closeModal() {
+        byId('taskModal').classList.remove('open');
+    }
 
     async function saveTask() {
         const now = isoNow();
@@ -341,14 +403,14 @@
             parentId: byId('taskParentId').value,
             sortOrder: nextSortOrder(),
             level: byId('taskParentId').value ? 'child' : 'group',
-            title: byId('taskTitle').value.trim() || 'Untitled Task',
+            title: byId('taskTitle').value.trim() || 'New Task',
             description: byId('taskDescription').value.trim(),
             status: byId('taskStatus').value,
             priority: byId('taskPriority').value,
             assignee: byId('taskAssignee').value.trim(),
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
-            percentComplete: Math.max(0, Math.min(100, Number(byId('taskPercent').value || 0))),
+            percentComplete: clamp(Number(byId('taskPercent').value || 0), 0, 100),
             itemCode: byId('taskItemCode').value.trim(),
             itemName: byId('taskItemName').value.trim(),
             location: byId('taskLocation').value.trim(),
@@ -368,6 +430,7 @@
             state.tasks.push(normalizeTask(payload, state.tasks.length));
             await writeTask('createTask', payload);
         }
+
         closeModal();
         applyFilters();
     }
@@ -381,6 +444,80 @@
         await writeTask('archiveTask', { taskId: task.taskId, archived: true, updatedAt: task.updatedAt });
         closeModal();
         applyFilters();
+    }
+
+    async function updateTaskDatesFromDrag(task, nextStart, nextDue) {
+        task.startDate = nextStart;
+        task.dueDate = nextDue;
+        task.updatedAt = isoNow();
+        await writeTask('updateTask', {
+            taskId: task.taskId,
+            startDate: task.startDate,
+            dueDate: task.dueDate,
+            updatedAt: task.updatedAt
+        });
+    }
+
+    function startDrag(taskId, dragType, clientX) {
+        const task = state.tasks.find(function (t) { return t.taskId === taskId; });
+        if (!task) return;
+        ensureTaskDates(task);
+
+        state.drag = {
+            taskId: task.taskId,
+            dragType: dragType,
+            startX: clientX,
+            startDate: task.startDate,
+            dueDate: task.dueDate,
+            stepDays: state.zoom === 'month' ? 7 : 1,
+            moved: false
+        };
+    }
+
+    async function finishDrag() {
+        const drag = state.drag;
+        state.drag = null;
+        if (!drag || !drag.moved) return;
+        const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
+        if (!task) return;
+        await updateTaskDatesFromDrag(task, task.startDate, task.dueDate);
+        applyFilters();
+    }
+
+    function onDragMove(clientX) {
+        const drag = state.drag;
+        if (!drag) return;
+        const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
+        if (!task) return;
+
+        const start = toDate(drag.startDate);
+        const end = toDate(drag.dueDate);
+        if (!start || !end) return;
+
+        const deltaCols = Math.round((clientX - drag.startX) / state.colPx);
+        const deltaDays = deltaCols * drag.stepDays;
+        if (!deltaDays) return;
+
+        let newStart = drag.startDate;
+        let newDue = drag.dueDate;
+
+        if (drag.dragType === 'move') {
+            newStart = shiftIsoDate(drag.startDate, deltaDays);
+            newDue = shiftIsoDate(drag.dueDate, deltaDays);
+        } else if (drag.dragType === 'start') {
+            newStart = shiftIsoDate(drag.startDate, deltaDays);
+            if (toDate(newStart) > toDate(newDue)) newStart = newDue;
+        } else if (drag.dragType === 'end') {
+            newDue = shiftIsoDate(drag.dueDate, deltaDays);
+            if (toDate(newDue) < toDate(newStart)) newDue = newStart;
+        }
+
+        if (task.startDate !== newStart || task.dueDate !== newDue) {
+            task.startDate = newStart;
+            task.dueDate = newDue;
+            drag.moved = true;
+            renderGantt();
+        }
     }
 
     async function writeTask(action, taskPayload) {
@@ -405,48 +542,100 @@
         return (state.tasks.reduce(function (max, t) { return Math.max(max, Number(t.sortOrder || 0)); }, 0) || 0) + 10;
     }
 
+    function createNewTaskBlock() {
+        const now = toISODate(new Date());
+        const id = 'TASK-' + Date.now();
+        const draft = normalizeTask({
+            taskId: id,
+            title: 'New Task',
+            startDate: now,
+            dueDate: shiftIsoDate(now, 2),
+            status: 'Not Started',
+            priority: 'Medium',
+            sortOrder: nextSortOrder(),
+            createdAt: isoNow(),
+            updatedAt: isoNow(),
+            createdBy: 'dashboard'
+        }, state.tasks.length);
+        state.tasks.push(draft);
+        applyFilters();
+        openModal(id);
+    }
+
     function bindEvents() {
         ['search','statusFilter','assigneeFilter','itemFilter','locationFilter'].forEach(function (k) {
             const ev = (k === 'statusFilter' || k === 'assigneeFilter') ? 'change' : 'input';
             els[k].addEventListener(ev, debounce(applyFilters, 120));
         });
-        els.zoom.addEventListener('change', function () { state.zoom = els.zoom.value; renderGantt(); });
+
+        els.zoom.addEventListener('change', function () {
+            state.zoom = els.zoom.value;
+            renderGantt();
+        });
+
         byId('tasksExpandAll').addEventListener('click', function () {
             const collapse = state.flatRows.some(function (r) { return r.task.children && r.task.children.length && state.expanded[r.task.taskId] !== false; });
-            state.flatRows.forEach(function (r) { if (r.task.children && r.task.children.length) state.expanded[r.task.taskId] = collapse ? false : true; });
+            state.flatRows.forEach(function (r) {
+                if (r.task.children && r.task.children.length) state.expanded[r.task.taskId] = collapse ? false : true;
+            });
             applyFilters();
         });
-        if (els.filterToggle) {
-            els.filterToggle.addEventListener('click', function () {
-                state.filtersOpen = !state.filtersOpen;
-                syncFilterPanelUi();
-            });
-        }
-        if (els.clearFiltersBtn) {
-            els.clearFiltersBtn.addEventListener('click', function () {
-                els.statusFilter.value = 'all';
-                els.assigneeFilter.value = 'all';
-                els.itemFilter.value = '';
-                els.locationFilter.value = '';
-                applyFilters();
-            });
-        }
-        byId('tasksAddBtn').addEventListener('click', function () { openModal(null); });
+
+        els.filterToggle.addEventListener('click', function () {
+            state.filtersOpen = !state.filtersOpen;
+            syncFilterPanelUi();
+        });
+
+        els.clearFiltersBtn.addEventListener('click', function () {
+            els.statusFilter.value = 'all';
+            els.assigneeFilter.value = 'all';
+            els.itemFilter.value = '';
+            els.locationFilter.value = '';
+            applyFilters();
+        });
+
+        byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
+
         els.listBody.addEventListener('click', function (e) {
             const toggleId = e.target && e.target.getAttribute('data-toggle');
-            if (toggleId) { state.expanded[toggleId] = state.expanded[toggleId] === false; applyFilters(); return; }
+            if (toggleId) {
+                state.expanded[toggleId] = state.expanded[toggleId] === false;
+                applyFilters();
+                return;
+            }
             const row = e.target.closest('.tasks-row');
             if (row) openModal(row.getAttribute('data-task-id'));
-            const itemCode = e.target && e.target.getAttribute('data-item-filter');
-            if (itemCode) { els.itemFilter.value = itemCode; applyFilters(); }
         });
+
         els.ganttWrap.addEventListener('click', function (e) {
-            const tid = e.target && e.target.getAttribute('data-task-open');
-            if (tid) openModal(tid);
+            if (state.drag && state.drag.moved) return;
+            const bar = e.target.closest('.gantt-bar');
+            if (bar) openModal(bar.getAttribute('data-task-id'));
         });
+
+        els.ganttWrap.addEventListener('pointerdown', function (e) {
+            const hit = e.target.closest('.gantt-bar, .gantt-handle');
+            if (!hit) return;
+            const taskId = hit.getAttribute('data-task-id');
+            const dragType = hit.getAttribute('data-drag-type') || 'move';
+            if (!taskId) return;
+            e.preventDefault();
+            startDrag(taskId, dragType, e.clientX);
+        });
+
+        window.addEventListener('pointermove', function (e) {
+            if (!state.drag) return;
+            onDragMove(e.clientX);
+        });
+
+        window.addEventListener('pointerup', function () {
+            if (!state.drag) return;
+            finishDrag();
+        });
+
         window.addEventListener('message', function (event) {
             if (!event || !event.data) return;
             if (event.data.type === 'darkModeToggle') {
