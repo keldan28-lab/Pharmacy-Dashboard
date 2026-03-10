@@ -13,7 +13,8 @@
         flatRows: [],
         editingId: null,
         zoom: 'week',
-        showArchived: false
+        showArchived: false,
+        filtersOpen: false
     };
 
     const els = {};
@@ -23,6 +24,22 @@
     function toDate(v) { if (!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d; }
     function toISODate(v) { const d = toDate(v); return d ? d.toISOString().slice(0, 10) : ''; }
     function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]; }); }
+
+    function getActiveFilterCount() {
+        let c = 0;
+        if ((els.statusFilter && els.statusFilter.value && els.statusFilter.value !== 'all')) c++;
+        if ((els.assigneeFilter && els.assigneeFilter.value && els.assigneeFilter.value !== 'all')) c++;
+        if ((els.itemFilter && (els.itemFilter.value || '').trim())) c++;
+        if ((els.locationFilter && (els.locationFilter.value || '').trim())) c++;
+        return c;
+    }
+
+    function syncFilterPanelUi() {
+        if (!els.filtersPanel || !els.filterToggle) return;
+        els.filtersPanel.classList.toggle('open', !!state.filtersOpen);
+        const activeCount = getActiveFilterCount();
+        els.filterToggle.textContent = activeCount > 0 ? ('Filters (' + activeCount + ')') : 'Filters';
+    }
 
     function jsonp(url, timeoutMs) {
         timeoutMs = timeoutMs || 10000;
@@ -182,6 +199,7 @@
         flattenVisible(treeRoots, 0, flat);
         state.flatRows = flat.filter(function (x) { return state.filtered.some(function (f) { return f.taskId === x.task.taskId; }) || hasFilteredDescendant(x.task); });
 
+        syncFilterPanelUi();
         renderList();
         requestAnimationFrame(renderGantt);
     }
@@ -398,6 +416,21 @@
             state.flatRows.forEach(function (r) { if (r.task.children && r.task.children.length) state.expanded[r.task.taskId] = collapse ? false : true; });
             applyFilters();
         });
+        if (els.filterToggle) {
+            els.filterToggle.addEventListener('click', function () {
+                state.filtersOpen = !state.filtersOpen;
+                syncFilterPanelUi();
+            });
+        }
+        if (els.clearFiltersBtn) {
+            els.clearFiltersBtn.addEventListener('click', function () {
+                els.statusFilter.value = 'all';
+                els.assigneeFilter.value = 'all';
+                els.itemFilter.value = '';
+                els.locationFilter.value = '';
+                applyFilters();
+            });
+        }
         byId('tasksAddBtn').addEventListener('click', function () { openModal(null); });
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
@@ -408,7 +441,7 @@
             const row = e.target.closest('.tasks-row');
             if (row) openModal(row.getAttribute('data-task-id'));
             const itemCode = e.target && e.target.getAttribute('data-item-filter');
-            if (itemCode) els.itemFilter.value = itemCode;
+            if (itemCode) { els.itemFilter.value = itemCode; applyFilters(); }
         });
         els.ganttWrap.addEventListener('click', function (e) {
             const tid = e.target && e.target.getAttribute('data-task-open');
@@ -438,6 +471,9 @@
         els.itemFilter = byId('tasksItemFilter');
         els.locationFilter = byId('tasksLocationFilter');
         els.zoom = byId('tasksZoom');
+        els.filterToggle = byId('tasksFilterToggle');
+        els.filtersPanel = byId('tasksFiltersPanel');
+        els.clearFiltersBtn = byId('tasksClearFilters');
         els.listBody = byId('tasksListBody');
         els.ganttWrap = byId('tasksGanttWrap');
     }
@@ -457,6 +493,7 @@
         cacheEls();
         bindEvents();
         bootstrapInventoryHint();
+        syncFilterPanelUi();
         await loadTasks();
     }
 
