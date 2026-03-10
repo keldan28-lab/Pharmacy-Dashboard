@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Task Manager</title>
+  <link rel="stylesheet" href="styles/dashboard.css" />
+  <link rel="stylesheet" href="styles/analytics.css" />
+  <link rel="stylesheet" href="styles/charts_v23k.css" />
+  <link rel="stylesheet" href="styles/optimization.css" />
+</head>
+<body>
+  <div class="analytics-container">
+    <div class="analytics-header">
+      <div class="header-content">
+        <div class="header-icon">
+          <svg viewBox="0 0 24 24"><path d="M9,11H7V9H9M13,11H11V9H13M17,11H15V9H17M19,3A2,2 0 0,1 21,5V19A2,2 0 0,1 19,21H5A2,2 0 0,1 3,19V5A2,2 0 0,1 5,3H6V1H8V3H16V1H18V3H19M19,19V8H5V19H19Z"/></svg>
+        </div>
+        <h1>Task Manager</h1>
+      </div>
+    </div>
+
+    <div class="charts-content" style="height: calc(100vh - 130px); padding: 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px;">
+      <div class="card full-width" style="padding: 10px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <input id="taskSearchInput" class="stockout-input" style="min-width:180px;" placeholder="Search tasks" />
+          <input id="taskItemCodeInput" class="stockout-input" style="min-width:120px;" placeholder="Item code" />
+          <input id="taskLocationInput" class="stockout-input" style="min-width:120px;" placeholder="Location" />
+          <select id="taskAssigneeFilter" class="view-by-select"><option value="">All assignees</option></select>
+          <select id="taskStatusFilter" class="view-by-select"><option value="">All statuses</option></select>
+          <button id="taskAddBtn" class="chart-icon-btn" title="Add task">
+            <svg viewBox="0 0 24 24"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" fill="currentColor"/></svg>
+          </button>
+          <button id="taskArchiveBtn" class="chart-icon-btn" title="Archive selected task">
+            <svg viewBox="0 0 24 24"><path d="M20,6H4V4H20M6,7H18V20A2,2 0 0,1 16,22H8A2,2 0 0,1 6,20V7Z" fill="currentColor"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:12px; min-height:0; flex:1; flex-wrap:wrap;">
+        <div class="card" style="flex:1 1 420px; min-height:280px; overflow:auto;">
+          <table class="drill-table" style="width:100%;">
+            <thead>
+              <tr>
+                <th>Assignee</th><th>Task</th><th>Status</th><th>Dates</th><th>Item</th>
+              </tr>
+            </thead>
+            <tbody id="taskTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="card" style="flex:1 1 420px; min-height:280px; overflow:auto;">
+          <div id="taskTimelineRoot"></div>
+        </div>
+      </div>
+
+      <div class="card full-width" style="padding:12px;">
+        <div class="card-title" style="margin-bottom:8px;">Task Details</div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:8px;">
+          <input id="taskIdField" class="stockout-input" placeholder="Task ID" readonly />
+          <input id="taskTitleField" class="stockout-input" placeholder="Title*" />
+          <select id="taskStatusField" class="view-by-select"></select>
+          <select id="taskPriorityField" class="view-by-select"></select>
+          <input id="taskAssigneeUserIdField" class="stockout-input" placeholder="Assignee User ID*" />
+          <input id="taskAssigneeNameField" class="stockout-input" placeholder="Assignee Name" />
+          <input id="taskStartDateField" class="stockout-input" type="date" />
+          <input id="taskEndDateField" class="stockout-input" type="date" />
+          <input id="taskProgressPctField" class="stockout-input" type="number" min="0" max="100" placeholder="Progress %" />
+          <input id="taskItemCodeField" class="stockout-input" placeholder="Item Code" />
+          <input id="taskLocationField" class="stockout-input" placeholder="Location" />
+          <select id="taskTypeField" class="view-by-select"></select>
+          <input id="taskNotesField" class="stockout-input" placeholder="Notes" style="grid-column: 1 / -1;" />
+        </div>
+        <div style="display:flex; justify-content:flex-end; margin-top:10px; gap:8px;">
+          <button id="taskSaveBtn" class="chart-icon-btn" title="Save task">
+            <svg viewBox="0 0 24 24"><path d="M17,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3M12,19A2,2 0 1,1 14,17A2,2 0 0,1 12,19M15,9H5V5H15V9Z" fill="currentColor"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app/taskManagerPage.js"></script>
+</body>
+</html>

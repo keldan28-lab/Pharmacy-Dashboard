@@ -394,6 +394,27 @@ window.requestChartStateMirror = function() {
                 applyToOptimization();
             }
 
+            const tasksIframe = document.getElementById('tasksFrame');
+            if (tasksIframe) {
+                const applyToTasks = (attempt = 1) => {
+                    try {
+                        if (tasksIframe.contentDocument && tasksIframe.contentDocument.body) {
+                            if (isDark) tasksIframe.contentDocument.body.classList.add('dark-mode');
+                            else tasksIframe.contentDocument.body.classList.remove('dark-mode');
+                        }
+                    } catch (e) {}
+                    try {
+                        if (tasksIframe.contentWindow) {
+                            tasksIframe.contentWindow.postMessage({ type: 'darkModeToggle', enabled: isDark }, '*');
+                            return true;
+                        }
+                    } catch (e) {}
+                    if (attempt < 3) setTimeout(() => applyToTasks(attempt + 1), 400);
+                    return false;
+                };
+                applyToTasks();
+            }
+
         }
         
         /**
@@ -1574,7 +1595,7 @@ Subloc: ${counts.subloc}`);
             // Store previous tab before switching
             const previousTab = currentTab;
             currentTab = tabName;
-            
+
             console.log('🔄 Switching from', previousTab, 'to', tabName);
 
             document.querySelectorAll('.sidebar-tab').forEach(tab => {
@@ -1595,24 +1616,15 @@ Subloc: ${counts.subloc}`);
                 console.log('🔄 Tab switched - reapplying dark mode:', isDark);
                 applyDarkMode(isDark);
             }, 100);
-            
-            // Notify the target iframe about the referrer (for back button)
-            // Only if sendReferrerOnSwitch is true (not triggered by back button)
+
             if (sendReferrerOnSwitch) {
                 setTimeout(() => {
                     if (tabName === 'inventory') {
                         const inventoryFrame = document.getElementById('inventoryFrame');
                         if (inventoryFrame && inventoryFrame.contentWindow) {
-                            // Preserve iframe state when switching tabs (do not clear filters automatically).
                             console.log('📌 Preserving inventory iframe state on tab switch');
-
-                            // Send referrer notification for back button
                             setTimeout(() => {
-                                inventoryFrame.contentWindow.postMessage({
-                                    type: 'setReferrer',
-                                    referrer: previousTab,
-                                    isBackNavigation: (window.__lastIsBackNavigation === true)
-                                }, '*');
+                                inventoryFrame.contentWindow.postMessage({ type: 'setReferrer', referrer: previousTab, isBackNavigation: (window.__lastIsBackNavigation === true) }, '*');
                                 console.log('📍 Notified inventory of referrer:', previousTab);
                             }, 100);
                         }
@@ -1621,63 +1633,56 @@ Subloc: ${counts.subloc}`);
                         if (optimizationFrame && optimizationFrame.contentWindow) {
                             console.log('📌 Preserving optimization iframe state on tab switch');
                             setTimeout(() => {
-                                optimizationFrame.contentWindow.postMessage({
-                                    type: 'setReferrer',
-                                    referrer: previousTab,
-                                    isBackNavigation: (window.__lastIsBackNavigation === true)
-                                }, '*');
+                                optimizationFrame.contentWindow.postMessage({ type: 'setReferrer', referrer: previousTab, isBackNavigation: (window.__lastIsBackNavigation === true) }, '*');
                                 console.log('📍 Notified optimization of referrer:', previousTab);
                             }, 100);
                         }
                     } else if (tabName === 'analytics') {
                         const analyticsFrame = document.getElementById('analyticsFrame');
                         if (analyticsFrame && analyticsFrame.contentWindow) {
-                            // Preserve iframe state when switching tabs (do not clear filters automatically).
                             if (window.skipNextClearFilters) {
                                 console.log('⏭️ Specific navigation in progress (state preserved)');
                                 window.skipNextClearFilters = false;
                             } else {
                                 console.log('📌 Preserving analytics iframe state on tab switch');
                             }
-
-                            // Send referrer notification for back button
                             setTimeout(() => {
-                                analyticsFrame.contentWindow.postMessage({
-                                    type: 'setReferrer',
-                                    referrer: previousTab,
-                                    isBackNavigation: (window.__lastIsBackNavigation === true)
-                                }, '*');
+                                analyticsFrame.contentWindow.postMessage({ type: 'setReferrer', referrer: previousTab, isBackNavigation: (window.__lastIsBackNavigation === true) }, '*');
                                 console.log('📍 Notified analytics of referrer:', previousTab);
+                            }, 100);
+                        }
+                    } else if (tabName === 'tasks') {
+                        const tasksFrame = document.getElementById('tasksFrame');
+                        if (tasksFrame && tasksFrame.contentWindow) {
+                            console.log('📌 Preserving tasks iframe state on tab switch');
+                            setTimeout(() => {
+                                tasksFrame.contentWindow.postMessage({ type: 'setReferrer', referrer: previousTab, isBackNavigation: (window.__lastIsBackNavigation === true) }, '*');
+                                console.log('📍 Notified tasks of referrer:', previousTab);
                             }, 100);
                         }
                     }
                 }, 300);
             } else {
                 console.log('📍 Skipping referrer notification (back button navigation)');
-                sendReferrerOnSwitch = true; // Reset flag for next switch
+                sendReferrerOnSwitch = true;
             }
 
             setTimeout(() => {
                 if (tabName === 'inventory') {
                     const iframe = document.getElementById('inventoryFrame');
-                    if (iframe && iframe.contentWindow) {
-                        iframe.contentWindow.focus();
-                    }
+                    if (iframe && iframe.contentWindow) iframe.contentWindow.focus();
                 } else if (tabName === 'overview') {
                     const overviewFrame = document.getElementById('overviewFrame');
-                    if (overviewFrame && overviewFrame.contentWindow) {
-                        overviewFrame.contentWindow.focus();
-                    }
+                    if (overviewFrame && overviewFrame.contentWindow) overviewFrame.contentWindow.focus();
                 } else if (tabName === 'optimization') {
                     const stockoutFrame = document.getElementById('optimizationFrame');
-                    if (stockoutFrame && stockoutFrame.contentWindow) {
-                        stockoutFrame.contentWindow.focus();
-                    }
+                    if (stockoutFrame && stockoutFrame.contentWindow) stockoutFrame.contentWindow.focus();
                 } else if (tabName === 'analytics') {
                     const analyticsFrame = document.getElementById('analyticsFrame');
-                    if (analyticsFrame && analyticsFrame.contentWindow) {
-                        analyticsFrame.contentWindow.focus();
-                    }
+                    if (analyticsFrame && analyticsFrame.contentWindow) analyticsFrame.contentWindow.focus();
+                } else if (tabName === 'tasks') {
+                    const tasksFrame = document.getElementById('tasksFrame');
+                    if (tasksFrame && tasksFrame.contentWindow) tasksFrame.contentWindow.focus();
                 } else {
                     if (activeContainer) activeContainer.focus();
                 }

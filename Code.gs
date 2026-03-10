@@ -66,6 +66,22 @@ function doGet(e) {
     }
   }
 
+
+  if (action === "getTasks") {
+    const sheetId = p.sheetId;
+    const tabName = p.tabName || "taskList";
+    const result = taskGetTasks_(sheetId, tabName);
+    return jsonOrJsonp_(result, callback);
+  }
+
+  if (action === "getTaskById") {
+    const sheetId = p.sheetId;
+    const tabName = p.tabName || "taskList";
+    const taskId = String(p.taskId || "").trim();
+    const result = taskGetTaskById_(sheetId, tabName, taskId);
+    return jsonOrJsonp_(result, callback);
+  }
+
   if (action === "ping") {
     return jsonOrJsonp_({ ok: true, ts: new Date().toISOString() }, callback);
   }
@@ -119,6 +135,28 @@ function doPost(e) {
     return ContentService
       .createTextOutput(JSON.stringify(result))
       .setMimeType(ContentService.MimeType.JSON);
+  }
+
+
+  if (action === "addTask" || action === "updateTask" || action === "archiveTask") {
+    try {
+      const sheetId = requireString_(p.sheetId || body.sheetId, "sheetId");
+      const tabName = String(p.tabName || body.tabName || "taskList").trim() || "taskList";
+      const payloadRaw = p.payload || body.payload || "{}";
+      const payload = parseJson_(payloadRaw, "payload");
+      let result;
+
+      if (action === "addTask") result = taskAdd_(sheetId, tabName, payload);
+      if (action === "updateTask") result = taskUpdate_(sheetId, tabName, payload);
+      if (action === "archiveTask") result = taskArchive_(sheetId, tabName, payload);
+
+      if (callback) return jsonOrJsonp_(Object.assign({ action }, result), callback);
+      return ContentService.createTextOutput(JSON.stringify(Object.assign({ action }, result))).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      const out = { ok: false, action, error: String((err && err.message) || err || "Unknown error") };
+      if (callback) return jsonOrJsonp_(out, callback);
+      return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+    }
   }
 
   if (action === "itemStatusWrite") {
@@ -545,4 +583,123 @@ function jsonOrJsonp_(obj, callback) {
   return ContentService
     .createTextOutput(json)
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+const TASK_COLUMNS_ = [
+  'taskId','title','status','priority','assigneeUserId','assigneeName','startDate','endDate','progressPct','itemCode','location','taskType','notes','createdAt','updatedAt','createdBy','updatedBy','archived'
+];
+const TASK_STATUS_ = ['open','in_progress','blocked','done','cancelled'];
+const TASK_PRIORITY_ = ['low','medium','high','urgent'];
+const TASK_TYPES_ = ['review','transfer','adjust_par','investigate','count','expiry_check','deadstock_review','waste_followup','location_rebalance'];
+
+function taskEnsureSheet_(sheetId, tabName) {
+  const ss = SpreadsheetApp.openById(requireString_(sheetId, 'sheetId'));
+  let sh = ss.getSheetByName(tabName);
+  if (!sh) sh = ss.insertSheet(tabName);
+  if (sh.getLastRow() < 1) sh.getRange(1,1,1,TASK_COLUMNS_.length).setValues([TASK_COLUMNS_]);
+  const head = sh.getRange(1,1,1,Math.max(sh.getLastColumn(), TASK_COLUMNS_.length)).getValues()[0];
+  const normalized = TASK_COLUMNS_.every(function(c, i){ return String(head[i] || '').trim() === c; });
+  if (!normalized) sh.getRange(1,1,1,TASK_COLUMNS_.length).setValues([TASK_COLUMNS_]);
+  return sh;
+}
+
+function taskReadAll_(sheetId, tabName) {
+  const sh = taskEnsureSheet_(sheetId, tabName);
+  const lastRow = sh.getLastRow();
+  if (lastRow <= 1) return [];
+  const rows = sh.getRange(2,1,lastRow-1,TASK_COLUMNS_.length).getValues();
+  return rows.map(function(row){
+    const obj = {};
+    for (let i = 0; i < TASK_COLUMNS_.length; i++) obj[TASK_COLUMNS_[i]] = row[i];
+    obj.archived = String(obj.archived) === 'true' || obj.archived === true;
+    return obj;
+  });
+}
+
+function taskNormalize_(src, isUpdate) {
+  const now = new Date().toISOString();
+  const out = {};
+  TASK_COLUMNS_.forEach(function(k){ out[k] = src[k]; });
+  out.taskId = String(out.taskId || ('task_' + Date.now())).trim();
+  out.title = String(out.title || '').trim();
+  out.status = TASK_STATUS_.indexOf(String(out.status)) >= 0 ? String(out.status) : 'open';
+  out.priority = TASK_PRIORITY_.indexOf(String(out.priority)) >= 0 ? String(out.priority) : 'medium';
+  out.assigneeUserId = String(out.assigneeUserId || '').trim();
+  out.assigneeName = String(out.assigneeName || '').trim();
+  out.startDate = toDateISO_(out.startDate);
+  out.endDate = toDateISO_(out.endDate);
+  const p = Number(out.progressPct);
+  out.progressPct = isFinite(p) ? Math.max(0, Math.min(100, Math.round(p))) : 0;
+  out.itemCode = String(out.itemCode || '').trim();
+  out.location = String(out.location || '').trim().toUpperCase();
+  out.taskType = TASK_TYPES_.indexOf(String(out.taskType)) >= 0 ? String(out.taskType) : 'review';
+  out.notes = String(out.notes || '').trim();
+  out.createdAt = String(out.createdAt || now);
+  out.updatedAt = now;
+  out.createdBy = String(out.createdBy || out.updatedBy || 'dashboard_user');
+  out.updatedBy = String(out.updatedBy || out.createdBy || 'dashboard_user');
+  out.archived = String(out.archived) === 'true' || out.archived === true;
+
+  if (!out.title) throw new Error('title required');
+  if (!out.assigneeUserId) throw new Error('assigneeUserId required');
+  if (!out.startDate) throw new Error('startDate required');
+  if (!out.endDate) throw new Error('endDate required');
+  const s = new Date(out.startDate); const e = new Date(out.endDate);
+  if (!(s instanceof Date) || isNaN(s.getTime()) || !(e instanceof Date) || isNaN(e.getTime()) || e.getTime() < s.getTime()) {
+    throw new Error('endDate must be >= startDate');
+  }
+  if (isUpdate && !out.taskId) throw new Error('taskId required');
+  return out;
+}
+
+function taskObjToRow_(obj) {
+  return TASK_COLUMNS_.map(function(k){ return obj[k]; });
+}
+
+function taskGetTasks_(sheetId, tabName) {
+  const all = taskReadAll_(sheetId, tabName);
+  return { ok: true, tasks: all.filter(function(t){ return !t.archived; }), tabName: tabName };
+}
+
+function taskGetTaskById_(sheetId, tabName, taskId) {
+  const all = taskReadAll_(sheetId, tabName);
+  const task = all.find(function(t){ return String(t.taskId) === String(taskId); }) || null;
+  return { ok: !!task, task: task, tabName: tabName };
+}
+
+function taskAdd_(sheetId, tabName, payload) {
+  const sh = taskEnsureSheet_(sheetId, tabName);
+  const task = taskNormalize_(payload || {}, false);
+  const all = taskReadAll_(sheetId, tabName);
+  if (all.some(function(t){ return String(t.taskId) === task.taskId; })) throw new Error('taskId already exists');
+  sh.appendRow(taskObjToRow_(task));
+  return { ok: true, taskId: task.taskId, written: 1, tabName: tabName };
+}
+
+function taskUpdate_(sheetId, tabName, payload) {
+  const sh = taskEnsureSheet_(sheetId, tabName);
+  const task = taskNormalize_(payload || {}, true);
+  const rows = taskReadAll_(sheetId, tabName);
+  const idx = rows.findIndex(function(t){ return String(t.taskId) === String(task.taskId); });
+  if (idx < 0) throw new Error('task not found');
+  const rowNum = idx + 2;
+  sh.getRange(rowNum, 1, 1, TASK_COLUMNS_.length).setValues([taskObjToRow_(task)]);
+  return { ok: true, taskId: task.taskId, written: 1, tabName: tabName };
+}
+
+function taskArchive_(sheetId, tabName, payload) {
+  const taskId = String((payload && payload.taskId) || '').trim();
+  if (!taskId) throw new Error('taskId required');
+  const sh = taskEnsureSheet_(sheetId, tabName);
+  const rows = taskReadAll_(sheetId, tabName);
+  const idx = rows.findIndex(function(t){ return String(t.taskId) === taskId; });
+  if (idx < 0) throw new Error('task not found');
+  const task = rows[idx];
+  task.archived = true;
+  task.updatedAt = new Date().toISOString();
+  task.updatedBy = String((payload && payload.updatedBy) || task.updatedBy || task.createdBy || 'dashboard_user');
+  const rowNum = idx + 2;
+  sh.getRange(rowNum, 1, 1, TASK_COLUMNS_.length).setValues([taskObjToRow_(task)]);
+  return { ok: true, taskId: taskId, archived: true, tabName: tabName };
 }
