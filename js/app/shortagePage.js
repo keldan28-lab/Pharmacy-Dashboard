@@ -4088,10 +4088,13 @@
                     // Calculate group summary
                     const totalQty = items.reduce((sum, item) => sum + ((item.pyxis || 0) + (item.pharmacy || 0)), 0);
                     const statusPriority = { 'non-formulary': 5, critical: 4, severe: 3, moderate: 2, resolved: 1, '': 0 };
-                    const highestPriority = items.reduce((highest, item) => {
-                        const itemStatus = getDisplayStatus(item) || '';
+                    const displayStatuses = items.map(item => getDisplayStatus(item) || '');
+                    const nonFormularyCount = displayStatuses.filter(status => status === 'non-formulary').length;
+                    const allowGroupNonFormulary = nonFormularyCount > 0 && nonFormularyCount === items.length;
+                    const highestPriority = displayStatuses.reduce((highest, itemStatus) => {
+                        const normalizedStatus = (!allowGroupNonFormulary && itemStatus === 'non-formulary') ? '' : itemStatus;
                         const highestStatus = highest || '';
-                        return (statusPriority[itemStatus] || 0) > (statusPriority[highestStatus] || 0) ? itemStatus : highestStatus;
+                        return (statusPriority[normalizedStatus] || 0) > (statusPriority[highestStatus] || 0) ? normalizedStatus : highestStatus;
                     }, '');
                     
                     // Check if any item in group has SBAR
