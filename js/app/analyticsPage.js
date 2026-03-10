@@ -752,6 +752,7 @@
                         source: 'sheet',
                         date: String(getItemStatusField(row, ['date', 'updatedAt', 'updated_at', 'timestamp']) || ''),
                         updatedAt: String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp']) || ''),
+                        availability: String(getItemStatusField(row, ['availability']) || ''),
                         status: String(getItemStatusField(row, ['status']) || ''),
                         ETA: formatDateMMDDYYYY(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
                         filePath,
@@ -776,6 +777,7 @@
                         break;
                     }
                 }
+                item.availability = String((agg && agg.availability) || '');
                 item.status = String((agg && agg.status) || '');
                 item.ETA = String((agg && agg.ETA) || '');
                 item.filePath = String((agg && agg.filePath) || '');

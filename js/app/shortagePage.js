@@ -288,6 +288,7 @@
                         source: 'sheet',
                         date: String(getItemStatusField(row, ['date', 'updatedAt', 'updated_at', 'timestamp']) || ''),
                         updatedAt: String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp']) || ''),
+                        availability: String(getItemStatusField(row, ['availability']) || ''),
                         status: String(getItemStatusField(row, ['status']) || ''),
                         ETA: formatDateMMDDYYYY(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
                         filePath,
@@ -312,6 +313,7 @@
                         break;
                     }
                 }
+                item.availability = String((agg && agg.availability) || '');
                 item.status = String((agg && agg.status) || '');
                 item.ETA = String((agg && agg.ETA) || '');
                 item.filePath = String((agg && agg.filePath) || '');
@@ -586,7 +588,7 @@
                 const key = String(selected.itemCode || selected.description || selected.drugName || 'unknown');
                 if (!etaStatusDraftByItem[key]) {
                     etaStatusDraftByItem[key] = {
-                        availability: 'available',
+                        availability: String(selected.availability || 'available') || 'available',
                         status: String(selected.status || 'moderate') || 'moderate',
                         etaDate: String(selected.ETA || ''),
                         notes: String(selected.notes || ''),
@@ -712,6 +714,7 @@
                     persisted = true;
                 } finally {
                     if (persisted) {
+                        selected.availability = payload.availability;
                         selected.status = payload.status;
                         selected.ETA = payload.etaDate;
                         selected.notes = payload.notes;
@@ -771,10 +774,45 @@
                 updateSeveritySuggestion();
             }
 
-            expandBtn.addEventListener('click', (e) => {
+            async function refreshSelectedItemFromLatestSheet() {
+                const selected = getSelectedItem();
+                if (!selected || !cachedMockData || !Array.isArray(cachedMockData.items)) return;
+                const targetCode = String(selected.itemCode || '').trim();
+                if (!targetCode) return;
+
+                await refreshItemStatusOverlay(true);
+                const latest = cachedMockData.items.find((item) => String(item && item.itemCode || '').trim() === targetCode) || null;
+                if (!latest) return;
+
+                selected.availability = String(latest.availability || '');
+                selected.status = String(latest.status || '');
+                selected.ETA = String(latest.ETA || '');
+                selected.notes = String(latest.notes || '');
+                selected.assessment = String(latest.assessment || '');
+                selected.filePath = String(latest.filePath || '');
+                selected.SBAR = !!latest.SBAR || !!String(latest.filePath || '').trim();
+
+                const key = String(selected.itemCode || selected.description || selected.drugName || 'unknown');
+                etaStatusDraftByItem[key] = {
+                    availability: String(selected.availability || 'available') || 'available',
+                    status: String(selected.status || 'moderate') || 'moderate',
+                    etaDate: String(selected.ETA || ''),
+                    notes: String(selected.notes || ''),
+                    SBARnotes: String(selected.assessment || ''),
+                    filePath: String(selected.filePath || '')
+                };
+                hydrateControlsFromDraft();
+            }
+
+            expandBtn.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setExpanded(!etaCard.classList.contains('is-expanded'));
+                const willOpen = !etaCard.classList.contains('is-expanded');
+                setExpanded(willOpen);
+                if (willOpen) {
+                    await refreshSelectedItemFromLatestSheet();
+                    if (typeof selectModalItem === 'function') selectModalItem(currentSelectedIndex);
+                }
             });
 
             statusButtons.forEach((btn) => {
