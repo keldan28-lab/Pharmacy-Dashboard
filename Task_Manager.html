@@ -28,10 +28,24 @@
             background: linear-gradient(135deg, rgba(42,184,173,0.92), rgba(64,208,130,0.86));
             padding: 10px 14px;
             border-bottom: 1px solid rgba(255,255,255,0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
-        .tasks-top-title { font-size: 21px; font-weight: 800; color: #f7ffff; letter-spacing: .01em; }
-        .tasks-top-subtitle { color: rgba(245,255,255,0.82); font-size: 12px; margin-top: 2px; }
-        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto; gap: 8px; }
+        .tasks-top-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.16);
+            color: #f7ffff;
+        }
+        .tasks-top-icon svg { width: 20px; height: 20px; }
+        .tasks-top-title { font-size: 22px; font-weight: 800; color: #f7ffff; letter-spacing: 0.01em; }
+        .tasks-top-subtitle { color: rgba(245,255,255,0.85); font-size: 12px; margin-top: 2px; }
+        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto; gap: 8px; }
 
         .tasks-input, .tasks-select, .tasks-button {
             min-height: 38px;
@@ -40,6 +54,7 @@
             background: rgba(255,255,255,0.03);
             color: var(--text-primary);
             font-size: 13px;
+            font-family: inherit;
         }
         .tasks-input, .tasks-select { padding: 8px 10px; }
         .tasks-input:focus, .tasks-select:focus {
@@ -63,18 +78,35 @@
         }
         .tasks-filter-panel.open { display: grid; }
 
-        .tasks-shell { flex: 1; min-height: 0; display: grid; gap: 10px; grid-template-columns: minmax(320px, 1fr) minmax(520px, 2fr); }
-        .tasks-card {
-            border-radius: 14px;
+        .tasks-shell {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            gap: 0;
+            grid-template-columns: minmax(320px, 1fr) minmax(520px, 2fr);
             border: 1px solid var(--card-border);
+            border-radius: 14px;
+            overflow: hidden;
             background: var(--card-bg);
             box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+        }
+        .tasks-card {
             min-height: 0;
             display: flex;
             flex-direction: column;
+            background: transparent;
         }
-        .tasks-card-title { padding: 10px 12px; font-size: 12px; font-weight: 800; letter-spacing: .08em; color: var(--text-secondary); border-bottom: 1px solid var(--card-border); }
+        .tasks-card + .tasks-card { border-left: 1px solid var(--card-border); }
+        .tasks-card-title { padding: 10px 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; color: var(--text-secondary); border-bottom: 1px solid var(--card-border); }
 
+        .tasks-list-header {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(160,160,160,0.18);
+            font-size: 11px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+        }
         .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; }
         .tasks-row {
             display: grid;
@@ -96,32 +128,36 @@
         .gantt-wrap {
             min-height: 0;
             overflow: auto;
-            border-top: 1px solid var(--card-border);
+            border-top: 1px solid rgba(160,160,160,0.22);
             background:
-                linear-gradient(to right, rgba(140,140,140,0.12) 1px, transparent 1px) 0 0 / 42px 100%;
+                linear-gradient(to right, rgba(160,160,160,0.16) 1px, transparent 1px) 0 0 / 42px 100%,
+                linear-gradient(to bottom, rgba(130,130,130,0.12) 1px, transparent 1px) 0 0 / 100% 34px;
         }
         .gantt-head, .gantt-row { display: grid; min-width: 900px; }
         .gantt-head {
             position: sticky;
             top: 0;
             z-index: 2;
-            background: rgba(24, 30, 40, 0.86);
+            background: rgba(23, 28, 38, 0.9);
             backdrop-filter: blur(4px);
-            border-bottom: 1px solid var(--card-border);
+            border-bottom: 1px solid rgba(160,160,160,0.24);
         }
         .gantt-cell {
             font-size: 11px;
-            color: var(--text-secondary);
+            color: #c9d0d8;
             text-align: center;
             padding: 6px 2px;
-            border-right: 1px solid rgba(160,160,160,0.18);
+            border-right: 1px solid rgba(150,150,150,0.18);
         }
-        .gantt-row { position: relative; min-height: 34px; border-bottom: 1px solid rgba(160,160,160,0.15); }
+        body:not(.dark-mode) .gantt-head { background: rgba(230,236,239,0.9); }
+        body:not(.dark-mode) .gantt-cell { color: #5c6772; }
+
+        .gantt-row { position: relative; min-height: 34px; border-bottom: 1px solid rgba(160,160,160,0.14); }
         .gantt-bar {
             position: absolute;
             top: 7px;
             height: 20px;
-            border-radius: 999px;
+            border-radius: 4px;
             border: 1px solid rgba(0,0,0,0.22);
             cursor: grab;
             box-shadow: 0 3px 12px rgba(0,0,0,0.2);
@@ -133,8 +169,8 @@
             top: 2px;
             width: 8px;
             height: 16px;
-            border-radius: 6px;
-            background: rgba(255,255,255,0.4);
+            border-radius: 3px;
+            background: rgba(255,255,255,0.42);
             cursor: ew-resize;
         }
         .gantt-handle.left { left: 3px; }
@@ -174,6 +210,7 @@
             .tasks-top-controls { grid-template-columns: 1fr 1fr; }
             .tasks-filter-panel { grid-template-columns: 1fr; }
             .tasks-shell { grid-template-columns: 1fr; }
+            .tasks-card + .tasks-card { border-left: 0; border-top: 1px solid var(--card-border); }
             .task-form-grid, .task-optional-grid { grid-template-columns: 1fr; }
         }
     </style>
@@ -182,15 +219,24 @@
     <div class="tasks-page">
         <div class="tasks-top-card">
             <div class="tasks-top-accent">
-                <div class="tasks-top-title">Tasks</div>
-                <div class="tasks-top-subtitle">Plan hierarchy + timeline in one workspace</div>
+                <span class="tasks-top-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9h18"></path><path d="M8 3v3"></path><path d="M16 3v3"></path><rect x="4" y="5" width="16" height="16" rx="2" ry="2"></rect>
+                    </svg>
+                </span>
+                <div>
+                    <div class="tasks-top-title">Task Timeline</div>
+                    <div class="tasks-top-subtitle">Plan hierarchy + gantt bars with drag scheduling</div>
+                </div>
             </div>
             <div class="tasks-top-controls">
                 <input id="tasksSearch" class="tasks-input" placeholder="Search tasks" />
                 <select id="tasksZoom" class="tasks-select">
-                    <option value="week">Week View</option>
+                    <option value="day">Day View</option>
+                    <option value="week" selected>Week View</option>
                     <option value="month">Month View</option>
                 </select>
+                <button id="tasksZoomOutBtn" class="tasks-button" type="button">Zoom Out</button>
                 <button id="tasksExpandAll" class="tasks-button" type="button">Expand/Collapse</button>
                 <button id="tasksFilterToggle" class="tasks-button" type="button">Filters</button>
                 <button id="tasksAddBtn" class="tasks-button primary" type="button">+ Add Task</button>
@@ -207,6 +253,7 @@
         <div class="tasks-shell">
             <div class="tasks-card">
                 <div class="tasks-card-title">HIERARCHY</div>
+                <div class="tasks-list-header">Task Name</div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>
             <div class="tasks-card">
