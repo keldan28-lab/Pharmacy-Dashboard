@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Task Manager</title>
+    <link rel="stylesheet" href="styles/dashboard.css" />
+    <link rel="stylesheet" href="styles/analytics.css" />
+    <style>
+        .tasks-page { padding: 16px; display: flex; flex-direction: column; gap: 12px; height: 100%; box-sizing: border-box; }
+        .tasks-toolbar { display: grid; grid-template-columns: 1.4fr repeat(4, minmax(120px, 1fr)) auto auto auto; gap: 8px; }
+        .tasks-input, .tasks-select, .tasks-button { border: 1px solid var(--card-border); border-radius: 10px; padding: 9px 10px; background: rgba(255,255,255,0.03); color: var(--text-primary); }
+        .tasks-button { cursor: pointer; font-weight: 600; }
+        .tasks-button.primary { background: linear-gradient(135deg, #11998e, #38ef7d); color: #fff; border: 0; }
+        .tasks-shell { display: grid; grid-template-columns: minmax(420px, 1.1fr) minmax(520px, 1.6fr); gap: 12px; flex: 1; min-height: 0; }
+        .tasks-card { border: 1px solid var(--card-border); border-radius: 14px; background: var(--card-bg); padding: 10px; display: flex; flex-direction: column; min-height: 0; }
+        .tasks-list-header, .tasks-row { display: grid; grid-template-columns: 34px 1fr 92px 92px 84px 100px 110px; gap: 6px; align-items: center; }
+        .tasks-list-body { overflow: auto; min-height: 0; }
+        .tasks-list-header { font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--card-border); padding: 6px 4px; }
+        .tasks-row { font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 6px 4px; }
+        .tasks-row:hover { background: rgba(255,255,255,0.03); }
+        .tree-toggle { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; width: 24px; }
+        .task-title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+        .task-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chip { font-size: 11px; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--card-border); }
+        .status-open { background: rgba(17,153,142,0.15); color: #7af4cd; }
+        .status-blocked { background: rgba(255,84,84,0.15); color: #ff9e9e; }
+        .status-done { background: rgba(92,184,92,0.16); color: #a8f3a8; }
+        .gantt-head, .gantt-row { display: grid; min-width: 800px; }
+        .gantt-wrap { overflow: auto; min-height: 0; }
+        .gantt-head { position: sticky; top: 0; z-index: 2; background: var(--card-bg); border-bottom: 1px solid var(--card-border); }
+        .gantt-cell { font-size: 11px; color: var(--text-secondary); border-right: 1px solid rgba(255,255,255,0.06); padding: 4px; text-align: center; }
+        .gantt-row { position: relative; border-bottom: 1px solid rgba(255,255,255,0.06); min-height: 32px; }
+        .gantt-bar { position: absolute; top: 6px; height: 20px; border-radius: 8px; cursor: pointer; border: 1px solid rgba(0,0,0,0.18); }
+        .priority-high { box-shadow: inset 0 0 0 1px rgba(255,84,84,0.7); }
+        .task-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 50; }
+        .task-modal.open { display: flex; }
+        .task-modal-card { width: min(740px, 92vw); max-height: 86vh; overflow: auto; border: 1px solid var(--card-border); background: var(--card-bg); border-radius: 14px; padding: 14px; }
+        .task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(140px,1fr)); gap: 8px; }
+        .task-form-grid textarea { grid-column: 1 / -1; min-height: 80px; }
+        .tasks-empty { color: var(--text-secondary); padding: 24px; text-align: center; }
+        @media (max-width: 1200px) { .tasks-shell { grid-template-columns: 1fr; } .tasks-toolbar { grid-template-columns: 1fr 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="tasks-page">
+        <div class="analytics-card">
+            <div class="card-header">
+                <div class="card-title-group"><div><div class="card-title">Tasks</div><div class="card-subtitle">Hierarchical task manager with timeline planning</div></div></div>
+            </div>
+            <div class="tasks-toolbar">
+                <input id="tasksSearch" class="tasks-input" placeholder="Search tasks, items, locations" />
+                <select id="tasksStatusFilter" class="tasks-select"></select>
+                <select id="tasksAssigneeFilter" class="tasks-select"></select>
+                <input id="tasksItemFilter" class="tasks-input" placeholder="Item code / name" />
+                <input id="tasksLocationFilter" class="tasks-input" placeholder="Location / sublocation" />
+                <select id="tasksZoom" class="tasks-select"><option value="week">Week</option><option value="month">Month</option></select>
+                <button id="tasksExpandAll" class="tasks-button">Expand/Collapse</button>
+                <button id="tasksAddBtn" class="tasks-button primary">+ Add Task</button>
+            </div>
+        </div>
+        <div class="tasks-shell">
+            <div class="tasks-card">
+                <div class="tasks-list-header"><div></div><div>Task</div><div>Status</div><div>Priority</div><div>%</div><div>Assignee</div><div>Linked Item</div></div>
+                <div id="tasksListBody" class="tasks-list-body"></div>
+            </div>
+            <div class="tasks-card">
+                <div id="tasksGanttWrap" class="gantt-wrap"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="taskModal" class="task-modal">
+        <div class="task-modal-card">
+            <h3 id="taskModalTitle">Task</h3>
+            <div class="task-form-grid">
+                <input id="taskTitle" class="tasks-input" placeholder="Title" />
+                <select id="taskParentId" class="tasks-select"></select>
+                <textarea id="taskDescription" class="tasks-input" placeholder="Description"></textarea>
+                <select id="taskStatus" class="tasks-select"></select>
+                <select id="taskPriority" class="tasks-select"></select>
+                <input id="taskAssignee" class="tasks-input" placeholder="Assignee" />
+                <input id="taskStartDate" type="date" class="tasks-input" />
+                <input id="taskDueDate" type="date" class="tasks-input" />
+                <input id="taskPercent" type="number" min="0" max="100" class="tasks-input" placeholder="Percent Complete" />
+                <input id="taskItemCode" class="tasks-input" placeholder="Item Code" />
+                <input id="taskItemName" class="tasks-input" placeholder="Item Name" />
+                <input id="taskLocation" class="tasks-input" placeholder="Location" />
+                <input id="taskSublocation" class="tasks-input" placeholder="Sublocation" />
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+                <button id="taskArchiveBtn" class="tasks-button">Archive</button>
+                <button id="taskCancelBtn" class="tasks-button">Cancel</button>
+                <button id="taskSaveBtn" class="tasks-button primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app/taskManagerPage.js"></script>
+</body>
+</html>
