@@ -242,6 +242,22 @@
             return norm === 'false' || norm === '0' || norm === 'no';
         }
 
+        const SBAR_FILEPATH_PREFIX = 'M:\\RV-Pharmacy\\(3) SBAR-KDS\\SBAR\\1. Current SBAR\\';
+
+        function sanitizeSelectedFilePath(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            return raw.replace(/^(?:[A-Za-z]:\\fakepath\\)/i, '');
+        }
+
+        function buildSelectedFilePath(files) {
+            const list = Array.isArray(files) ? files : [];
+            const names = list.map((f) => sanitizeSelectedFilePath((f && f.name) || '')).filter(Boolean);
+            if (!names.length) return '';
+            if (names.length === 1) return `${SBAR_FILEPATH_PREFIX}${names[0]}`;
+            return names.map((n) => `${SBAR_FILEPATH_PREFIX}${n}`).join('; ');
+        }
+
         function mergeItemStatusIntoData(data, rawRows) {
             if (!data || !Array.isArray(data.items)) return data;
 
@@ -714,6 +730,7 @@
                         } else if (cachedMockData && Array.isArray(cachedMockData.items) && typeof displayData === 'function') {
                             displayData(cachedMockData);
                         }
+                        refreshOpenModalFromCache(payload.itemCode);
                         try { localStorage.setItem('itemStatusLastUpdated', String(Date.now())); } catch (_) {}
                         try { window.parent && window.parent.postMessage({ type: 'itemStatusUpdated', itemCode: payload.itemCode }, '*'); } catch (_) {}
                     }
@@ -810,7 +827,7 @@
                     const files = Array.from(fileInput.files || []);
                     const selectedFile = files.length ? files[0] : null;
                     const resolvedPath = selectedFile
-                        ? sanitizeSelectedFilePath(String(selectedFile.webkitRelativePath || selectedFile.name || fileInput.value || ''))
+                        ? buildSelectedFilePath(files)
                         : '';
                     filePath.textContent = resolvedPath || 'No file selected';
                     const draft = getDraftForSelectedItem();
@@ -2391,6 +2408,33 @@
                     // Chart fully displayed
                 }, 500);
             }, 100);
+        }
+
+        function refreshOpenModalFromCache(preferredItemCode) {
+            if (!cachedMockData || !Array.isArray(cachedMockData.items)) return;
+            const modal = document.getElementById('detailsModal');
+            if (!modal || !modal.classList.contains('show')) return;
+            const drugName = String((document.getElementById('modalDrugName') && document.getElementById('modalDrugName').textContent) || '');
+            if (!drugName) return;
+
+            const refreshedItems = cachedMockData.items.filter((item) => String(item && item.drugName || '') === drugName);
+            if (!refreshedItems.length) return;
+
+            let preferredIndex = 0;
+            const targetCode = String(preferredItemCode || (currentModalItems[currentSelectedIndex] && currentModalItems[currentSelectedIndex].itemCode) || '');
+            if (targetCode) {
+                const idx = refreshedItems.findIndex((item) => String(item && item.itemCode || '') === targetCode);
+                if (idx >= 0) preferredIndex = idx;
+            }
+            const sbarItem = refreshedItems.find((item) => item && item.SBAR && item.filePath);
+            openDetailsModal(
+                drugName,
+                (sbarItem && sbarItem.notes) || '',
+                (sbarItem && sbarItem.filePath) || '',
+                refreshedItems,
+                !!sbarItem,
+                preferredIndex
+            );
         }
 
         // Function to handle item selection
