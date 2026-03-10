@@ -2629,6 +2629,7 @@ Subloc: ${counts.subloc}`);
             sanitized.itemCode = cleanString(item.itemCode || item.item_code || item.code || '');
             sanitized.alt_itemCode = cleanString(item.alt_itemCode || item.altItemCode || '');
             sanitized.itemClass = cleanString(item.itemClass || item.item_class || item.class || '');
+            sanitized.formulary = item.formulary;
             sanitized.status = cleanString(item.status || '').toLowerCase();
             sanitized.ETA = cleanString(item.ETA || item.eta || '');
             

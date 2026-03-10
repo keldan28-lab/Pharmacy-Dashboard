@@ -239,7 +239,7 @@
             const v = item && item.formulary;
             if (v === false) return true;
             const norm = String(v == null ? '' : v).trim().toLowerCase();
-            return norm === 'false' || norm === '0' || norm === 'no';
+            return norm === 'false' || norm === '0' || norm === 'no' || norm === 'non-formulary';
         }
 
         const SBAR_FILEPATH_PREFIX = 'M:\\RV-Pharmacy\\(3) SBAR-KDS\\SBAR\\1. Current SBAR\\';
