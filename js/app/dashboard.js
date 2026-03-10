@@ -394,6 +394,28 @@ window.requestChartStateMirror = function() {
                 applyToOptimization();
             }
 
+            // Apply to tasks iframe
+            const tasksIframe = document.getElementById('tasksFrame');
+            if (tasksIframe) {
+                const applyToTasks = (attempt = 1) => {
+                    try {
+                        if (tasksIframe.contentDocument && tasksIframe.contentDocument.body) {
+                            if (isDark) tasksIframe.contentDocument.body.classList.add('dark-mode');
+                            else tasksIframe.contentDocument.body.classList.remove('dark-mode');
+                        }
+                    } catch (e) {}
+                    try {
+                        if (tasksIframe.contentWindow) {
+                            tasksIframe.contentWindow.postMessage({ type: 'darkModeToggle', enabled: isDark }, '*');
+                            return true;
+                        }
+                    } catch (e) {}
+                    if (attempt < 3) setTimeout(() => applyToTasks(attempt + 1), 400);
+                    return false;
+                };
+                applyToTasks();
+            }
+
         }
         
         /**
@@ -1629,6 +1651,19 @@ Subloc: ${counts.subloc}`);
                                 console.log('📍 Notified optimization of referrer:', previousTab);
                             }, 100);
                         }
+                    } else if (tabName === 'tasks') {
+                        const tasksFrame = document.getElementById('tasksFrame');
+                        if (tasksFrame && tasksFrame.contentWindow) {
+                            console.log('📌 Preserving tasks iframe state on tab switch');
+                            setTimeout(() => {
+                                tasksFrame.contentWindow.postMessage({
+                                    type: 'setReferrer',
+                                    referrer: previousTab,
+                                    isBackNavigation: (window.__lastIsBackNavigation === true)
+                                }, '*');
+                                console.log('📍 Notified tasks of referrer:', previousTab);
+                            }, 100);
+                        }
                     } else if (tabName === 'analytics') {
                         const analyticsFrame = document.getElementById('analyticsFrame');
                         if (analyticsFrame && analyticsFrame.contentWindow) {
@@ -1677,6 +1712,11 @@ Subloc: ${counts.subloc}`);
                     const analyticsFrame = document.getElementById('analyticsFrame');
                     if (analyticsFrame && analyticsFrame.contentWindow) {
                         analyticsFrame.contentWindow.focus();
+                    }
+                } else if (tabName === 'tasks') {
+                    const tasksFrame = document.getElementById('tasksFrame');
+                    if (tasksFrame && tasksFrame.contentWindow) {
+                        tasksFrame.contentWindow.focus();
                     }
                 } else {
                     if (activeContainer) activeContainer.focus();
@@ -1845,6 +1885,30 @@ Subloc: ${counts.subloc}`);
             setTimeout(initializeOverview, 2000);
         }
 
+        // Setup tasks iframe
+        function setupTasksIframe() {
+            const iframe = document.getElementById('tasksFrame');
+            if (!iframe) return;
+            console.log('🗂️ Setting up Tasks iframe...');
+
+            const initializeTasks = () => {
+                console.log('🗂️ Tasks iframe content loading...');
+                const isDark = document.body.classList.contains('dark-mode');
+                console.log('🗂️ Current dark mode state:', isDark);
+                applyDarkMode(isDark);
+            };
+
+            initializeTasks();
+            try {
+                if (iframe.contentWindow) {
+                    iframe.contentWindow.addEventListener('load', initializeTasks);
+                }
+            } catch (e) {
+                console.log('⚠️ Cannot access iframe contentWindow (CORS/file protocol) - using fallback timing');
+            }
+            setTimeout(initializeTasks, 2000);
+        }
+
         // Disable tab navigation
         document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('button').forEach(button => {
@@ -1868,6 +1932,11 @@ Subloc: ${counts.subloc}`);
                 initSunsetDarkMode();
             }, 500);
             
+            setupOverviewIframe();
+            setupInventoryIframe();
+            setupAnalyticsIframe();
+            setupTasksIframe();
+
             // Initialize modal scroll arrows
             setTimeout(() => {
                 initModalScrollArrows();

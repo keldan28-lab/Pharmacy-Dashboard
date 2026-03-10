@@ -5,7 +5,8 @@ const files = [
   'js/app/dashboard.js',
   'js/app/spikeFactors.js',
   'js/app/chartsPage.js',
-  'js/app/analyticsPage.js'
+  'js/app/analyticsPage.js',
+  'js/app/taskManagerPage.js'
 ];
 
 let failed = false;

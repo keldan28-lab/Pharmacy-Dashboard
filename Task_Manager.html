@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Task Manager</title>
+    <link rel="stylesheet" href="styles/dashboard.css" />
+    <link rel="stylesheet" href="styles/analytics.css" />
+    <style>
+        .tasks-page {
+            height: 100%;
+            box-sizing: border-box;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .tasks-top-card {
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            overflow: hidden;
+            background: var(--card-bg);
+            box-shadow: 0 8px 28px rgba(0,0,0,0.16);
+        }
+        .tasks-top-accent {
+            background: linear-gradient(135deg, rgba(42,184,173,0.92), rgba(64,208,130,0.86));
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .tasks-top-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.16);
+            color: #f7ffff;
+        }
+        .tasks-top-icon svg { width: 20px; height: 20px; }
+        .tasks-top-title { font-size: 22px; font-weight: 800; color: #f7ffff; letter-spacing: 0.01em; }
+        .tasks-top-subtitle { color: rgba(245,255,255,0.85); font-size: 12px; margin-top: 2px; }
+        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto; gap: 8px; }
+
+        .tasks-input, .tasks-select, .tasks-button {
+            min-height: 38px;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+            background: rgba(255,255,255,0.03);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: inherit;
+        }
+        .tasks-input, .tasks-select { padding: 8px 10px; }
+        .tasks-input:focus, .tasks-select:focus {
+            outline: none;
+            border-color: rgba(42,184,173,0.75);
+            box-shadow: 0 0 0 3px rgba(42,184,173,0.16);
+        }
+        .tasks-button { padding: 8px 12px; cursor: pointer; font-weight: 700; }
+        .tasks-button:hover { background: rgba(255,255,255,0.08); }
+        .tasks-button.primary { background: linear-gradient(135deg, #11998e, #38ef7d); color: #fff; border: 0; }
+
+        .tasks-filter-panel {
+            margin: 0 14px 12px;
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.02);
+            display: none;
+            padding: 10px;
+            grid-template-columns: repeat(4, minmax(120px,1fr)) auto;
+            gap: 8px;
+        }
+        .tasks-filter-panel.open { display: grid; }
+
+        .tasks-shell {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            gap: 0;
+            grid-template-columns: minmax(320px, 1fr) minmax(520px, 2fr);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            overflow: hidden;
+            background: var(--card-bg);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+        }
+        .tasks-card {
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            background: transparent;
+        }
+        .tasks-card + .tasks-card { border-left: 1px solid var(--card-border); }
+        .tasks-card-title { padding: 10px 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; color: var(--text-secondary); border-bottom: 1px solid var(--card-border); }
+
+        .tasks-list-header {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(160,160,160,0.18);
+            font-size: 11px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+        }
+        .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; }
+        .tasks-row {
+            display: grid;
+            grid-template-columns: 24px 1fr;
+            gap: 8px;
+            align-items: center;
+            padding: 7px 8px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .tasks-row:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.09); }
+        .tree-toggle { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+        .tree-toggle:hover { background: rgba(255,255,255,0.08); }
+        .task-title-wrap { min-width: 0; }
+        .task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+
+        .gantt-wrap {
+            min-height: 0;
+            overflow: auto;
+            border-top: 1px solid rgba(160,160,160,0.22);
+            background:
+                linear-gradient(to right, rgba(160,160,160,0.16) 1px, transparent 1px) 0 0 / 42px 100%,
+                linear-gradient(to bottom, rgba(130,130,130,0.12) 1px, transparent 1px) 0 0 / 100% 34px;
+        }
+        .gantt-head, .gantt-row { display: grid; min-width: 900px; }
+        .gantt-head {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: rgba(23, 28, 38, 0.9);
+            backdrop-filter: blur(4px);
+            border-bottom: 1px solid rgba(160,160,160,0.24);
+        }
+        .gantt-cell {
+            font-size: 11px;
+            color: #c9d0d8;
+            text-align: center;
+            padding: 6px 2px;
+            border-right: 1px solid rgba(150,150,150,0.18);
+        }
+        body:not(.dark-mode) .gantt-head { background: rgba(230,236,239,0.9); }
+        body:not(.dark-mode) .gantt-cell { color: #5c6772; }
+
+        .gantt-row { position: relative; min-height: 34px; border-bottom: 1px solid rgba(160,160,160,0.14); }
+        .gantt-bar {
+            position: absolute;
+            top: 7px;
+            height: 20px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.22);
+            cursor: grab;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.2);
+        }
+        .gantt-bar:active { cursor: grabbing; }
+        .gantt-bar:hover { filter: brightness(1.06); }
+        .gantt-handle {
+            position: absolute;
+            top: 2px;
+            width: 8px;
+            height: 16px;
+            border-radius: 3px;
+            background: rgba(255,255,255,0.42);
+            cursor: ew-resize;
+        }
+        .gantt-handle.left { left: 3px; }
+        .gantt-handle.right { right: 3px; }
+        .priority-high { box-shadow: inset 0 0 0 1px rgba(255,84,84,0.72), 0 3px 12px rgba(0,0,0,0.22); }
+
+        .tasks-empty { color: var(--text-secondary); text-align: center; padding: 24px; font-size: 13px; }
+
+        .task-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(10,16,20,0.56); backdrop-filter: blur(2px); z-index: 80; }
+        .task-modal.open { display: flex; }
+        .task-modal-card {
+            width: min(720px, 92vw);
+            max-height: 88vh;
+            overflow: auto;
+            border-radius: 18px;
+            border: 1px solid var(--card-border);
+            background: var(--card-bg);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+        }
+        .task-modal-header {
+            background: linear-gradient(135deg, rgba(255,105,105,0.92), rgba(236,170,170,0.8));
+            color: #fff;
+            padding: 16px 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.16);
+            font-size: 24px;
+            font-weight: 800;
+        }
+        .task-modal-body { padding: 14px; }
+        .task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 8px; }
+        .task-form-grid textarea { grid-column: 1 / -1; min-height: 74px; resize: vertical; }
+        .task-form-grid details { grid-column: 1 / -1; border: 1px solid var(--card-border); border-radius: 10px; padding: 8px; }
+        .task-form-grid summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); font-weight: 700; }
+        .task-optional-grid { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(170px, 1fr)); gap: 8px; }
+        .task-modal-actions { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
+
+        @media (max-width: 980px) {
+            .tasks-top-controls { grid-template-columns: 1fr 1fr; }
+            .tasks-filter-panel { grid-template-columns: 1fr; }
+            .tasks-shell { grid-template-columns: 1fr; }
+            .tasks-card + .tasks-card { border-left: 0; border-top: 1px solid var(--card-border); }
+            .task-form-grid, .task-optional-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="tasks-page">
+        <div class="tasks-top-card">
+            <div class="tasks-top-accent">
+                <span class="tasks-top-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9h18"></path><path d="M8 3v3"></path><path d="M16 3v3"></path><rect x="4" y="5" width="16" height="16" rx="2" ry="2"></rect>
+                    </svg>
+                </span>
+                <div>
+                    <div class="tasks-top-title">Task Timeline</div>
+                    <div class="tasks-top-subtitle">Plan hierarchy + gantt bars with drag scheduling</div>
+                </div>
+            </div>
+            <div class="tasks-top-controls">
+                <input id="tasksSearch" class="tasks-input" placeholder="Search tasks" />
+                <select id="tasksZoom" class="tasks-select">
+                    <option value="day">Day View</option>
+                    <option value="week" selected>Week View</option>
+                    <option value="month">Month View</option>
+                </select>
+                <button id="tasksZoomOutBtn" class="tasks-button" type="button">Zoom Out</button>
+                <button id="tasksExpandAll" class="tasks-button" type="button">Expand/Collapse</button>
+                <button id="tasksFilterToggle" class="tasks-button" type="button">Filters</button>
+                <button id="tasksAddBtn" class="tasks-button primary" type="button">+ Add Task</button>
+            </div>
+            <div id="tasksFiltersPanel" class="tasks-filter-panel">
+                <select id="tasksStatusFilter" class="tasks-select"></select>
+                <select id="tasksAssigneeFilter" class="tasks-select"></select>
+                <input id="tasksItemFilter" class="tasks-input" placeholder="Item code / name" />
+                <input id="tasksLocationFilter" class="tasks-input" placeholder="Location / sublocation" />
+                <button id="tasksClearFilters" class="tasks-button" type="button">Clear</button>
+            </div>
+        </div>
+
+        <div class="tasks-shell">
+            <div class="tasks-card">
+                <div class="tasks-card-title">HIERARCHY</div>
+                <div class="tasks-list-header">Task Name</div>
+                <div id="tasksListBody" class="tasks-list-body"></div>
+            </div>
+            <div class="tasks-card">
+                <div class="tasks-card-title">TIMELINE</div>
+                <div id="tasksGanttWrap" class="gantt-wrap"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="taskModal" class="task-modal">
+        <div class="task-modal-card">
+            <div id="taskModalTitle" class="task-modal-header">Task</div>
+            <div class="task-modal-body">
+                <div class="task-form-grid">
+                    <input id="taskTitle" class="tasks-input" placeholder="Task title" />
+                    <select id="taskParentId" class="tasks-select"></select>
+                    <select id="taskStatus" class="tasks-select"></select>
+                    <input id="taskAssignee" class="tasks-input" placeholder="Assignee" />
+                    <input id="taskStartDate" type="date" class="tasks-input" />
+                    <input id="taskDueDate" type="date" class="tasks-input" />
+                    <textarea id="taskDescription" class="tasks-input" placeholder="Description (optional)"></textarea>
+                    <details>
+                        <summary>Optional fields</summary>
+                        <div class="task-optional-grid">
+                            <select id="taskPriority" class="tasks-select"></select>
+                            <input id="taskPercent" type="number" min="0" max="100" class="tasks-input" placeholder="Percent Complete" />
+                            <input id="taskItemCode" class="tasks-input" placeholder="Item Code" />
+                            <input id="taskItemName" class="tasks-input" placeholder="Item Name" />
+                            <input id="taskLocation" class="tasks-input" placeholder="Location" />
+                            <input id="taskSublocation" class="tasks-input" placeholder="Sublocation" />
+                        </div>
+                    </details>
+                </div>
+                <div class="task-modal-actions">
+                    <button id="taskArchiveBtn" class="tasks-button" type="button">Archive</button>
+                    <button id="taskCancelBtn" class="tasks-button" type="button">Cancel</button>
+                    <button id="taskSaveBtn" class="tasks-button primary" type="button">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app/taskManagerPage.js"></script>
+</body>
+</html>

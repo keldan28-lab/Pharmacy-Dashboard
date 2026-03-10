@@ -42,6 +42,8 @@ function doGet(e) {
     return jsonOrJsonp_(result, callback);
   }
 
+
+
   if (action === "readLatest") {
     const sheetId = p.sheetId;
     const tabName = p.tabName || CONFIG.DEFAULT_TAB;
@@ -61,6 +63,18 @@ function doGet(e) {
         : spikeAppend_(sheetId, tabName, rows2d);
 
       return jsonOrJsonp_(Object.assign({ action }, result), callback);
+    } catch (err) {
+      return jsonOrJsonp_({ ok: false, action, error: String((err && err.message) || err || "Unknown error") }, callback);
+    }
+  }
+
+
+  if (action === "tasksRead") {
+    try {
+      const sheetId = requireString_(p.sheetId, "sheetId");
+      const tabName = String(p.tabName || 'tasks').trim() || 'tasks';
+      const result = tasksRead_(sheetId, tabName);
+      return jsonOrJsonp_(result, callback);
     } catch (err) {
       return jsonOrJsonp_({ ok: false, action, error: String((err && err.message) || err || "Unknown error") }, callback);
     }
@@ -101,6 +115,26 @@ function doPost(e) {
       if (callback) return jsonOrJsonp_(Object.assign({ action }, result), callback);
       return ContentService
         .createTextOutput(JSON.stringify(Object.assign({ action }, result)))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      const out = { ok: false, action, error: String((err && err.message) || err || "Unknown error") };
+      if (callback) return jsonOrJsonp_(out, callback);
+      return ContentService
+        .createTextOutput(JSON.stringify(out))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  if (action === "taskWrite") {
+    try {
+      const sheetId = requireString_(p.sheetId || body.sheetId, "sheetId");
+      const tabName = String(p.tabName || body.tabName || 'tasks').trim() || 'tasks';
+      const taskAction = String(p.taskAction || body.taskAction || '').trim();
+      const payload = parseJson_(p.payload || body.payload || '{}', 'payload');
+      const result = taskWrite_(sheetId, tabName, taskAction, payload);
+      if (callback) return jsonOrJsonp_(Object.assign({ action, taskAction }, result), callback);
+      return ContentService
+        .createTextOutput(JSON.stringify(Object.assign({ action, taskAction }, result)))
         .setMimeType(ContentService.MimeType.JSON);
     } catch (err) {
       const out = { ok: false, action, error: String((err && err.message) || err || "Unknown error") };
@@ -425,6 +459,85 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
   sh.appendRow(row);
   return { ok: true, written: 1, tabName };
+}
+
+
+function taskColumns_() {
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy'];
+}
+
+function ensureTaskSheet_(sheetId, tabName) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  let sh = ss.getSheetByName(tabName);
+  if (!sh) sh = ss.insertSheet(tabName);
+  const header = taskColumns_();
+  if (sh.getLastRow() < 1) {
+    sh.getRange(1, 1, 1, header.length).setValues([header]);
+  } else {
+    const existing = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), header.length)).getValues()[0].slice(0, header.length);
+    let same = true;
+    for (let i = 0; i < header.length; i++) {
+      if (String(existing[i] || '').trim() !== header[i]) { same = false; break; }
+    }
+    if (!same) sh.getRange(1, 1, 1, header.length).setValues([header]);
+  }
+  return { ss: ss, sh: sh, header: header };
+}
+
+function tasksRead_(sheetId, tabName) {
+  const pack = ensureTaskSheet_(sheetId, tabName);
+  const sh = pack.sh;
+  const header = pack.header;
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return { ok: true, tasks: [], tabName, schema: header };
+  const values = sh.getRange(2, 1, lastRow - 1, header.length).getValues();
+  const tasks = values.map(function (row) {
+    const obj = {};
+    for (let i = 0; i < header.length; i++) obj[header[i]] = row[i];
+    return obj;
+  });
+  return { ok: true, tasks: tasks, tabName, schema: header };
+}
+
+function taskWrite_(sheetId, tabName, taskAction, payload) {
+  const allowed = { createTask: true, updateTask: true, archiveTask: true, reorderTask: true };
+  if (!allowed[taskAction]) throw new Error('Unsupported taskAction');
+  const pack = ensureTaskSheet_(sheetId, tabName);
+  const sh = pack.sh;
+  const header = pack.header;
+  const idx = {};
+  for (let i = 0; i < header.length; i++) idx[header[i]] = i;
+
+  const taskId = requireString_(payload.taskId, 'taskId');
+  const lastRow = sh.getLastRow();
+  const values = lastRow > 1 ? sh.getRange(2, 1, lastRow - 1, header.length).getValues() : [];
+  let foundOffset = -1;
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][idx.taskId] || '').trim() === taskId) { foundOffset = i; break; }
+  }
+
+  if (taskAction === 'createTask' && foundOffset >= 0) throw new Error('Task already exists');
+  if ((taskAction === 'updateTask' || taskAction === 'archiveTask' || taskAction === 'reorderTask') && foundOffset < 0) throw new Error('Task not found');
+
+  const existing = foundOffset >= 0 ? values[foundOffset] : header.map(function () { return ''; });
+  const row = existing.slice();
+  const now = new Date().toISOString();
+
+  header.forEach(function (k) {
+    if (payload[k] != null && payload[k] !== '') row[idx[k]] = payload[k];
+  });
+  row[idx.taskId] = taskId;
+  if (!row[idx.createdAt]) row[idx.createdAt] = now;
+  row[idx.updatedAt] = payload.updatedAt || now;
+  if (taskAction === 'archiveTask') row[idx.archived] = 'true';
+
+  if (foundOffset >= 0) {
+    sh.getRange(foundOffset + 2, 1, 1, header.length).setValues([row]);
+    return { ok: true, taskId: taskId, mode: 'update', taskAction: taskAction };
+  }
+
+  sh.appendRow(row);
+  return { ok: true, taskId: taskId, mode: 'create', taskAction: taskAction };
 }
 
 function parsePostBody_(e) {

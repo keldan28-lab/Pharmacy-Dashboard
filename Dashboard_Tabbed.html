@@ -165,6 +165,13 @@
             <span class="sidebar-tab-label">Optimization</span>
         </button>
 
+        <button class="sidebar-tab" data-tab="tasks" onclick="switchTab('tasks')">
+            <svg viewBox="0 0 24 24">
+                <path d="M9,11H7V9H9V11M13,11H11V9H13V11M17,11H15V9H17V11M19,3H18V1H16V3H8V1H6V3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M19,19H5V8H19V19Z"/>
+            </svg>
+            <span class="sidebar-tab-label">Tasks</span>
+        </button>
+
         <div class="sidebar-divider"></div>
         <div class="sidebar-spacer"></div>
 
@@ -218,6 +225,13 @@
         <div id="optimizationContainer" class="tab-container">
             <iframe id="optimizationFrame"
                     src="Optimization_Timeline.html"
+                    style="width: 100%; height: 100%; border: none;">
+            </iframe>
+        </div>
+
+        <div id="tasksContainer" class="tab-container">
+            <iframe id="tasksFrame"
+                    src="Task_Manager.html"
                     style="width: 100%; height: 100%; border: none;">
             </iframe>
         </div>
