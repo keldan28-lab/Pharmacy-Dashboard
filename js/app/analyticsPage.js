@@ -706,6 +706,22 @@
             return '';
         }
 
+        function formatDateMMDDYYYY(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            if (/^\d{2}-\d{2}-\d{4}$/.test(raw)) return raw;
+            const direct = new Date(raw);
+            if (!Number.isNaN(direct.getTime())) {
+                const mm = String(direct.getMonth() + 1).padStart(2, '0');
+                const dd = String(direct.getDate()).padStart(2, '0');
+                const yyyy = String(direct.getFullYear());
+                return `${mm}-${dd}-${yyyy}`;
+            }
+            const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (m) return `${m[2]}-${m[3]}-${m[1]}`;
+            return raw;
+        }
+
         function mergeItemStatusIntoData(data, rawRows) {
             if (!data || !Array.isArray(data.items)) return data;
 
@@ -737,7 +753,7 @@
                         date: String(getItemStatusField(row, ['date', 'updatedAt', 'updated_at', 'timestamp']) || ''),
                         updatedAt: String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp']) || ''),
                         status: String(getItemStatusField(row, ['status']) || ''),
-                        ETA: String(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
+                        ETA: formatDateMMDDYYYY(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
                         filePath,
                         notes: String(getItemStatusField(row, ['notes']) || ''),
                         assessment: String(getItemStatusField(row, ['SBARnotes', 'sbarNotes', 'assessment']) || ''),
@@ -816,6 +832,15 @@
                 })();
             }
             return itemStatusOverlayPromise;
+        }
+
+        function refreshAnalyticsFromItemStatusOverlay() {
+            if (!cachedMockData || !Array.isArray(cachedMockData.items)) return;
+            itemStatusOverlayPromise = null;
+            ensureItemStatusOverlayLoaded().then(() => {
+                try { if (typeof populateAnalytics === 'function') populateAnalytics(); } catch (_) {}
+                try { if (typeof drawUsageRestockLineGraph === 'function') drawUsageRestockLineGraph(); } catch (_) {}
+            });
         }
         
         /**
@@ -1589,6 +1614,10 @@
                 }
             }
             
+            if (event.data.type === 'itemStatusUpdated') {
+                refreshAnalyticsFromItemStatusOverlay();
+            }
+
             // Handle FDA data ready notification from parent Dashboard
             if (event.data.type === 'FDA_DATA_READY') {
                 console.log('📦 Analytics: FDA data ready notification received');
@@ -8951,3 +8980,10 @@ const pxToY = (py)=>{
 
     draw();
 }
+
+
+        window.addEventListener('storage', function(event) {
+            if (event && event.key === 'itemStatusLastUpdated') {
+                refreshAnalyticsFromItemStatusOverlay();
+            }
+        });

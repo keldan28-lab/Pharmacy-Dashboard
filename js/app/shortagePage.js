@@ -219,6 +219,29 @@
             return '';
         }
 
+        function formatDateMMDDYYYY(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            if (/^\d{2}-\d{2}-\d{4}$/.test(raw)) return raw;
+            const direct = new Date(raw);
+            if (!Number.isNaN(direct.getTime())) {
+                const mm = String(direct.getMonth() + 1).padStart(2, '0');
+                const dd = String(direct.getDate()).padStart(2, '0');
+                const yyyy = String(direct.getFullYear());
+                return `${mm}-${dd}-${yyyy}`;
+            }
+            const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (m) return `${m[2]}-${m[3]}-${m[1]}`;
+            return raw;
+        }
+
+        function isNonFormularyItem(item) {
+            const v = item && item.formulary;
+            if (v === false) return true;
+            const norm = String(v == null ? '' : v).trim().toLowerCase();
+            return norm === 'false' || norm === '0' || norm === 'no';
+        }
+
         function mergeItemStatusIntoData(data, rawRows) {
             if (!data || !Array.isArray(data.items)) return data;
 
@@ -250,7 +273,7 @@
                         date: String(getItemStatusField(row, ['date', 'updatedAt', 'updated_at', 'timestamp']) || ''),
                         updatedAt: String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp']) || ''),
                         status: String(getItemStatusField(row, ['status']) || ''),
-                        ETA: String(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
+                        ETA: formatDateMMDDYYYY(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
                         filePath,
                         notes: String(getItemStatusField(row, ['notes']) || ''),
                         assessment: String(getItemStatusField(row, ['SBARnotes', 'sbarNotes', 'assessment']) || ''),
@@ -649,7 +672,7 @@
                     filePath: String(draft.filePath || ''),
                     etaDate: String(draft.etaDate || ''),
                     updatedAt: new Date().toISOString(),
-                    date: new Date().toISOString().slice(0, 10)
+                    date: formatDateMMDDYYYY(new Date())
                 };
 
                 setSavingOverlay(true);
@@ -691,6 +714,8 @@
                         } else if (cachedMockData && Array.isArray(cachedMockData.items) && typeof displayData === 'function') {
                             displayData(cachedMockData);
                         }
+                        try { localStorage.setItem('itemStatusLastUpdated', String(Date.now())); } catch (_) {}
+                        try { window.parent && window.parent.postMessage({ type: 'itemStatusUpdated', itemCode: payload.itemCode }, '*'); } catch (_) {}
                     }
                     saveBtn.disabled = false;
                     setSavingOverlay(false);
@@ -785,7 +810,7 @@
                     const files = Array.from(fileInput.files || []);
                     const selectedFile = files.length ? files[0] : null;
                     const resolvedPath = selectedFile
-                        ? String(fileInput.value || selectedFile.webkitRelativePath || selectedFile.name || '')
+                        ? String(selectedFile.webkitRelativePath || selectedFile.name || '')
                         : '';
                     filePath.textContent = resolvedPath || 'No file selected';
                     const draft = getDraftForSelectedItem();
@@ -1711,7 +1736,7 @@
 
 
         function getDisplayStatus(item) {
-            if (item && item.formulary === false) return 'non-formulary';
+            if (isNonFormularyItem(item)) return 'non-formulary';
             return String((item && item.status) || '').toLowerCase();
         }
         /**
@@ -3960,7 +3985,7 @@
                     const totalQty = items.reduce((sum, item) => sum + ((item.pyxis || 0) + (item.pharmacy || 0)), 0);
                     const statusPriority = { critical: 4, severe: 3, moderate: 2, resolved: 1, '': 0 };
                     const highestPriority = items.reduce((highest, item) => {
-                        const itemStatus = item.status || '';
+                        const itemStatus = getDisplayStatus(item) || '';
                         const highestStatus = highest || '';
                         return (statusPriority[itemStatus] || 0) > (statusPriority[highestStatus] || 0) ? itemStatus : highestStatus;
                     }, '');
@@ -4126,7 +4151,8 @@
             
             items.forEach(item => {
                 const childRow = document.createElement('tr');
-                const hasStatus = item.status && item.status.trim() !== '';
+                const displayStatus = getDisplayStatus(item);
+                const hasStatus = displayStatus && displayStatus.trim() !== '';
                 childRow.className = `child-row group-${groupId} status-${highestPriority}${!hasStatus ? ' no-status' : ''}`;
                 
                 // Calculate total quantity from pyxis and pharmacy
@@ -4144,14 +4170,14 @@
                     `;
                 }
                 
-                const statusTooltip = getStatusTooltip(item.status);
+                const statusTooltip = getStatusTooltip(displayStatus);
                 
                 childRow.innerHTML = `
                     <td class="col-description">${getDisplayDescription(item.description)}</td>
                     <td class="col-item-code">${item.alt_itemCode}</td>
                     <td class="col-quantity">${totalItemQuantity.toLocaleString()}</td>
                     <td class="col-status">
-                        <span class="status ${item.status} status-tooltip-wrapper">${item.status ? item.status.toUpperCase() : ''}</span>
+                        <span class="status ${displayStatus} status-tooltip-wrapper">${displayStatus ? displayStatus.toUpperCase() : ''}</span>
                     </td>
                     <td class="col-eta">${item.ETA || ''}</td>
                     <td class="col-details">${detailsCellContent}</td>
@@ -4159,7 +4185,7 @@
                 
                 // Attach tooltip to status badge (only if status exists)
                 const statusBadge = childRow.querySelector('.status-tooltip-wrapper');
-                if (statusBadge && item.status) {
+                if (statusBadge && displayStatus) {
                     attachTooltipListeners(statusBadge, statusTooltip, 'status-tooltip');
                 }
                 
