@@ -710,7 +710,7 @@
                             selectModalItem(currentSelectedIndex);
                         }
                         if (typeof applyCurrentFilter === 'function' && currentFilter && currentFilter.type) {
-                            applyCurrentFilter();
+                            await applyCurrentFilter();
                         } else if (cachedMockData && Array.isArray(cachedMockData.items) && typeof displayData === 'function') {
                             displayData(cachedMockData);
                         }
@@ -810,7 +810,7 @@
                     const files = Array.from(fileInput.files || []);
                     const selectedFile = files.length ? files[0] : null;
                     const resolvedPath = selectedFile
-                        ? String(selectedFile.webkitRelativePath || selectedFile.name || '')
+                        ? sanitizeSelectedFilePath(String(selectedFile.webkitRelativePath || selectedFile.name || fileInput.value || ''))
                         : '';
                     filePath.textContent = resolvedPath || 'No file selected';
                     const draft = getDraftForSelectedItem();
@@ -1977,7 +1977,7 @@
             modalDrugName.textContent = drugName;
             
             // Get highest priority status for header color
-            const statusPriority = { critical: 4, severe: 3, moderate: 2, resolved: 1 };
+            const statusPriority = { 'non-formulary': 5, critical: 4, severe: 3, moderate: 2, resolved: 1 };
             const highestPriority = items.reduce((highest, item) => {
                 return statusPriority[item.status] > statusPriority[highest] ? item.status : highest;
             }, 'resolved');
@@ -2840,7 +2840,7 @@
             }
             
             // Get highest priority status for header color
-            const statusPriority = { critical: 4, severe: 3, moderate: 2, resolved: 1 };
+            const statusPriority = { 'non-formulary': 5, critical: 4, severe: 3, moderate: 2, resolved: 1 };
             const highestPriority = items.reduce((highest, item) => {
                 return statusPriority[item.status] > statusPriority[highest] ? item.status : highest;
             }, 'resolved');
@@ -3983,7 +3983,7 @@
                     
                     // Calculate group summary
                     const totalQty = items.reduce((sum, item) => sum + ((item.pyxis || 0) + (item.pharmacy || 0)), 0);
-                    const statusPriority = { critical: 4, severe: 3, moderate: 2, resolved: 1, '': 0 };
+                    const statusPriority = { 'non-formulary': 5, critical: 4, severe: 3, moderate: 2, resolved: 1, '': 0 };
                     const highestPriority = items.reduce((highest, item) => {
                         const itemStatus = getDisplayStatus(item) || '';
                         const highestStatus = highest || '';

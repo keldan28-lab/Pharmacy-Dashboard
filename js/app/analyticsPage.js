@@ -842,6 +842,11 @@
                 try { if (typeof drawUsageRestockLineGraph === 'function') drawUsageRestockLineGraph(); } catch (_) {}
             });
         }
+
+        function getItemStatusVersion() {
+            try { return String(localStorage.getItem('itemStatusLastUpdated') || ''); } catch (_) { return ''; }
+        }
+        let lastItemStatusVersion = getItemStatusVersion();
         
         /**
          * Request mock data from parent Dashboard container
@@ -8984,6 +8989,20 @@ const pxToY = (py)=>{
 
         window.addEventListener('storage', function(event) {
             if (event && event.key === 'itemStatusLastUpdated') {
+                lastItemStatusVersion = String(event.newValue || '');
                 refreshAnalyticsFromItemStatusOverlay();
             }
         });
+
+
+        function maybeRefreshFromItemStatusVersion() {
+            const current = getItemStatusVersion();
+            if (!current || current === lastItemStatusVersion) return;
+            lastItemStatusVersion = current;
+            refreshAnalyticsFromItemStatusOverlay();
+        }
+        window.addEventListener('focus', maybeRefreshFromItemStatusVersion);
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') maybeRefreshFromItemStatusVersion();
+        });
+        setInterval(maybeRefreshFromItemStatusVersion, 1500);
