@@ -141,6 +141,7 @@
         let currentFilePath = '';  // Store the current file path for the modal
         let currentHasSBAR = false;  // Store whether SBAR document is available
         let etaStatusDraftByItem = {}; // Persist ETA/status draft values per item while modal is open
+        let itemStatusOverlayPromise = null;
 
         function getItemStatusSheetConfig() {
             const webAppUrl = String(
@@ -150,6 +151,248 @@
                 (window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || '')
             ).trim();
             return { webAppUrl, sheetId, tabName: 'itemStatus' };
+        }
+
+        function parseItemStatusRows(raw) {
+            function normalizeRows(rows) {
+                if (!Array.isArray(rows)) return [];
+                if (!rows.length) return [];
+                const first = rows[0];
+                const headerLike = Array.isArray(first) && first.some((cell) => {
+                    const key = String(cell || '').trim().toLowerCase();
+                    return key === 'itemcode' || key === 'item_code' || key === 'status';
+                });
+                if (!headerLike) return rows;
+                const headers = first.map((h) => String(h || '').trim());
+                return rows.slice(1).map((row) => {
+                    if (!Array.isArray(row)) return row;
+                    const out = {};
+                    headers.forEach((h, i) => { out[h] = row[i]; });
+                    return out;
+                });
+            }
+
+            if (typeof raw === 'string') {
+                const text = raw.trim();
+                if (!text) return [];
+                try {
+                    return parseItemStatusRows(JSON.parse(text));
+                } catch (_) {
+                    return [];
+                }
+            }
+            if (Array.isArray(raw)) return normalizeRows(raw);
+            if (!raw || typeof raw !== 'object') return [];
+            if (Array.isArray(raw.rows)) return normalizeRows(raw.rows);
+            if (Array.isArray(raw.items)) return normalizeRows(raw.items);
+            if (Array.isArray(raw.values)) return normalizeRows(raw.values);
+            if (Array.isArray(raw.data)) return normalizeRows(raw.data);
+            if (raw.data && typeof raw.data === 'object') {
+                if (Array.isArray(raw.data.rows)) return normalizeRows(raw.data.rows);
+                if (Array.isArray(raw.data.items)) return normalizeRows(raw.data.items);
+                if (Array.isArray(raw.data.values)) return normalizeRows(raw.data.values);
+            }
+            if (raw.result && typeof raw.result === 'object') {
+                if (Array.isArray(raw.result.rows)) return normalizeRows(raw.result.rows);
+                if (Array.isArray(raw.result.items)) return normalizeRows(raw.result.items);
+                if (Array.isArray(raw.result.values)) return normalizeRows(raw.result.values);
+                if (Array.isArray(raw.result.data)) return normalizeRows(raw.result.data);
+                if (raw.result.data && typeof raw.result.data === 'object') {
+                    if (Array.isArray(raw.result.data.rows)) return normalizeRows(raw.result.data.rows);
+                    if (Array.isArray(raw.result.data.items)) return normalizeRows(raw.result.data.items);
+                    if (Array.isArray(raw.result.data.values)) return normalizeRows(raw.result.data.values);
+                }
+            }
+            return [];
+        }
+
+        function getItemStatusField(row, keys) {
+            if (!row || typeof row !== 'object') return '';
+            const keyMap = {};
+            Object.keys(row).forEach((k) => {
+                keyMap[String(k).trim().toLowerCase()] = row[k];
+            });
+            for (let i = 0; i < keys.length; i++) {
+                const val = keyMap[String(keys[i]).trim().toLowerCase()];
+                if (val !== undefined && val !== null) return val;
+            }
+            return '';
+        }
+
+        function formatDateMMDDYYYY(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            if (/^\d{2}-\d{2}-\d{4}$/.test(raw)) return raw;
+            const direct = new Date(raw);
+            if (!Number.isNaN(direct.getTime())) {
+                const mm = String(direct.getMonth() + 1).padStart(2, '0');
+                const dd = String(direct.getDate()).padStart(2, '0');
+                const yyyy = String(direct.getFullYear());
+                return `${mm}-${dd}-${yyyy}`;
+            }
+            const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (m) return `${m[2]}-${m[3]}-${m[1]}`;
+            return raw;
+        }
+
+        function isNonFormularyItem(item) {
+            const v = item && item.formulary;
+            if (v === false) return true;
+            const norm = String(v == null ? '' : v).trim().toLowerCase();
+            return norm === 'false' || norm === '0' || norm === 'no';
+        }
+
+        const SBAR_FILEPATH_PREFIX = 'M:\\RV-Pharmacy\\(3) SBAR-KDS\\SBAR\\1. Current SBAR\\';
+
+        function sanitizeSelectedFilePath(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            return raw.replace(/^(?:[A-Za-z]:\\fakepath\\)/i, '');
+        }
+
+        function buildSelectedFilePath(files) {
+            const list = Array.isArray(files) ? files : [];
+            const names = list.map((f) => sanitizeSelectedFilePath((f && f.name) || '')).filter(Boolean);
+            if (!names.length) return '';
+            if (names.length === 1) return `${SBAR_FILEPATH_PREFIX}${names[0]}`;
+            return names.map((n) => `${SBAR_FILEPATH_PREFIX}${n}`).join('; ');
+        }
+
+        function mergeItemStatusIntoData(data, rawRows) {
+            if (!data || !Array.isArray(data.items)) return data;
+
+            function normalizeCode(v) {
+                const raw = String(v || '').trim();
+                if (!raw) return '';
+                if (/^\d+$/.test(raw)) return String(Number(raw));
+                return raw;
+            }
+
+            function newerByDate(current, candidate) {
+                if (!current) return candidate;
+                const curDate = Date.parse(String(current.date || current.updatedAt || ''));
+                const canDate = Date.parse(String(candidate.date || candidate.updatedAt || ''));
+                if (Number.isFinite(canDate) && !Number.isFinite(curDate)) return candidate;
+                if (Number.isFinite(canDate) && Number.isFinite(curDate) && canDate >= curDate) return candidate;
+                return current;
+            }
+
+            const sheetByCode = new Map();
+            if (Array.isArray(rawRows)) {
+                rawRows.forEach((row) => {
+                    if (!row || typeof row !== 'object') return;
+                    const code = normalizeCode(getItemStatusField(row, ['itemCode', 'item_code', 'code']));
+                    if (!code) return;
+                    const filePath = String(getItemStatusField(row, ['filePath', 'file_path']) || '');
+                    const candidate = {
+                        source: 'sheet',
+                        date: String(getItemStatusField(row, ['date', 'updatedAt', 'updated_at', 'timestamp']) || ''),
+                        updatedAt: String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp']) || ''),
+                        availability: String(getItemStatusField(row, ['availability']) || ''),
+                        status: String(getItemStatusField(row, ['status']) || ''),
+                        ETA: formatDateMMDDYYYY(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
+                        filePath,
+                        notes: String(getItemStatusField(row, ['notes']) || ''),
+                        assessment: String(getItemStatusField(row, ['SBARnotes', 'sbarNotes', 'assessment']) || ''),
+                        SBAR: !!filePath.trim()
+                    };
+                    sheetByCode.set(code, newerByDate(sheetByCode.get(code), candidate));
+                });
+            }
+
+            data.items.forEach((item) => {
+                if (!item) return;
+                const codeKeys = [normalizeCode(item.itemCode), normalizeCode(item.alt_itemCode || item.altItemCode)].filter(Boolean);
+                if (!codeKeys.length) return;
+
+                let agg = null;
+                for (let i = 0; i < codeKeys.length; i++) {
+                    const k = codeKeys[i];
+                    if (sheetByCode.has(k)) {
+                        agg = sheetByCode.get(k);
+                        break;
+                    }
+                }
+                item.availability = String((agg && agg.availability) || '');
+                item.status = String((agg && agg.status) || '');
+                item.ETA = String((agg && agg.ETA) || '');
+                item.filePath = String((agg && agg.filePath) || '');
+                item.notes = String((agg && agg.notes) || '');
+                item.assessment = String((agg && agg.assessment) || '');
+                item.SBAR = !!(agg && agg.SBAR) || !!String(item.filePath || '').trim();
+            });
+
+            return data;
+        }
+
+        function fetchItemStatusRowsJsonp(cfg) {
+            return new Promise((resolve) => {
+                const callbackName = '__itemStatusReadCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
+                const url = `${cleanUrl}?action=read&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}&callback=${encodeURIComponent(callbackName)}`;
+                const script = document.createElement('script');
+                let done = false;
+
+                const finish = (rows) => {
+                    if (done) return;
+                    done = true;
+                    try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    resolve(Array.isArray(rows) ? rows : []);
+                };
+
+                window[callbackName] = function(payload) {
+                    finish(parseItemStatusRows(payload));
+                };
+
+                script.async = true;
+                script.src = url;
+                script.onerror = () => finish([]);
+                document.head.appendChild(script);
+                setTimeout(() => finish([]), 5000);
+            });
+        }
+
+        async function fetchAndMergeItemStatusData(baseData) {
+            if (!baseData || !Array.isArray(baseData.items)) return baseData;
+            const cfg = getItemStatusSheetConfig();
+            if (!cfg.webAppUrl || !cfg.sheetId) return baseData;
+
+            try {
+                const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
+                const url = `${cleanUrl}?action=read&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}`;
+                const resp = await fetch(url, { method: 'GET' });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const payload = await resp.json();
+                return mergeItemStatusIntoData(baseData, parseItemStatusRows(payload));
+            } catch (err) {
+                console.warn('⚠️ itemStatus GET read failed; trying JSONP fallback', err);
+                const rows = await fetchItemStatusRowsJsonp(cfg);
+                return mergeItemStatusIntoData(baseData, rows);
+            }
+        }
+
+        function ensureItemStatusOverlayLoaded() {
+            if (!cachedMockData || !Array.isArray(cachedMockData.items)) return Promise.resolve(cachedMockData);
+            const cfg = getItemStatusSheetConfig();
+            if (!cfg.webAppUrl || !cfg.sheetId) return Promise.resolve(cachedMockData);
+            if (!itemStatusOverlayPromise) {
+                itemStatusOverlayPromise = fetchAndMergeItemStatusData(cachedMockData)
+                    .then((merged) => {
+                        cachedMockData = merged || cachedMockData;
+                        return cachedMockData;
+                    })
+                    .catch((err) => {
+                        console.warn('⚠️ itemStatus overlay skipped', err);
+                        return cachedMockData;
+                    });
+            }
+            return itemStatusOverlayPromise;
+        }
+
+        async function refreshItemStatusOverlay(forceReload) {
+            if (forceReload) itemStatusOverlayPromise = null;
+            return ensureItemStatusOverlayLoaded();
         }
 
         // Cookie utility functions
@@ -327,6 +570,7 @@
             const notesButtons = modalRoot.querySelectorAll('#etaNotesToggleGroup .eta-toggle-btn[data-notes-type]');
             const severityButtons = modalRoot.querySelectorAll('#etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity]');
             const severityGroup = modalRoot.querySelector('#etaSeverityToggleGroup');
+            const severitySuggestion = modalRoot.querySelector('#etaSeveritySuggestion');
             const fileInput = modalRoot.querySelector('#etaFileInput');
             const fileBtn = modalRoot.querySelector('#etaFileBtn');
             const filePath = modalRoot.querySelector('#etaFilePath');
@@ -344,12 +588,12 @@
                 const key = String(selected.itemCode || selected.description || selected.drugName || 'unknown');
                 if (!etaStatusDraftByItem[key]) {
                     etaStatusDraftByItem[key] = {
-                        availability: 'available',
-                        status: 'moderate',
-                        etaDate: '',
-                        notes: '',
-                        SBARnotes: '',
-                        filePath: ''
+                        availability: String(selected.availability || 'available') || 'available',
+                        status: String(selected.status || 'moderate') || 'moderate',
+                        etaDate: String(selected.ETA || ''),
+                        notes: String(selected.notes || ''),
+                        SBARnotes: String(selected.assessment || ''),
+                        filePath: String(selected.filePath || '')
                     };
                 }
                 return etaStatusDraftByItem[key];
@@ -367,6 +611,63 @@
                 const showExpandedFields = (state === 'watchlist' || state === 'backordered');
                 dateRow.hidden = !showExpandedFields;
                 severityGroup.hidden = !showExpandedFields;
+                if (!showExpandedFields) {
+                    const draft = getDraftForSelectedItem();
+                    draft.status = '';
+                } else {
+                    const draft = getDraftForSelectedItem();
+                    if (!String(draft.status || '').trim()) draft.status = 'moderate';
+                }
+            }
+
+
+            function updateSeveritySuggestion() {
+                if (!severitySuggestion) return;
+                const draft = getDraftForSelectedItem();
+                const selected = getSelectedItem() || {};
+                const availability = String(draft.availability || 'available');
+                if (availability !== 'backordered') {
+                    severitySuggestion.hidden = true;
+                    severitySuggestion.innerHTML = '';
+                    return;
+                }
+
+                const effectiveInv = getEffectiveInventory(selected);
+                const totalQty = Number(effectiveInv && effectiveInv.effectiveQuantity) || 0;
+                let usageRateCurrent = selected.usageRate || 0;
+                if (Array.isArray(selected.usageRate) && selected.usageRate.length > 0) {
+                    const analysis = calculateTrueUsageRate(selected.usageRate, selected.status);
+                    usageRateCurrent = Number(analysis.dailyBaseline) || 0;
+                }
+                if (!(usageRateCurrent > 0)) {
+                    severitySuggestion.hidden = true;
+                    severitySuggestion.innerHTML = '';
+                    return;
+                }
+
+                const daysRemaining = totalQty / usageRateCurrent;
+                let suggested = '';
+                if (daysRemaining < 14) suggested = 'critical';
+                else if (daysRemaining < 21) suggested = 'severe';
+                else if (daysRemaining < 28) suggested = 'moderate';
+
+                if (!suggested) {
+                    severitySuggestion.hidden = true;
+                    severitySuggestion.innerHTML = '';
+                    return;
+                }
+
+                severitySuggestion.hidden = false;
+                severitySuggestion.innerHTML = `Suggestion: ${suggested.toUpperCase()} severity (<button type="button" class="eta-days-link" data-scroll-target="inventoryProjectionSection">${daysRemaining.toFixed(1)} days remaining</button>).`;
+                const daysLink = severitySuggestion.querySelector('.eta-days-link');
+                if (daysLink) {
+                    daysLink.addEventListener('click', () => {
+                        const section = document.getElementById('inventoryProjectionSection') || document.querySelector('.chart-container');
+                        if (section && typeof section.scrollIntoView === 'function') {
+                            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
+                }
             }
 
             function setSavingOverlay(isSaving) {
@@ -392,17 +693,18 @@
                     itemCode: String(selected.itemCode || ''),
                     description: String(selected.description || selected.drugName || ''),
                     availability: String(draft.availability || 'available'),
-                    status: String(draft.status || 'moderate'),
+                    status: (String(draft.availability || 'available') === 'watchlist' || String(draft.availability || 'available') === 'backordered') ? String(draft.status || 'moderate') : '',
                     notes: String(draft.notes || ''),
                     SBARnotes: String(draft.SBARnotes || ''),
                     filePath: String(draft.filePath || ''),
                     etaDate: String(draft.etaDate || ''),
                     updatedAt: new Date().toISOString(),
-                    date: new Date().toISOString().slice(0, 10)
+                    date: formatDateMMDDYYYY(new Date())
                 };
 
                 setSavingOverlay(true);
                 saveBtn.disabled = true;
+                let persisted = false;
                 try {
                     const resp = await fetch(cfg.webAppUrl, {
                         method: 'POST',
@@ -412,11 +714,38 @@
                     if (!resp.ok) {
                         console.warn('⚠️ Failed to persist item status via fetch, HTTP', resp.status, '- trying form-post fallback');
                         await submitItemStatusViaFormPost(cfg.webAppUrl, payload);
+                    } else {
+                        persisted = true;
                     }
                 } catch (err) {
                     console.warn('⚠️ Fetch save failed; trying form-post fallback', err);
                     await submitItemStatusViaFormPost(cfg.webAppUrl, payload);
+                    persisted = true;
                 } finally {
+                    if (persisted) {
+                        selected.availability = payload.availability;
+                        selected.status = payload.status;
+                        selected.ETA = payload.etaDate;
+                        selected.notes = payload.notes;
+                        selected.assessment = payload.SBARnotes;
+                        selected.filePath = payload.filePath;
+                        selected.SBAR = !!String(payload.filePath || '').trim();
+                        if (typeof selectModalItem === 'function') {
+                            selectModalItem(currentSelectedIndex);
+                        }
+                        await refreshItemStatusOverlay(true);
+                        if (typeof selectModalItem === 'function') {
+                            selectModalItem(currentSelectedIndex);
+                        }
+                        if (typeof applyCurrentFilter === 'function' && currentFilter && currentFilter.type) {
+                            await applyCurrentFilter();
+                        } else if (cachedMockData && Array.isArray(cachedMockData.items) && typeof displayData === 'function') {
+                            displayData(cachedMockData);
+                        }
+                        refreshOpenModalFromCache(payload.itemCode);
+                        try { localStorage.setItem('itemStatusLastUpdated', String(Date.now())); } catch (_) {}
+                        try { window.parent && window.parent.postMessage({ type: 'itemStatusUpdated', itemCode: payload.itemCode }, '*'); } catch (_) {}
+                    }
                     saveBtn.disabled = false;
                     setSavingOverlay(false);
                 }
@@ -451,12 +780,48 @@
                 setActiveButton(notesButtons, 'data-notes-type', activeNotesType);
                 syncNotesInputFromDraft();
                 updateDateVisibility();
+                updateSeveritySuggestion();
             }
 
-            expandBtn.addEventListener('click', (e) => {
+            async function refreshSelectedItemFromLatestSheet() {
+                const selected = getSelectedItem();
+                if (!selected || !cachedMockData || !Array.isArray(cachedMockData.items)) return;
+                const targetCode = String(selected.itemCode || '').trim();
+                if (!targetCode) return;
+
+                await refreshItemStatusOverlay(true);
+                const latest = cachedMockData.items.find((item) => String(item && item.itemCode || '').trim() === targetCode) || null;
+                if (!latest) return;
+
+                selected.availability = String(latest.availability || '');
+                selected.status = String(latest.status || '');
+                selected.ETA = String(latest.ETA || '');
+                selected.notes = String(latest.notes || '');
+                selected.assessment = String(latest.assessment || '');
+                selected.filePath = String(latest.filePath || '');
+                selected.SBAR = !!latest.SBAR || !!String(latest.filePath || '').trim();
+
+                const key = String(selected.itemCode || selected.description || selected.drugName || 'unknown');
+                etaStatusDraftByItem[key] = {
+                    availability: String(selected.availability || 'available') || 'available',
+                    status: String(selected.status || 'moderate') || 'moderate',
+                    etaDate: String(selected.ETA || ''),
+                    notes: String(selected.notes || ''),
+                    SBARnotes: String(selected.assessment || ''),
+                    filePath: String(selected.filePath || '')
+                };
+                hydrateControlsFromDraft();
+            }
+
+            expandBtn.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setExpanded(!etaCard.classList.contains('is-expanded'));
+                const willOpen = !etaCard.classList.contains('is-expanded');
+                setExpanded(willOpen);
+                if (willOpen) {
+                    await refreshSelectedItemFromLatestSheet();
+                    if (typeof selectModalItem === 'function') selectModalItem(currentSelectedIndex);
+                }
             });
 
             statusButtons.forEach((btn) => {
@@ -466,6 +831,7 @@
                     const draft = getDraftForSelectedItem();
                     draft.availability = btn.getAttribute('data-eta-status') || 'available';
                     updateDateVisibility();
+                    updateSeveritySuggestion();
                 });
             });
 
@@ -475,6 +841,7 @@
                     btn.classList.add('active');
                     const draft = getDraftForSelectedItem();
                     draft.status = btn.getAttribute('data-eta-severity') || 'moderate';
+                    updateSeveritySuggestion();
                 });
             });
 
@@ -507,7 +874,7 @@
                     const files = Array.from(fileInput.files || []);
                     const selectedFile = files.length ? files[0] : null;
                     const resolvedPath = selectedFile
-                        ? String(fileInput.value || selectedFile.webkitRelativePath || selectedFile.name || '')
+                        ? buildSelectedFilePath(files)
                         : '';
                     filePath.textContent = resolvedPath || 'No file selected';
                     const draft = getDraftForSelectedItem();
@@ -522,6 +889,7 @@
             });
 
             window.__shortageHydrateEtaDraft = hydrateControlsFromDraft;
+            window.__shortageUpdateSeveritySuggestion = updateSeveritySuggestion;
             hydrateControlsFromDraft();
         }
 
@@ -690,7 +1058,7 @@
                 // If we already have cached data, return it immediately
                 if (cachedMockData) {
                     console.log('✓ Returning cached mock data');
-                    resolve(cachedMockData);
+                    ensureItemStatusOverlayLoaded().then(() => resolve(cachedMockData));
                     return;
                 }
 
@@ -699,7 +1067,7 @@
                     window.InventoryApp.postMessage.requestMockData(({ computed }) => {
                         const fallback = { lastUpdated: new Date().toISOString().split('T')[0], items: [] };
                         cachedMockData = computed || fallback;
-                        resolve(cachedMockData);
+                        ensureItemStatusOverlayLoaded().then(() => resolve(cachedMockData));
                     });
                     return;
                 }
@@ -747,10 +1115,11 @@
                     ? window.InventoryApp.postMessage.pickPayload(event.data)
                     : { computed: event.data.data, raw: null };
                 cachedMockData = payload.computed;
-                
-                // Resolve all pending callbacks
-                dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
-                dataRequestCallbacks = [];
+                ensureItemStatusOverlayLoaded().then(() => {
+                    // Resolve all pending callbacks
+                    dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
+                    dataRequestCallbacks = [];
+                });
                 
                 console.log('✓ Mock data cached:', cachedMockData.items.length, 'items');
             }
@@ -1429,6 +1798,18 @@
             return tooltips[status] || 'Status information unavailable';
         }
 
+
+        function getDisplayStatus(item) {
+            if (isNonFormularyItem(item)) return 'non-formulary';
+            return String((item && item.status) || '').toLowerCase();
+        }
+
+        function normalizeModalNotesText(value) {
+            const raw = String(value == null ? '' : value);
+            return raw.replace(/\r\n/g, '\n').trim();
+        }
+
+
         /**
          * Extract display text from description by removing content in brackets
          * Keeps the brackets content for searching but hides it from display
@@ -1667,7 +2048,7 @@
             modalDrugName.textContent = drugName;
             
             // Get highest priority status for header color
-            const statusPriority = { critical: 4, severe: 3, moderate: 2, resolved: 1 };
+            const statusPriority = { 'non-formulary': 5, critical: 4, severe: 3, moderate: 2, resolved: 1 };
             const highestPriority = items.reduce((highest, item) => {
                 return statusPriority[item.status] > statusPriority[highest] ? item.status : highest;
             }, 'resolved');
@@ -1689,7 +2070,7 @@
                             <div class="item-list-item ${index === initialIndex ? 'active' : ''}" onclick="selectModalItem(${index})" data-index="${index}">
                                 <div class="item-list-radio"></div>
                                 <div class="item-list-description">${getDisplayDescription(item.description)}</div>
-                                <div class="item-list-badge ${item.status}">${item.status}</div>
+                                <div class="item-list-badge ${getDisplayStatus(item)}">${getDisplayStatus(item)}</div>
                             </div>
                         `).join('')}
                     </div>
@@ -1743,7 +2124,12 @@
                 <div class="modal-info-item modal-info-item-eta" id="etaInfoCard">
                     <div class="eta-summary-row">
                         <div>
-                            <div class="modal-info-label">Earliest ETA</div>
+                            <div class="eta-label-row">
+                                <svg class="eta-label-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M19,3H18V1H16V3H8V1H6V3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M19,19H5V8H19V19M7,10H12V15H7V10Z"/>
+                                </svg>
+                                <span class="eta-label-text">Earliest ETA</span>
+                            </div>
                             <div class="modal-info-value" id="displayETA">${firstItemETA}</div>
                         </div>
                         <div class="eta-summary-actions">
@@ -1762,24 +2148,28 @@
                         </div>
                     </div>
                     <div class="eta-expansion" id="etaExpansion" aria-hidden="true">
-                        <div class="eta-status-toggle-group" id="etaStatusToggleGroup" role="group" aria-label="ETA status">
+                        <div class="eta-group-title">Availability</div>
+                        <div class="eta-status-toggle-group" id="etaStatusToggleGroup" role="group" aria-label="Availability">
                             <button type="button" class="eta-toggle-btn active" data-eta-status="available">Available</button>
                             <button type="button" class="eta-toggle-btn" data-eta-status="watchlist">Watchlist</button>
                             <button type="button" class="eta-toggle-btn" data-eta-status="backordered">Backordered</button>
-                        </div>
-                        <div class="eta-status-toggle-group" id="etaSeverityToggleGroup" role="group" aria-label="Severity status">
-                            <button type="button" class="eta-toggle-btn active" data-eta-severity="moderate">Moderate</button>
-                            <button type="button" class="eta-toggle-btn" data-eta-severity="severe">Severe</button>
-                            <button type="button" class="eta-toggle-btn" data-eta-severity="critical">Critical</button>
                         </div>
                         <div class="eta-date-row" id="etaDateRow" hidden>
                             <label for="etaDateInput" class="eta-field-label">Expected Date</label>
                             <input type="date" id="etaDateInput" class="eta-date-input">
                         </div>
+                        <div class="eta-group-title">Severity</div>
+                        <div class="eta-status-toggle-group" id="etaSeverityToggleGroup" role="group" aria-label="Severity">
+                            <button type="button" class="eta-toggle-btn active" data-eta-severity="moderate">Moderate</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-severity="severe">Severe</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-severity="critical">Critical</button>
+                        </div>
+                        <div class="eta-severity-suggestion" id="etaSeveritySuggestion" hidden></div>
                         <div class="eta-notes-wrap">
+                            <div class="eta-group-title">Notes</div>
                             <div class="eta-notes-toggle-group" id="etaNotesToggleGroup" role="group" aria-label="Notes type">
-                                <button type="button" class="eta-toggle-btn active" data-notes-type="general">General Notes</button>
-                                <button type="button" class="eta-toggle-btn" data-notes-type="sbar">SBAR Notes</button>
+                                <button type="button" class="eta-toggle-btn active" data-notes-type="general">General</button>
+                                <button type="button" class="eta-toggle-btn" data-notes-type="sbar">SBAR</button>
                             </div>
                             <textarea id="etaNotesInput" class="eta-notes-input" rows="3" placeholder="Add notes"></textarea>
                         </div>
@@ -1893,7 +2283,7 @@
             
             // Build inventory projection chart
             const chartHTML = `
-                <div class="chart-container">
+                <div class="chart-container" id="inventoryProjectionSection">
                     <div class="chart-header">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <svg class="chart-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -1947,7 +2337,7 @@
             `;
             
             // Build notes section (will show first item's notes)
-            const firstItemNotes = firstItem.notes || '';
+            const firstItemNotes = normalizeModalNotesText(firstItem.notes || '');
             const notesHTML = `
                 <div class="notes-section" id="notesSection" style="${!firstItemNotes ? 'display: none;' : ''}">
                     <div class="notes-header">
@@ -1956,9 +2346,7 @@
                         </svg>
                         <span class="notes-title">Notes</span>
                     </div>
-                    <div class="notes-content ${!firstItemNotes ? 'empty' : ''}" id="notesContent">
-                        ${firstItemNotes || 'No notes available for this item'}
-                    </div>
+                    <div class="notes-content ${!firstItemNotes ? 'empty' : ''}" id="notesContent"></div>
                 </div>
             `;
             
@@ -2082,6 +2470,33 @@
             }, 100);
         }
 
+        function refreshOpenModalFromCache(preferredItemCode) {
+            if (!cachedMockData || !Array.isArray(cachedMockData.items)) return;
+            const modal = document.getElementById('detailsModal');
+            if (!modal || !modal.classList.contains('show')) return;
+            const drugName = String((document.getElementById('modalDrugName') && document.getElementById('modalDrugName').textContent) || '');
+            if (!drugName) return;
+
+            const refreshedItems = cachedMockData.items.filter((item) => String(item && item.drugName || '') === drugName);
+            if (!refreshedItems.length) return;
+
+            let preferredIndex = 0;
+            const targetCode = String(preferredItemCode || (currentModalItems[currentSelectedIndex] && currentModalItems[currentSelectedIndex].itemCode) || '');
+            if (targetCode) {
+                const idx = refreshedItems.findIndex((item) => String(item && item.itemCode || '') === targetCode);
+                if (idx >= 0) preferredIndex = idx;
+            }
+            const sbarItem = refreshedItems.find((item) => item && item.SBAR && item.filePath);
+            openDetailsModal(
+                drugName,
+                (sbarItem && sbarItem.notes) || '',
+                (sbarItem && sbarItem.filePath) || '',
+                refreshedItems,
+                !!sbarItem,
+                preferredIndex
+            );
+        }
+
         // Function to handle item selection
         function selectModalItem(index) {
             if (index < 0 || index >= currentModalItems.length) return;
@@ -2155,6 +2570,9 @@
             if (typeof window.__shortageHydrateEtaDraft === 'function') {
                 window.__shortageHydrateEtaDraft();
             }
+            if (typeof window.__shortageUpdateSeveritySuggestion === 'function') {
+                window.__shortageUpdateSeveritySuggestion();
+            }
 
             const selectedInvEntry = (cachedMockData && cachedMockData.inventory && cachedMockData.inventory[selectedItem.itemCode])
                 ? cachedMockData.inventory[selectedItem.itemCode]
@@ -2206,7 +2624,7 @@
             const notesContent = document.getElementById('notesContent');
             const notesSection = document.getElementById('notesSection');
             if (notesContent && notesSection) {
-                const itemNotes = selectedItem.notes || '';
+                const itemNotes = normalizeModalNotesText(selectedItem.notes || '');
                 if (itemNotes) {
                     notesContent.textContent = itemNotes;
                     notesContent.classList.remove('empty');
@@ -2526,7 +2944,7 @@
             }
             
             // Get highest priority status for header color
-            const statusPriority = { critical: 4, severe: 3, moderate: 2, resolved: 1 };
+            const statusPriority = { 'non-formulary': 5, critical: 4, severe: 3, moderate: 2, resolved: 1 };
             const highestPriority = items.reduce((highest, item) => {
                 return statusPriority[item.status] > statusPriority[highest] ? item.status : highest;
             }, 'resolved');
@@ -2550,8 +2968,8 @@
                     </div>
                     <div class="modal-info-item">
                         <div class="modal-info-label">Status</div>
-                        <div class="modal-info-value" style="color: ${getStatusColor(firstItem.status)}; font-weight: 600;">
-                            ${firstItem.status.toUpperCase()}
+                        <div class="modal-info-value" style="color: ${getStatusColor(getDisplayStatus(firstItem))}; font-weight: 600;">
+                            ${getDisplayStatus(firstItem).toUpperCase()}
                         </div>
                     </div>
                     <div class="modal-info-item">
@@ -3669,9 +4087,9 @@
                     
                     // Calculate group summary
                     const totalQty = items.reduce((sum, item) => sum + ((item.pyxis || 0) + (item.pharmacy || 0)), 0);
-                    const statusPriority = { critical: 4, severe: 3, moderate: 2, resolved: 1, '': 0 };
+                    const statusPriority = { 'non-formulary': 5, critical: 4, severe: 3, moderate: 2, resolved: 1, '': 0 };
                     const highestPriority = items.reduce((highest, item) => {
-                        const itemStatus = item.status || '';
+                        const itemStatus = getDisplayStatus(item) || '';
                         const highestStatus = highest || '';
                         return (statusPriority[itemStatus] || 0) > (statusPriority[highestStatus] || 0) ? itemStatus : highestStatus;
                     }, '');
@@ -3837,7 +4255,8 @@
             
             items.forEach(item => {
                 const childRow = document.createElement('tr');
-                const hasStatus = item.status && item.status.trim() !== '';
+                const displayStatus = getDisplayStatus(item);
+                const hasStatus = displayStatus && displayStatus.trim() !== '';
                 childRow.className = `child-row group-${groupId} status-${highestPriority}${!hasStatus ? ' no-status' : ''}`;
                 
                 // Calculate total quantity from pyxis and pharmacy
@@ -3855,14 +4274,14 @@
                     `;
                 }
                 
-                const statusTooltip = getStatusTooltip(item.status);
+                const statusTooltip = getStatusTooltip(displayStatus);
                 
                 childRow.innerHTML = `
                     <td class="col-description">${getDisplayDescription(item.description)}</td>
                     <td class="col-item-code">${item.alt_itemCode}</td>
                     <td class="col-quantity">${totalItemQuantity.toLocaleString()}</td>
                     <td class="col-status">
-                        <span class="status ${item.status} status-tooltip-wrapper">${item.status ? item.status.toUpperCase() : ''}</span>
+                        <span class="status ${displayStatus} status-tooltip-wrapper">${displayStatus ? displayStatus.toUpperCase() : ''}</span>
                     </td>
                     <td class="col-eta">${item.ETA || ''}</td>
                     <td class="col-details">${detailsCellContent}</td>
@@ -3870,7 +4289,7 @@
                 
                 // Attach tooltip to status badge (only if status exists)
                 const statusBadge = childRow.querySelector('.status-tooltip-wrapper');
-                if (statusBadge && item.status) {
+                if (statusBadge && displayStatus) {
                     attachTooltipListeners(statusBadge, statusTooltip, 'status-tooltip');
                 }
                 

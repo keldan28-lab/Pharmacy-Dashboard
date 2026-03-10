@@ -634,6 +634,221 @@
         
         let cachedMockData = null;
         let dataRequestCallbacks = [];
+        let itemStatusOverlayPromise = null;
+
+        function getItemStatusSheetConfig() {
+            const webAppUrl = String((window.ITEM_STATUS_WEBAPP_URL || localStorage.getItem('itemStatusWebAppUrl') || localStorage.getItem('spike_webAppUrl') || '')).trim();
+            const sheetId = String((window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || '')).trim();
+            return { webAppUrl, sheetId, tabName: 'itemStatus' };
+        }
+
+        function parseItemStatusRows(raw) {
+            function normalizeRows(rows) {
+                if (!Array.isArray(rows)) return [];
+                if (!rows.length) return [];
+                const first = rows[0];
+                const headerLike = Array.isArray(first) && first.some((cell) => {
+                    const key = String(cell || '').trim().toLowerCase();
+                    return key === 'itemcode' || key === 'item_code' || key === 'status';
+                });
+                if (!headerLike) return rows;
+                const headers = first.map((h) => String(h || '').trim());
+                return rows.slice(1).map((row) => {
+                    if (!Array.isArray(row)) return row;
+                    const out = {};
+                    headers.forEach((h, i) => { out[h] = row[i]; });
+                    return out;
+                });
+            }
+
+            if (typeof raw === 'string') {
+                const text = raw.trim();
+                if (!text) return [];
+                try {
+                    return parseItemStatusRows(JSON.parse(text));
+                } catch (_) {
+                    return [];
+                }
+            }
+            if (Array.isArray(raw)) return normalizeRows(raw);
+            if (!raw || typeof raw !== 'object') return [];
+            if (Array.isArray(raw.rows)) return normalizeRows(raw.rows);
+            if (Array.isArray(raw.items)) return normalizeRows(raw.items);
+            if (Array.isArray(raw.values)) return normalizeRows(raw.values);
+            if (Array.isArray(raw.data)) return normalizeRows(raw.data);
+            if (raw.data && typeof raw.data === 'object') {
+                if (Array.isArray(raw.data.rows)) return normalizeRows(raw.data.rows);
+                if (Array.isArray(raw.data.items)) return normalizeRows(raw.data.items);
+                if (Array.isArray(raw.data.values)) return normalizeRows(raw.data.values);
+            }
+            if (raw.result && typeof raw.result === 'object') {
+                if (Array.isArray(raw.result.rows)) return normalizeRows(raw.result.rows);
+                if (Array.isArray(raw.result.items)) return normalizeRows(raw.result.items);
+                if (Array.isArray(raw.result.values)) return normalizeRows(raw.result.values);
+                if (Array.isArray(raw.result.data)) return normalizeRows(raw.result.data);
+                if (raw.result.data && typeof raw.result.data === 'object') {
+                    if (Array.isArray(raw.result.data.rows)) return normalizeRows(raw.result.data.rows);
+                    if (Array.isArray(raw.result.data.items)) return normalizeRows(raw.result.data.items);
+                    if (Array.isArray(raw.result.data.values)) return normalizeRows(raw.result.data.values);
+                }
+            }
+            return [];
+        }
+
+        function getItemStatusField(row, keys) {
+            if (!row || typeof row !== 'object') return '';
+            const keyMap = {};
+            Object.keys(row).forEach((k) => { keyMap[String(k).trim().toLowerCase()] = row[k]; });
+            for (let i = 0; i < keys.length; i++) {
+                const v = keyMap[String(keys[i]).trim().toLowerCase()];
+                if (v !== undefined && v !== null) return v;
+            }
+            return '';
+        }
+
+        function formatDateMMDDYYYY(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            if (/^\d{2}-\d{2}-\d{4}$/.test(raw)) return raw;
+            const direct = new Date(raw);
+            if (!Number.isNaN(direct.getTime())) {
+                const mm = String(direct.getMonth() + 1).padStart(2, '0');
+                const dd = String(direct.getDate()).padStart(2, '0');
+                const yyyy = String(direct.getFullYear());
+                return `${mm}-${dd}-${yyyy}`;
+            }
+            const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (m) return `${m[2]}-${m[3]}-${m[1]}`;
+            return raw;
+        }
+
+        function mergeItemStatusIntoData(data, rawRows) {
+            if (!data || !Array.isArray(data.items)) return data;
+
+            function normalizeCode(v) {
+                const raw = String(v || '').trim();
+                if (!raw) return '';
+                if (/^\d+$/.test(raw)) return String(Number(raw));
+                return raw;
+            }
+
+            function newerByDate(current, candidate) {
+                if (!current) return candidate;
+                const curDate = Date.parse(String(current.date || current.updatedAt || ''));
+                const canDate = Date.parse(String(candidate.date || candidate.updatedAt || ''));
+                if (Number.isFinite(canDate) && !Number.isFinite(curDate)) return candidate;
+                if (Number.isFinite(canDate) && Number.isFinite(curDate) && canDate >= curDate) return candidate;
+                return current;
+            }
+
+            const sheetByCode = new Map();
+            if (Array.isArray(rawRows)) {
+                rawRows.forEach((row) => {
+                    if (!row || typeof row !== 'object') return;
+                    const code = normalizeCode(getItemStatusField(row, ['itemCode', 'item_code', 'code']));
+                    if (!code) return;
+                    const filePath = String(getItemStatusField(row, ['filePath', 'file_path']) || '');
+                    const candidate = {
+                        source: 'sheet',
+                        date: String(getItemStatusField(row, ['date', 'updatedAt', 'updated_at', 'timestamp']) || ''),
+                        updatedAt: String(getItemStatusField(row, ['updatedAt', 'updated_at', 'timestamp']) || ''),
+                        availability: String(getItemStatusField(row, ['availability']) || ''),
+                        status: String(getItemStatusField(row, ['status']) || ''),
+                        ETA: formatDateMMDDYYYY(getItemStatusField(row, ['etaDate', 'eta_date', 'eta']) || ''),
+                        filePath,
+                        notes: String(getItemStatusField(row, ['notes']) || ''),
+                        assessment: String(getItemStatusField(row, ['SBARnotes', 'sbarNotes', 'assessment']) || ''),
+                        SBAR: !!filePath.trim()
+                    };
+                    sheetByCode.set(code, newerByDate(sheetByCode.get(code), candidate));
+                });
+            }
+
+            data.items.forEach((item) => {
+                if (!item) return;
+                const codeKeys = [normalizeCode(item.itemCode), normalizeCode(item.alt_itemCode || item.altItemCode)].filter(Boolean);
+                if (!codeKeys.length) return;
+
+                let agg = null;
+                for (let i = 0; i < codeKeys.length; i++) {
+                    const k = codeKeys[i];
+                    if (sheetByCode.has(k)) {
+                        agg = sheetByCode.get(k);
+                        break;
+                    }
+                }
+                item.availability = String((agg && agg.availability) || '');
+                item.status = String((agg && agg.status) || '');
+                item.ETA = String((agg && agg.ETA) || '');
+                item.filePath = String((agg && agg.filePath) || '');
+                item.notes = String((agg && agg.notes) || '');
+                item.assessment = String((agg && agg.assessment) || '');
+                item.SBAR = !!(agg && agg.SBAR) || !!String(item.filePath || '').trim();
+            });
+
+            return data;
+        }
+
+        function fetchItemStatusRowsJsonp(cfg) {
+            return new Promise((resolve) => {
+                const callbackName = '__analyticsItemStatusCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
+                const url = `${cleanUrl}?action=read&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}&callback=${encodeURIComponent(callbackName)}`;
+                const script = document.createElement('script');
+                let done = false;
+                const finish = (rows) => {
+                    if (done) return;
+                    done = true;
+                    try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    resolve(Array.isArray(rows) ? rows : []);
+                };
+                window[callbackName] = function(payload) { finish(parseItemStatusRows(payload)); };
+                script.async = true;
+                script.src = url;
+                script.onerror = () => finish([]);
+                document.head.appendChild(script);
+                setTimeout(() => finish([]), 5000);
+            });
+        }
+
+        async function ensureItemStatusOverlayLoaded() {
+            if (!cachedMockData || !Array.isArray(cachedMockData.items)) return cachedMockData;
+            const cfg = getItemStatusSheetConfig();
+            if (!cfg.webAppUrl || !cfg.sheetId) return cachedMockData;
+            if (!itemStatusOverlayPromise) {
+                itemStatusOverlayPromise = (async () => {
+                    try {
+                        const cleanUrl = String(cfg.webAppUrl || '').replace(/\/+$/, '');
+                        const url = `${cleanUrl}?action=read&sheetId=${encodeURIComponent(cfg.sheetId)}&tabName=${encodeURIComponent(cfg.tabName)}`;
+                        const resp = await fetch(url, { method: 'GET' });
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        const payload = await resp.json();
+                        cachedMockData = mergeItemStatusIntoData(cachedMockData, parseItemStatusRows(payload));
+                        return cachedMockData;
+                    } catch (err) {
+                        const rows = await fetchItemStatusRowsJsonp(cfg);
+                        cachedMockData = mergeItemStatusIntoData(cachedMockData, rows);
+                        return cachedMockData;
+                    }
+                })();
+            }
+            return itemStatusOverlayPromise;
+        }
+
+        function refreshAnalyticsFromItemStatusOverlay() {
+            if (!cachedMockData || !Array.isArray(cachedMockData.items)) return;
+            itemStatusOverlayPromise = null;
+            ensureItemStatusOverlayLoaded().then(() => {
+                try { if (typeof populateAnalytics === 'function') populateAnalytics(); } catch (_) {}
+                try { if (typeof drawUsageRestockLineGraph === 'function') drawUsageRestockLineGraph(); } catch (_) {}
+            });
+        }
+
+        function getItemStatusVersion() {
+            try { return String(localStorage.getItem('itemStatusLastUpdated') || ''); } catch (_) { return ''; }
+        }
+        let lastItemStatusVersion = getItemStatusVersion();
         
         /**
          * Request mock data from parent Dashboard container
@@ -642,7 +857,7 @@
         function requestMockDataFromParent() {
             return new Promise((resolve, reject) => {
                 if (cachedMockData) {
-                    resolve(cachedMockData);
+                    ensureItemStatusOverlayLoaded().then(() => resolve(cachedMockData));
                     return;
                 }
 
@@ -651,8 +866,9 @@
                     window.InventoryApp.postMessage.requestMockData(({ computed }) => {
                         const fallback = { lastUpdated: new Date().toISOString().split('T')[0], items: [] };
                         cachedMockData = computed || fallback;
+                        itemStatusOverlayPromise = null;
                         window.mockData = cachedMockData;
-                        resolve(cachedMockData);
+                        ensureItemStatusOverlayLoaded().then(() => resolve(cachedMockData));
                     });
                     return;
                 }
@@ -1246,6 +1462,7 @@
                 const _rawMD = payload.raw || null;
                 const _computedMD = payload.computed || null;
                 cachedMockData = _computedMD || _rawMD;
+                itemStatusOverlayPromise = null;
 
                 // Always keep a reference to raw
                 window.rawMockData = _rawMD;
@@ -1382,8 +1599,10 @@
                 }
                 
                 // Resolve all pending callbacks
-                dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
-                dataRequestCallbacks = [];
+                ensureItemStatusOverlayLoaded().then(() => {
+                    dataRequestCallbacks.forEach(cb => cb.resolve(cachedMockData));
+                    dataRequestCallbacks = [];
+                });
                 
                 console.log('✓ Analytics: Mock data cached:', cachedMockData.items.length, 'items');
                 
@@ -1402,6 +1621,10 @@
                 }
             }
             
+            if (event.data.type === 'itemStatusUpdated') {
+                refreshAnalyticsFromItemStatusOverlay();
+            }
+
             // Handle FDA data ready notification from parent Dashboard
             if (event.data.type === 'FDA_DATA_READY') {
                 console.log('📦 Analytics: FDA data ready notification received');
@@ -8764,3 +8987,24 @@ const pxToY = (py)=>{
 
     draw();
 }
+
+
+        window.addEventListener('storage', function(event) {
+            if (event && event.key === 'itemStatusLastUpdated') {
+                lastItemStatusVersion = String(event.newValue || '');
+                refreshAnalyticsFromItemStatusOverlay();
+            }
+        });
+
+
+        function maybeRefreshFromItemStatusVersion() {
+            const current = getItemStatusVersion();
+            if (!current || current === lastItemStatusVersion) return;
+            lastItemStatusVersion = current;
+            refreshAnalyticsFromItemStatusOverlay();
+        }
+        window.addEventListener('focus', maybeRefreshFromItemStatusVersion);
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') maybeRefreshFromItemStatusVersion();
+        });
+        setInterval(maybeRefreshFromItemStatusVersion, 1500);
