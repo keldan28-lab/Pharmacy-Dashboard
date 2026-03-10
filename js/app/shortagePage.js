@@ -628,7 +628,7 @@
                 const availability = String(draft.availability || 'available');
                 if (availability !== 'backordered') {
                     severitySuggestion.hidden = true;
-                    severitySuggestion.textContent = '';
+                    severitySuggestion.innerHTML = '';
                     return;
                 }
 
@@ -641,7 +641,7 @@
                 }
                 if (!(usageRateCurrent > 0)) {
                     severitySuggestion.hidden = true;
-                    severitySuggestion.textContent = '';
+                    severitySuggestion.innerHTML = '';
                     return;
                 }
 
@@ -653,12 +653,21 @@
 
                 if (!suggested) {
                     severitySuggestion.hidden = true;
-                    severitySuggestion.textContent = '';
+                    severitySuggestion.innerHTML = '';
                     return;
                 }
 
                 severitySuggestion.hidden = false;
-                severitySuggestion.textContent = `Suggestion: ${suggested.toUpperCase()} severity (${daysRemaining.toFixed(1)} days remaining).`;
+                severitySuggestion.innerHTML = `Suggestion: ${suggested.toUpperCase()} severity (<button type="button" class="eta-days-link" data-scroll-target="inventoryProjectionSection">${daysRemaining.toFixed(1)} days remaining</button>).`;
+                const daysLink = severitySuggestion.querySelector('.eta-days-link');
+                if (daysLink) {
+                    daysLink.addEventListener('click', () => {
+                        const section = document.getElementById('inventoryProjectionSection') || document.querySelector('.chart-container');
+                        if (section && typeof section.scrollIntoView === 'function') {
+                            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
+                }
             }
 
             function setSavingOverlay(isSaving) {
@@ -2127,21 +2136,23 @@
                         </div>
                     </div>
                     <div class="eta-expansion" id="etaExpansion" aria-hidden="true">
-                        <div class="eta-status-toggle-group" id="etaStatusToggleGroup" role="group" aria-label="ETA status">
+                        <div class="eta-group-title">Availability</div>
+                        <div class="eta-status-toggle-group" id="etaStatusToggleGroup" role="group" aria-label="Availability">
                             <button type="button" class="eta-toggle-btn active" data-eta-status="available">Available</button>
                             <button type="button" class="eta-toggle-btn" data-eta-status="watchlist">Watchlist</button>
                             <button type="button" class="eta-toggle-btn" data-eta-status="backordered">Backordered</button>
                         </div>
-                        <div class="eta-status-toggle-group" id="etaSeverityToggleGroup" role="group" aria-label="Severity status">
+                        <div class="eta-date-row" id="etaDateRow" hidden>
+                            <label for="etaDateInput" class="eta-field-label">Expected Date</label>
+                            <input type="date" id="etaDateInput" class="eta-date-input">
+                        </div>
+                        <div class="eta-group-title">Severity</div>
+                        <div class="eta-status-toggle-group" id="etaSeverityToggleGroup" role="group" aria-label="Severity">
                             <button type="button" class="eta-toggle-btn active" data-eta-severity="moderate">Moderate</button>
                             <button type="button" class="eta-toggle-btn" data-eta-severity="severe">Severe</button>
                             <button type="button" class="eta-toggle-btn" data-eta-severity="critical">Critical</button>
                         </div>
                         <div class="eta-severity-suggestion" id="etaSeveritySuggestion" hidden></div>
-                        <div class="eta-date-row" id="etaDateRow" hidden>
-                            <label for="etaDateInput" class="eta-field-label">Expected Date</label>
-                            <input type="date" id="etaDateInput" class="eta-date-input">
-                        </div>
                         <div class="eta-notes-wrap">
                             <div class="eta-notes-toggle-group" id="etaNotesToggleGroup" role="group" aria-label="Notes type">
                                 <button type="button" class="eta-toggle-btn active" data-notes-type="general">General Notes</button>
@@ -2259,7 +2270,7 @@
             
             // Build inventory projection chart
             const chartHTML = `
-                <div class="chart-container">
+                <div class="chart-container" id="inventoryProjectionSection">
                     <div class="chart-header">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <svg class="chart-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
