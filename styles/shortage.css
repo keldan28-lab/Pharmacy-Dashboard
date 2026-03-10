@@ -1935,6 +1935,23 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
+            transition: transform 140ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
+        }
+
+        .eta-expand-btn:hover,
+        .eta-save-btn:hover {
+            transform: translateY(-1px);
+            background: rgba(17, 153, 142, 0.18);
+            border-color: rgba(17, 153, 142, 0.62);
+            box-shadow: 0 6px 14px rgba(17, 153, 142, 0.22);
+        }
+
+        .eta-expand-btn:disabled,
+        .eta-save-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .eta-save-btn {
@@ -2029,6 +2046,14 @@
             padding: 6px 12px;
             cursor: pointer;
             font-weight: 500;
+            transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease;
+        }
+
+        .eta-toggle-btn:hover {
+            background: rgba(17, 153, 142, 0.14);
+            border-color: rgba(17, 153, 142, 0.56);
+            color: var(--teal-primary);
+            transform: translateY(-1px);
         }
 
          .eta-toggle-btn.active {

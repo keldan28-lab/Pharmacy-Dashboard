@@ -588,8 +588,8 @@
                 const key = String(selected.itemCode || selected.description || selected.drugName || 'unknown');
                 if (!etaStatusDraftByItem[key]) {
                     etaStatusDraftByItem[key] = {
-                        availability: String(selected.availability || 'available') || 'available',
-                        status: String(selected.status || 'moderate') || 'moderate',
+                        availability: String(selected.availability || ''),
+                        status: String(selected.status || ''),
                         etaDate: String(selected.ETA || ''),
                         notes: String(selected.notes || ''),
                         SBARnotes: String(selected.assessment || ''),
@@ -607,17 +607,10 @@
 
             function updateDateVisibility() {
                 const active = modalRoot.querySelector('#etaStatusToggleGroup .eta-toggle-btn.active[data-eta-status]');
-                const state = active ? active.getAttribute('data-eta-status') : 'available';
+                const state = active ? active.getAttribute('data-eta-status') : '';
                 const showExpandedFields = (state === 'watchlist' || state === 'backordered');
                 dateRow.hidden = !showExpandedFields;
                 severityGroup.hidden = !showExpandedFields;
-                if (!showExpandedFields) {
-                    const draft = getDraftForSelectedItem();
-                    draft.status = '';
-                } else {
-                    const draft = getDraftForSelectedItem();
-                    if (!String(draft.status || '').trim()) draft.status = 'moderate';
-                }
             }
 
 
@@ -625,7 +618,7 @@
                 if (!severitySuggestion) return;
                 const draft = getDraftForSelectedItem();
                 const selected = getSelectedItem() || {};
-                const availability = String(draft.availability || 'available');
+                const availability = String(draft.availability || '');
                 if (availability !== 'backordered') {
                     severitySuggestion.hidden = true;
                     severitySuggestion.innerHTML = '';
@@ -773,8 +766,8 @@
 
             function hydrateControlsFromDraft() {
                 const draft = getDraftForSelectedItem();
-                setActiveButton(statusButtons, 'data-eta-status', String(draft.availability || 'available'));
-                setActiveButton(severityButtons, 'data-eta-severity', String(draft.status || 'moderate'));
+                setActiveButton(statusButtons, 'data-eta-status', String(draft.availability || ''));
+                setActiveButton(severityButtons, 'data-eta-severity', String(draft.status || ''));
                 if (dateInput) dateInput.value = String(draft.etaDate || '');
                 if (filePath) filePath.textContent = draft.filePath || 'No file selected';
                 setActiveButton(notesButtons, 'data-notes-type', activeNotesType);
@@ -803,8 +796,8 @@
 
                 const key = String(selected.itemCode || selected.description || selected.drugName || 'unknown');
                 etaStatusDraftByItem[key] = {
-                    availability: String(selected.availability || 'available') || 'available',
-                    status: String(selected.status || 'moderate') || 'moderate',
+                    availability: String(selected.availability || ''),
+                    status: String(selected.status || ''),
                     etaDate: String(selected.ETA || ''),
                     notes: String(selected.notes || ''),
                     SBARnotes: String(selected.assessment || ''),
@@ -2150,7 +2143,7 @@
                     <div class="eta-expansion" id="etaExpansion" aria-hidden="true">
                         <div class="eta-group-title">Availability</div>
                         <div class="eta-status-toggle-group" id="etaStatusToggleGroup" role="group" aria-label="Availability">
-                            <button type="button" class="eta-toggle-btn active" data-eta-status="available">Available</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-status="available">Available</button>
                             <button type="button" class="eta-toggle-btn" data-eta-status="watchlist">Watchlist</button>
                             <button type="button" class="eta-toggle-btn" data-eta-status="backordered">Backordered</button>
                         </div>
@@ -2160,7 +2153,7 @@
                         </div>
                         <div class="eta-group-title">Severity</div>
                         <div class="eta-status-toggle-group" id="etaSeverityToggleGroup" role="group" aria-label="Severity">
-                            <button type="button" class="eta-toggle-btn active" data-eta-severity="moderate">Moderate</button>
+                            <button type="button" class="eta-toggle-btn" data-eta-severity="moderate">Moderate</button>
                             <button type="button" class="eta-toggle-btn" data-eta-severity="severe">Severe</button>
                             <button type="button" class="eta-toggle-btn" data-eta-severity="critical">Critical</button>
                         </div>
@@ -2168,7 +2161,7 @@
                         <div class="eta-notes-wrap">
                             <div class="eta-group-title">Notes</div>
                             <div class="eta-notes-toggle-group" id="etaNotesToggleGroup" role="group" aria-label="Notes type">
-                                <button type="button" class="eta-toggle-btn active" data-notes-type="general">General</button>
+                                <button type="button" class="eta-toggle-btn" data-notes-type="general">General</button>
                                 <button type="button" class="eta-toggle-btn" data-notes-type="sbar">SBAR</button>
                             </div>
                             <textarea id="etaNotesInput" class="eta-notes-input" rows="3" placeholder="Add notes"></textarea>
@@ -2423,6 +2416,46 @@
             
             // Hide the original modal-section since we're using dynamic sections
             notesSection.style.display = 'none';
+
+
+            const etaExpandBtn = document.getElementById('etaExpandBtn');
+            if (etaExpandBtn) {
+                etaExpandBtn.disabled = true;
+                etaExpandBtn.setAttribute('aria-busy', 'true');
+                etaExpandBtn.title = 'Loading latest status...';
+            }
+
+            refreshItemStatusOverlay(true)
+                .then(() => {
+                    if (!cachedMockData || !Array.isArray(cachedMockData.items) || !Array.isArray(currentModalItems)) return;
+                    const latestByCode = {};
+                    cachedMockData.items.forEach((item) => {
+                        const code = String(item && item.itemCode || '').trim();
+                        if (code) latestByCode[code] = item;
+                    });
+                    currentModalItems.forEach((item) => {
+                        const code = String(item && item.itemCode || '').trim();
+                        const latest = code ? latestByCode[code] : null;
+                        if (!latest) return;
+                        item.availability = String(latest.availability || '');
+                        item.status = String(latest.status || '');
+                        item.ETA = String(latest.ETA || '');
+                        item.notes = String(latest.notes || '');
+                        item.assessment = String(latest.assessment || '');
+                        item.filePath = String(latest.filePath || '');
+                        item.SBAR = !!latest.SBAR || !!String(latest.filePath || '').trim();
+                    });
+                    if (typeof selectModalItem === 'function') selectModalItem(currentSelectedIndex);
+                })
+                .catch((err) => {
+                    console.warn('⚠️ Unable to refresh item status when opening details modal', err);
+                })
+                .finally(() => {
+                    if (!etaExpandBtn) return;
+                    etaExpandBtn.disabled = false;
+                    etaExpandBtn.removeAttribute('aria-busy');
+                    etaExpandBtn.title = 'Expand ETA details';
+                });
             
             // Initialize carousel mode (shows both modals with animation)
             initializeCarousel();

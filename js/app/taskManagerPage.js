@@ -330,10 +330,10 @@
     }
 
     function ganttColor(status) {
-        if (status === 'Done') return 'rgba(79, 176, 91, 0.9)';
-        if (status === 'Blocked') return 'rgba(223, 108, 78, 0.9)';
-        if (status === 'Not Started') return 'rgba(124, 132, 143, 0.9)';
-        return 'rgba(43, 191, 179, 0.9)';
+        if (status === 'Done') return 'linear-gradient(135deg, #42e9a0, #20c8b5)';
+        if (status === 'Blocked') return 'linear-gradient(135deg, #ff7f67, #ff5454)';
+        if (status === 'Not Started') return 'linear-gradient(135deg, #8e9eab, #6b7280)';
+        return 'linear-gradient(135deg, #11998e, #38ef7d)';
     }
 
     function renderGantt() {
@@ -356,7 +356,7 @@
             cols.push(dt);
         }
 
-        els.ganttWrap.style.backgroundSize = colPx + 'px 100%, 100% 34px';
+        els.ganttWrap.style.backgroundSize = colPx + 'px 100%, 100% 40px';
 
         const gridCols = 'repeat(' + cols.length + ',' + colPx + 'px)';
         const head = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {

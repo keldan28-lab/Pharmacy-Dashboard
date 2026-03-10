@@ -131,7 +131,7 @@
             border-top: 1px solid rgba(160,160,160,0.22);
             background:
                 linear-gradient(to right, rgba(160,160,160,0.16) 1px, transparent 1px) 0 0 / 42px 100%,
-                linear-gradient(to bottom, rgba(130,130,130,0.12) 1px, transparent 1px) 0 0 / 100% 34px;
+                linear-gradient(to bottom, rgba(130,130,130,0.12) 1px, transparent 1px) 0 0 / 100% 40px;
         }
         .gantt-head, .gantt-row { display: grid; min-width: 900px; }
         .gantt-head {
@@ -152,30 +152,30 @@
         body:not(.dark-mode) .gantt-head { background: rgba(230,236,239,0.9); }
         body:not(.dark-mode) .gantt-cell { color: #5c6772; }
 
-        .gantt-row { position: relative; min-height: 34px; border-bottom: 1px solid rgba(160,160,160,0.14); }
+        .gantt-row { position: relative; min-height: 40px; border-bottom: 1px solid rgba(160,160,160,0.14); }
         .gantt-bar {
             position: absolute;
-            top: 7px;
-            height: 20px;
-            border-radius: 4px;
-            border: 1px solid rgba(0,0,0,0.22);
+            top: 6px;
+            height: 28px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.18);
             cursor: grab;
-            box-shadow: 0 3px 12px rgba(0,0,0,0.2);
+            box-shadow: 0 6px 16px rgba(17, 153, 142, 0.25);
         }
         .gantt-bar:active { cursor: grabbing; }
-        .gantt-bar:hover { filter: brightness(1.06); }
+        .gantt-bar:hover { filter: brightness(1.08); box-shadow: 0 8px 18px rgba(17, 153, 142, 0.32); }
         .gantt-handle {
             position: absolute;
-            top: 2px;
-            width: 8px;
-            height: 16px;
+            top: 4px;
+            width: 9px;
+            height: 20px;
             border-radius: 3px;
             background: rgba(255,255,255,0.42);
             cursor: ew-resize;
         }
         .gantt-handle.left { left: 3px; }
         .gantt-handle.right { right: 3px; }
-        .priority-high { box-shadow: inset 0 0 0 1px rgba(255,84,84,0.72), 0 3px 12px rgba(0,0,0,0.22); }
+        .priority-high { box-shadow: inset 0 0 0 1px rgba(255,84,84,0.72), 0 8px 20px rgba(255, 84, 84, 0.26); }
 
         .tasks-empty { color: var(--text-secondary); text-align: center; padding: 24px; font-size: 13px; }
 
