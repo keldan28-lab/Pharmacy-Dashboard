@@ -1879,6 +1879,11 @@
             position: relative;
         }
 
+        .modal-info-item-eta,
+        .modal-info-item-eta * {
+            font-family: inherit;
+        }
+
          .modal-info-item-eta.is-expanded {
             border-color: var(--teal-primary);
             border-width: 2px;

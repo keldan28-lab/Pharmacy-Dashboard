@@ -2166,9 +2166,10 @@
                         </div>
                         <div class="eta-severity-suggestion" id="etaSeveritySuggestion" hidden></div>
                         <div class="eta-notes-wrap">
+                            <div class="eta-group-title">Notes</div>
                             <div class="eta-notes-toggle-group" id="etaNotesToggleGroup" role="group" aria-label="Notes type">
-                                <button type="button" class="eta-toggle-btn active" data-notes-type="general">General Notes</button>
-                                <button type="button" class="eta-toggle-btn" data-notes-type="sbar">SBAR Notes</button>
+                                <button type="button" class="eta-toggle-btn active" data-notes-type="general">General</button>
+                                <button type="button" class="eta-toggle-btn" data-notes-type="sbar">SBAR</button>
                             </div>
                             <textarea id="etaNotesInput" class="eta-notes-input" rows="3" placeholder="Add notes"></textarea>
                         </div>
