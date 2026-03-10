@@ -1881,7 +1881,28 @@
 
          .modal-info-item-eta.is-expanded {
             border-color: var(--teal-primary);
-            border-width: 3px;
+            border-width: 2px;
+        }
+
+        .eta-label-row {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-xs);
+        }
+
+        .eta-label-icon {
+            width: clamp(20px, 3vw, 24px);
+            height: clamp(20px, 3vw, 24px);
+            fill: var(--teal-primary);
+            flex-shrink: 0;
+        }
+
+        .eta-label-text {
+            font-size: clamp(1em, 1.8vw, 1.1em);
+            font-weight: 600;
+            color: var(--teal-primary);
+            line-height: 1;
         }
 
         .modal-info-item-eta .eta-summary-row {
@@ -3284,7 +3305,7 @@
 .labeler-item.active {
     background: var(--modal-card-list-bg-active);
     border-color: var(--modal-card-list-border-active);
-    border-width: 3px;
+    border-width: 2px;
 }
 
 /* Discontinued Labeler Items */

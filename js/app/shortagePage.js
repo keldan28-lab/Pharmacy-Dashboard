@@ -1803,6 +1803,13 @@
             if (isNonFormularyItem(item)) return 'non-formulary';
             return String((item && item.status) || '').toLowerCase();
         }
+
+        function normalizeModalNotesText(value) {
+            const raw = String(value == null ? '' : value);
+            return raw.replace(/\r\n/g, '\n').trim();
+        }
+
+
         /**
          * Extract display text from description by removing content in brackets
          * Keeps the brackets content for searching but hides it from display
@@ -2117,7 +2124,12 @@
                 <div class="modal-info-item modal-info-item-eta" id="etaInfoCard">
                     <div class="eta-summary-row">
                         <div>
-                            <div class="modal-info-label">Earliest ETA</div>
+                            <div class="eta-label-row">
+                                <svg class="eta-label-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M19,3H18V1H16V3H8V1H6V3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M19,19H5V8H19V19M7,10H12V15H7V10Z"/>
+                                </svg>
+                                <span class="eta-label-text">Earliest ETA</span>
+                            </div>
                             <div class="modal-info-value" id="displayETA">${firstItemETA}</div>
                         </div>
                         <div class="eta-summary-actions">
@@ -2324,7 +2336,7 @@
             `;
             
             // Build notes section (will show first item's notes)
-            const firstItemNotes = firstItem.notes || '';
+            const firstItemNotes = normalizeModalNotesText(firstItem.notes || '');
             const notesHTML = `
                 <div class="notes-section" id="notesSection" style="${!firstItemNotes ? 'display: none;' : ''}">
                     <div class="notes-header">
@@ -2333,9 +2345,7 @@
                         </svg>
                         <span class="notes-title">Notes</span>
                     </div>
-                    <div class="notes-content ${!firstItemNotes ? 'empty' : ''}" id="notesContent">
-                        ${firstItemNotes || 'No notes available for this item'}
-                    </div>
+                    <div class="notes-content ${!firstItemNotes ? 'empty' : ''}" id="notesContent"></div>
                 </div>
             `;
             
@@ -2613,7 +2623,7 @@
             const notesContent = document.getElementById('notesContent');
             const notesSection = document.getElementById('notesSection');
             if (notesContent && notesSection) {
-                const itemNotes = selectedItem.notes || '';
+                const itemNotes = normalizeModalNotesText(selectedItem.notes || '');
                 if (itemNotes) {
                     notesContent.textContent = itemNotes;
                     notesContent.classList.remove('empty');
