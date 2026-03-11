@@ -159,7 +159,7 @@
         .tasks-list-gap {
             height: 22px;
         }
-        .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; margin-top: -10px; }
+        .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; margin-top: -15px; display: flex; flex-direction: column; gap: 5px; }
         .tasks-row {
             display: grid;
             grid-template-columns: 24px 1fr;
@@ -224,6 +224,7 @@
         }
         .gantt-head .gantt-cell { background: rgba(23, 28, 38, 0.72); }
         body:not(.dark-mode) .gantt-head .gantt-cell { background: rgba(224, 232, 238, 0.88); }
+        .gantt-row .gantt-cell { padding: 0; min-height: 40px; background: transparent; }
         .gantt-cell.month-marker {
             font-size: 10px;
             background: transparent;
