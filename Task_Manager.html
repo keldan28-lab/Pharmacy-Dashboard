@@ -62,7 +62,7 @@
         .tasks-top-icon svg { width: 20px; height: 20px; }
         .tasks-top-title { font-size: clamp(2.1rem, 4vw, 3rem); font-weight: 600; color: #f7ffff; letter-spacing: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.05; }
         .tasks-top-subtitle { color: rgba(245,255,255,0.85); font-size: 12px; margin-top: 2px; }
-        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto auto; gap: 8px; }
+        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto auto auto; gap: 8px; }
 
         .tasks-input, .tasks-select, .tasks-button {
             min-height: 38px;
@@ -195,18 +195,37 @@
 
         .gantt-wrap {
             min-height: 0;
-            overflow: auto;
+            overflow: hidden;
             border-top: 1px solid rgba(160,160,160,0.22);
             background: transparent;
-            scrollbar-color: #2ab8ad rgba(255,255,255,0.12);
-            scrollbar-width: thin;
+            position: relative;
         }
-        .gantt-wrap::-webkit-scrollbar { height: 10px; width: 10px; }
-        .gantt-wrap::-webkit-scrollbar-track { background: rgba(255,255,255,0.12); }
-        .gantt-wrap::-webkit-scrollbar-thumb { background: #2ab8ad; border-radius: 999px; }
-        .gantt-wrap::-webkit-scrollbar-thumb:hover { background: #1ea79c; }
+        .timeline-nav-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 5;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 2px solid var(--scroll-arrows-border);
+            background: var(--scroll-arrows-bg);
+            color: var(--scroll-arrows-border);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .timeline-nav-arrow:hover {
+            background: var(--scroll-arrows-bg-hover);
+            border-color: var(--scroll-arrows-border-hover);
+        }
+        .timeline-nav-arrow.left { left: 6px; }
+        .timeline-nav-arrow.right { right: 6px; }
 
-        .gantt-head, .gantt-row { display: grid; min-width: 900px; }
+        .gantt-head, .gantt-row { display: grid; width: 100%; }
         .gantt-head {
             position: sticky;
             top: 0;
@@ -361,6 +380,7 @@
                     <option value="week" selected>Week View</option>
                     <option value="month">Month View</option>
                 </select>
+                <button id="tasksZoomInBtn" class="tasks-button" type="button">Zoom In</button>
                 <button id="tasksZoomOutBtn" class="tasks-button" type="button">Zoom Out</button>
                 <button id="tasksExpandAll" class="tasks-button" type="button">Expand/Collapse</button>
                 <button id="tasksPanelToggle" class="tasks-button" type="button">Collapse Panel</button>
@@ -384,7 +404,10 @@
             </div>
             <div id="tasksSplitter" class="tasks-splitter" aria-label="Resize task panel" role="separator"></div>
             <div class="tasks-card">
-                <div id="tasksGanttWrap" class="gantt-wrap"></div>
+                <div id="tasksGanttWrap" class="gantt-wrap">
+                    <button id="tasksPrevRange" class="timeline-nav-arrow left" type="button" aria-label="Previous period">‹</button>
+                    <button id="tasksNextRange" class="timeline-nav-arrow right" type="button" aria-label="Next period">›</button>
+                </div>
             </div>
         </div>
     </div>

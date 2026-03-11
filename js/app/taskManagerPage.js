@@ -24,6 +24,7 @@
         editingId: null,
         zoom: 'week',
         zoomOutLevel: 0,
+        currentAnchorDate: toISODate(new Date()),
         showArchived: false,
         filtersOpen: false,
         drag: null,
@@ -78,8 +79,31 @@
     }
 
     function syncZoomOutUi() {
-        if (!els.zoomOutBtn) return;
-        els.zoomOutBtn.textContent = state.zoomOutLevel > 0 ? ('Zoom Out x' + state.zoomOutLevel) : 'Zoom Out';
+        if (els.zoomOutBtn) els.zoomOutBtn.textContent = 'Zoom Out ' + (state.zoomOutLevel > 0 ? ('(' + state.zoomOutLevel + ')') : '');
+        if (els.zoomInBtn) els.zoomInBtn.textContent = 'Zoom In';
+    }
+
+    function startOfDay(d) {
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
+
+    function startOfWeek(d) {
+        const out = startOfDay(d);
+        const off = (out.getDay() + 6) % 7;
+        out.setDate(out.getDate() - off);
+        return out;
+    }
+
+    function startOfMonth(d) {
+        return new Date(d.getFullYear(), d.getMonth(), 1);
+    }
+
+    function shiftByMode(baseDate, step) {
+        const d = new Date(baseDate);
+        if (state.zoom === 'day') d.setDate(d.getDate() + step);
+        else if (state.zoom === 'week') d.setDate(d.getDate() + (step * 7));
+        else d.setMonth(d.getMonth() + step);
+        return d;
     }
 
     function jsonp(url, timeoutMs) {
@@ -319,30 +343,25 @@
     }
 
     function computeRange(rows) {
-        let start = null;
-        let end = null;
-        rows.forEach(function (row) {
-            const s = toDate(row.task.startDate);
-            const d = toDate(row.task.dueDate);
-            if (s && (!start || s < start)) start = s;
-            if (d && (!end || d > end)) end = d;
-        });
-        const now = new Date();
-        if (!start) start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-        if (!end) end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 21);
-
-        const basePad = state.zoom === 'day' ? 3 : (state.zoom === 'week' ? 7 : 14);
-        const zoomPad = state.zoomOutLevel * (state.zoom === 'day' ? 7 : (state.zoom === 'week' ? 14 : 28));
-        start = new Date(start.getTime() - ((basePad + zoomPad) * DAY_MS));
-        end = new Date(end.getTime() + ((basePad + zoomPad) * DAY_MS));
+        const anchor = toDate(state.currentAnchorDate) || new Date();
+        let start = state.zoom === 'day' ? startOfDay(anchor) : (state.zoom === 'week' ? startOfWeek(anchor) : startOfMonth(anchor));
+        let end;
 
         if (state.zoom === 'day') {
-            const minSpanDays = 7;
-            const span = Math.floor((end - start) / DAY_MS) + 1;
-            if (span < minSpanDays) {
-                end = new Date(start.getTime() + ((minSpanDays - 1) * DAY_MS));
-            }
+            end = new Date(start.getTime());
+        } else if (state.zoom === 'week') {
+            end = new Date(start.getTime() + (6 * DAY_MS));
+        } else {
+            end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
         }
+
+        for (let i = 0; i < state.zoomOutLevel; i++) {
+            start = shiftByMode(start, -1);
+            if (state.zoom === 'day') end = shiftByMode(end, 1);
+            else if (state.zoom === 'week') end = new Date(end.getTime() + (7 * DAY_MS));
+            else end = new Date(end.getFullYear(), end.getMonth() + 1, 0);
+        }
+
         return { start: start, end: end };
     }
 
@@ -378,7 +397,7 @@
 
         const range = computeRange(rows);
         const days = Math.max(1, Math.ceil((range.end - range.start) / DAY_MS) + 1);
-        const colPx = state.zoom === 'day' ? 54 : (state.zoom === 'week' ? 42 : 30);
+        const colPx = Math.max(30, Math.floor((els.ganttWrap.clientWidth - 64) / (state.zoom === 'month' ? 31 : (state.zoom === 'week' ? 7 : 1 + (state.zoomOutLevel * 2)))));
         state.colPx = colPx;
         state.range = range;
 
@@ -403,7 +422,7 @@
             return Math.floor((date - startMonday) / DAY_MS / 7);
         }
 
-        const gridCols = 'repeat(' + cols.length + ',' + colPx + 'px)';
+        const gridCols = 'repeat(' + cols.length + ', minmax(0, 1fr))';
         function cellClassForDate(d) {
             const day = d.getDay();
             const isWeekend = day === 0 || day === 6;
@@ -455,7 +474,7 @@
             }).join('') + bar + '</div>';
         }).join('');
 
-        els.ganttWrap.innerHTML = monthHead + axisHead + body;
+        els.ganttWrap.innerHTML = '<button id="tasksPrevRange" class="timeline-nav-arrow left" type="button" aria-label="Previous period">‹</button>' + '<button id="tasksNextRange" class="timeline-nav-arrow right" type="button" aria-label="Next period">›</button>' + monthHead + axisHead + body;
     }
 
     function openModal(taskId) {
@@ -613,8 +632,9 @@
             startX: clientX,
             startDate: task.startDate,
             dueDate: task.dueDate,
-            stepDays: state.zoom === 'month' ? 7 : 1,
-            moved: false
+            stepDays: 1,
+            moved: false,
+            lastDeltaDays: 0
         };
     }
 
@@ -634,9 +654,10 @@
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
 
-        const deltaCols = Math.round((clientX - drag.startX) / state.colPx);
-        const deltaDays = deltaCols * drag.stepDays;
-        if (!deltaDays) return;
+        const rawDeltaCols = (clientX - drag.startX) / Math.max(1, state.colPx);
+        const deltaDays = (rawDeltaCols >= 0 ? Math.floor(rawDeltaCols) : Math.ceil(rawDeltaCols)) * drag.stepDays;
+        if (deltaDays === drag.lastDeltaDays) return;
+        drag.lastDeltaDays = deltaDays;
 
         let newStart = drag.startDate;
         let newDue = drag.dueDate;
@@ -702,11 +723,20 @@
 
         els.zoom.addEventListener('change', function () {
             state.zoom = els.zoom.value;
+            state.zoomOutLevel = 0;
+            state.currentAnchorDate = toISODate(new Date());
+            syncZoomOutUi();
+            renderGantt();
+        });
+
+        els.zoomInBtn.addEventListener('click', function () {
+            state.zoomOutLevel = Math.max(0, state.zoomOutLevel - 1);
+            syncZoomOutUi();
             renderGantt();
         });
 
         els.zoomOutBtn.addEventListener('click', function () {
-            state.zoomOutLevel = (state.zoomOutLevel + 1) % 6;
+            state.zoomOutLevel = Math.min(8, state.zoomOutLevel + 1);
             syncZoomOutUi();
             renderGantt();
         });
@@ -760,6 +790,14 @@
         });
 
         els.ganttWrap.addEventListener('click', function (e) {
+            const navPrev = e.target.closest('#tasksPrevRange');
+            const navNext = e.target.closest('#tasksNextRange');
+            if (navPrev || navNext) {
+                const step = navPrev ? -1 : 1;
+                state.currentAnchorDate = toISODate(shiftByMode(toDate(state.currentAnchorDate) || new Date(), step));
+                renderGantt();
+                return;
+            }
             if (state.drag && state.drag.moved) return;
             const bar = e.target.closest('.gantt-bar');
             if (bar) openModal(bar.getAttribute('data-task-id'));
@@ -824,6 +862,7 @@
         els.itemFilter = byId('tasksItemFilter');
         els.locationFilter = byId('tasksLocationFilter');
         els.zoom = byId('tasksZoom');
+        els.zoomInBtn = byId('tasksZoomInBtn');
         els.zoomOutBtn = byId('tasksZoomOutBtn');
         els.filterToggle = byId('tasksFilterToggle');
         els.filtersPanel = byId('tasksFiltersPanel');
