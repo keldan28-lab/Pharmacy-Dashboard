@@ -397,8 +397,6 @@
 
         const range = computeRange(rows);
         const days = Math.max(1, Math.ceil((range.end - range.start) / DAY_MS) + 1);
-        const colPx = Math.max(30, Math.floor((els.ganttWrap.clientWidth - 64) / (state.zoom === 'month' ? 31 : (state.zoom === 'week' ? 7 : 1 + (state.zoomOutLevel * 2)))));
-        state.colPx = colPx;
         state.range = range;
 
         const cols = [];
@@ -422,7 +420,10 @@
             return Math.floor((date - startMonday) / DAY_MS / 7);
         }
 
-        const gridCols = 'repeat(' + cols.length + ', minmax(0, 1fr))';
+        const availableWidth = Math.max(320, (els.ganttWrap.clientWidth || 960) - 64);
+        const colPx = Math.max(28, Math.floor(availableWidth / Math.max(cols.length, 1)));
+        state.colPx = colPx;
+        const gridCols = 'repeat(' + cols.length + ',' + colPx + 'px)';
         function cellClassForDate(d) {
             const day = d.getDay();
             const isWeekend = day === 0 || day === 6;
@@ -475,6 +476,13 @@
         }).join('');
 
         els.ganttWrap.innerHTML = '<button id="tasksPrevRange" class="timeline-nav-arrow left" type="button" aria-label="Previous period">‹</button>' + '<button id="tasksNextRange" class="timeline-nav-arrow right" type="button" aria-label="Next period">›</button>' + monthHead + axisHead + body;
+
+        const prevBtn = els.ganttWrap.querySelector('#tasksPrevRange');
+        const nextBtn = els.ganttWrap.querySelector('#tasksNextRange');
+        const tableHeight = (2 * 34) + (rows.length * 40);
+        const navTop = Math.max(56, Math.min(Math.round(tableHeight / 2), (els.ganttWrap.clientHeight || tableHeight) - 18));
+        if (prevBtn) prevBtn.style.top = navTop + 'px';
+        if (nextBtn) nextBtn.style.top = navTop + 'px';
     }
 
     function openModal(taskId) {
