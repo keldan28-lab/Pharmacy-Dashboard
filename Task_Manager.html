@@ -62,7 +62,7 @@
         .tasks-top-icon svg { width: 20px; height: 20px; }
         .tasks-top-title { font-size: 22px; font-weight: 800; color: #f7ffff; letter-spacing: 0.01em; }
         .tasks-top-subtitle { color: rgba(245,255,255,0.85); font-size: 12px; margin-top: 2px; }
-        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto; gap: 8px; }
+        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto auto; gap: 8px; }
 
         .tasks-input, .tasks-select, .tasks-button {
             min-height: 38px;
@@ -96,24 +96,35 @@
         .tasks-filter-panel.open { display: grid; }
 
         .tasks-shell {
+            --left-pane-width: 360px;
             flex: 1;
             min-height: 0;
             display: grid;
             gap: 0;
-            grid-template-columns: minmax(320px, 1fr) minmax(520px, 2fr);
+            grid-template-columns: minmax(220px, var(--left-pane-width)) 8px minmax(520px, 1fr);
             border: 1px solid var(--card-border);
             border-radius: 14px;
             overflow: hidden;
             background: var(--card-bg);
             box-shadow: 0 6px 20px rgba(0,0,0,0.12);
         }
+        .tasks-shell.left-collapsed {
+            grid-template-columns: 0 0 minmax(520px, 1fr);
+        }
+        .tasks-splitter {
+            cursor: col-resize;
+            background: rgba(255,255,255,0.06);
+            border-left: 1px solid rgba(255,255,255,0.08);
+            border-right: 1px solid rgba(255,255,255,0.08);
+        }
+        .tasks-shell.left-collapsed .tasks-splitter { display:none; }
         .tasks-card {
             min-height: 0;
             display: flex;
             flex-direction: column;
             background: transparent;
         }
-        .tasks-card + .tasks-card { border-left: 1px solid var(--card-border); }
+        .tasks-card + .tasks-card { border-left: 0; }
         .tasks-card-title { padding: 10px 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; color: var(--text-secondary); border-bottom: 1px solid var(--card-border); }
 
         .tasks-list-header {
@@ -141,6 +152,7 @@
         .tree-toggle:hover { background: rgba(255,255,255,0.08); }
         .task-title-wrap { min-width: 0; }
         .task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+        .task-color-badge { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 7px; vertical-align: middle; }
 
         .gantt-wrap {
             min-height: 0;
@@ -166,6 +178,7 @@
         }
         .gantt-cell.month-marker {
             font-size: 10px;
+            background: transparent;
             font-weight: 700;
             color: var(--text-secondary);
             min-height: 20px;
@@ -181,6 +194,11 @@
         .gantt-row { position: relative; min-height: 40px; border-bottom: 1px solid rgba(160,160,160,0.14); }
         .gantt-bar {
             position: absolute;
+            color: #fff;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
             top: 6px;
             height: 28px;
             border-radius: 8px;
@@ -208,7 +226,7 @@
         .task-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(10,16,20,0.56); backdrop-filter: blur(2px); z-index: 80; }
         .task-modal.open { display: flex; }
         .task-modal-card {
-            width: min(720px, 92vw);
+            width: min(780px, 92vw);
             max-height: 88vh;
             overflow: auto;
             border-radius: 18px;
@@ -217,17 +235,17 @@
             box-shadow: 0 20px 40px rgba(0,0,0,0.35);
         }
         .task-modal-header {
-            background: linear-gradient(135deg, rgba(255,105,105,0.92), rgba(236,170,170,0.8));
+            background: linear-gradient(135deg, #53b3c2, #86d9c8);
             color: #fff;
             padding: 16px 18px;
             border-bottom: 1px solid rgba(255,255,255,0.16);
             font-size: 24px;
             font-weight: 800;
         }
-        .task-modal-body { padding: 14px; }
-        .task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 8px; }
+        .task-modal-body { padding: 16px; }
+        .task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 10px; }
         .task-form-grid textarea { grid-column: 1 / -1; min-height: 74px; resize: vertical; }
-        .task-form-grid details { grid-column: 1 / -1; border: 1px solid var(--card-border); border-radius: 10px; padding: 8px; }
+        .task-form-grid details { grid-column: 1 / -1; border: 1px solid var(--card-border); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.02); }
         .task-form-grid summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); font-weight: 700; }
         .task-optional-grid { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(170px, 1fr)); gap: 8px; }
         .task-itemcode-lookup { grid-column: 1 / -1; position: relative; }
@@ -261,7 +279,7 @@
             .tasks-top-controls { grid-template-columns: 1fr 1fr; }
             .tasks-filter-panel { grid-template-columns: 1fr; }
             .tasks-shell { grid-template-columns: 1fr; }
-            .tasks-card + .tasks-card { border-left: 0; border-top: 1px solid var(--card-border); }
+            .tasks-splitter { display:none; }
             .task-form-grid, .task-optional-grid { grid-template-columns: 1fr; }
         }
     </style>
@@ -293,6 +311,7 @@
                 </select>
                 <button id="tasksZoomOutBtn" class="tasks-button" type="button">Zoom Out</button>
                 <button id="tasksExpandAll" class="tasks-button" type="button">Expand/Collapse</button>
+                <button id="tasksPanelToggle" class="tasks-button" type="button">Collapse Panel</button>
                 <button id="tasksFilterToggle" class="tasks-button" type="button">Filters</button>
                 <button id="tasksAddBtn" class="tasks-button primary" type="button">+ Add Task</button>
             </div>
@@ -305,14 +324,13 @@
             </div>
         </div>
 
-        <div class="tasks-shell">
+        <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
-                <div class="tasks-card-title">HIERARCHY</div>
                 <div class="tasks-list-header">Task Name</div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>
+            <div id="tasksSplitter" class="tasks-splitter" aria-label="Resize task panel" role="separator"></div>
             <div class="tasks-card">
-                <div class="tasks-card-title">TIMELINE</div>
                 <div id="tasksGanttWrap" class="gantt-wrap"></div>
             </div>
         </div>
@@ -336,6 +354,7 @@
                         <summary>Optional fields</summary>
                         <div class="task-optional-grid">
                             <select id="taskPriority" class="tasks-select"></select>
+                            <select id="taskColor" class="tasks-select"></select>
                             <input id="taskPercent" type="number" min="0" max="100" class="tasks-input" placeholder="Percent Complete" />
                             <div class="task-itemcode-lookup">
                                 <input id="taskItemCode" class="tasks-input" placeholder="Item code or drug name" autocomplete="off" />

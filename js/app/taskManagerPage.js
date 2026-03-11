@@ -1,10 +1,18 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
+    const TASK_BADGE_COLORS = [
+        { key: 'teal', label: 'Teal', base: '#2ab8ad' },
+        { key: 'green', label: 'Green', base: '#38c172' },
+        { key: 'blue', label: 'Blue', base: '#4f8ef7' },
+        { key: 'purple', label: 'Purple', base: '#8b6cf0' },
+        { key: 'orange', label: 'Orange', base: '#f39a45' },
+        { key: 'rose', label: 'Rose', base: '#e66f97' }
+    ];
 
     const state = {
         loading: true,
@@ -21,7 +29,10 @@
         drag: null,
         range: null,
         colPx: 42,
-        itemLookupRows: []
+        itemLookupRows: [],
+        leftPaneCollapsed: false,
+        leftPaneWidth: 360,
+        resizing: null
     };
 
     const els = {};
@@ -128,7 +139,12 @@
         return (localStorage.getItem('spike_webAppUrl') || localStorage.getItem('jsonp_proxy_webAppUrl') || '').trim();
     }
 
-    function emptyFallbackTasks() { return []; }
+    function emptyFallbackTasks() {
+        return [
+            { taskId: 'TASK-MOCK-1', parentId: '', sortOrder: 10, level: 'group', title: 'Cycle Count Prep', description: 'Prepare cycle count sheet', status: 'In Progress', priority: 'High', assignee: 'Ops', startDate: toISODate(new Date()), dueDate: shiftIsoDate(toISODate(new Date()), 4), percentComplete: 45, itemCode: '', itemName: '', location: 'Main', sublocation: 'Pharmacy', dependencyIds: '', archived: false, createdAt: isoNow(), updatedAt: isoNow(), createdBy: 'mock', colorKey: 'teal' },
+            { taskId: 'TASK-MOCK-2', parentId: 'TASK-MOCK-1', sortOrder: 20, level: 'child', title: 'Verify Pyxis variances', description: '', status: 'Not Started', priority: 'Medium', assignee: 'Tech 1', startDate: shiftIsoDate(toISODate(new Date()), 1), dueDate: shiftIsoDate(toISODate(new Date()), 2), percentComplete: 0, itemCode: '', itemName: '', location: 'ED', sublocation: 'Pyxis', dependencyIds: '', archived: false, createdAt: isoNow(), updatedAt: isoNow(), createdBy: 'mock', colorKey: 'teal' }
+        ];
+    }
 
     function normalizeTask(raw, idx) {
         const out = {};
@@ -145,6 +161,7 @@
         out.dueDate = toISODate(out.dueDate);
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
+        out.colorKey = String(out.colorKey || 'teal');
         out.children = [];
         ensureTaskDates(out);
         return out;
@@ -244,6 +261,7 @@
 
         syncFilterPanelUi();
         syncZoomOutUi();
+        syncShellLayout();
         renderList();
         requestAnimationFrame(renderGantt);
     }
@@ -270,6 +288,10 @@
         byId('taskPriority').innerHTML = DEFAULT_PRIORITY.map(function (p) {
             return '<option value="' + esc(p) + '">' + esc(p) + '</option>';
         }).join('');
+
+        byId('taskColor').innerHTML = TASK_BADGE_COLORS.map(function (c) {
+            return '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>';
+        }).join('');
     }
 
     function renderList() {
@@ -287,9 +309,10 @@
             const hasChildren = task.children && task.children.length;
             const expanded = state.expanded[task.taskId] !== false;
             const indent = row.depth * 14;
+            const badge = getColorDef(task.colorKey).base;
             return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '">' + (hasChildren ? (expanded ? '▾' : '▸') : '•') + '</button>' +
-                '<div class="task-title-wrap" style="padding-left:' + indent + 'px"><span class="task-title" title="' + esc(task.title) + '">' + esc(task.title) + '</span></div>' +
+                '<div class="task-title-wrap" style="padding-left:' + indent + 'px"><span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
             '</div>';
         }).join('');
     }
@@ -322,11 +345,27 @@
         return { start: start, end: end };
     }
 
-    function ganttColor(status) {
-        if (status === 'Done') return 'linear-gradient(135deg, #42e9a0, #20c8b5)';
-        if (status === 'Blocked') return 'linear-gradient(135deg, #ff7f67, #ff5454)';
-        if (status === 'Not Started') return 'linear-gradient(135deg, #8e9eab, #6b7280)';
-        return 'linear-gradient(135deg, #11998e, #38ef7d)';
+    function getColorDef(key) {
+        return TASK_BADGE_COLORS.find(function (c) { return c.key === key; }) || TASK_BADGE_COLORS[0];
+    }
+
+    function hexToRgb(hex) {
+        const h = String(hex || '').replace('#', '');
+        if (h.length !== 6) return { r: 42, g: 184, b: 173 };
+        return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+    }
+
+    function lighten(hex, amount) {
+        const rgb = hexToRgb(hex);
+        const mix = function (v) { return Math.round(v + (255 - v) * amount); };
+        return 'rgb(' + mix(rgb.r) + ',' + mix(rgb.g) + ',' + mix(rgb.b) + ')';
+    }
+
+    function ganttColor(task, depth) {
+        const base = getColorDef(task.colorKey).base;
+        const start = depth > 0 ? lighten(base, 0.18) : base;
+        const end = depth > 0 ? lighten(base, 0.34) : lighten(base, 0.12);
+        return 'linear-gradient(135deg, ' + start + ', ' + end + ')';
     }
 
     function renderGantt() {
@@ -367,15 +406,15 @@
         const monthHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
             let monthLabel = '';
             if (state.zoom === 'month') monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+            else if (state.zoom === 'day') monthLabel = String(d.getDate()).padStart(2, '0');
             else if (d.getDate() === 1) monthLabel = d.toLocaleString('en-US', { month: 'short' });
-            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
-            return '<div class="gantt-cell month-marker' + weekAlt + '">' + esc(monthLabel) + '</div>';
+            return '<div class="gantt-cell month-marker">' + esc(monthLabel) + '</div>';
         }).join('') + '</div>';
 
         const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
         const axisHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
             let label = '';
-            if (state.zoom === 'day') label = dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0');
+            if (state.zoom === 'day') label = dayNames[d.getDay()];
             else if (state.zoom === 'week') label = String(d.getDate()).padStart(2, '0');
             else label = d.toLocaleString('en-US', { month: 'short' });
             const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
@@ -398,7 +437,9 @@
                     : durationDays;
                 const left = leftUnits * colPx;
                 const width = Math.max(18, (widthUnits * colPx) - 6);
-                bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t.status) + '">' +
+                const barShadow = row.depth > 0 ? '0 3px 10px rgba(17, 153, 142, 0.14)' : '0 6px 16px rgba(17, 153, 142, 0.25)';
+                bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                    esc(t.title) +
                     '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
                     '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                 '</div>';
@@ -431,6 +472,7 @@
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
+        byId('taskColor').value = task ? task.colorKey : 'teal';
 
         byId('taskParentId').innerHTML = ['<option value="">No parent (group)</option>'].concat(
             state.tasks.filter(function (t) { return !task || t.taskId !== task.taskId; }).map(function (t) {
@@ -457,6 +499,7 @@
             description: byId('taskDescription').value.trim(),
             status: byId('taskStatus').value,
             priority: byId('taskPriority').value,
+            colorKey: byId('taskColor').value,
             assignee: byId('taskAssignee').value.trim(),
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
@@ -593,6 +636,13 @@
         openModal();
     }
 
+    function syncShellLayout() {
+        if (!els.shell) return;
+        els.shell.style.setProperty('--left-pane-width', Math.max(240, Math.min(620, state.leftPaneWidth)) + 'px');
+        els.shell.classList.toggle('left-collapsed', !!state.leftPaneCollapsed);
+        if (els.panelToggleBtn) els.panelToggleBtn.textContent = state.leftPaneCollapsed ? 'Expand Panel' : 'Collapse Panel';
+    }
+
     function bindEvents() {
         ['search','statusFilter','assigneeFilter','itemFilter','locationFilter'].forEach(function (k) {
             const ev = (k === 'statusFilter' || k === 'assigneeFilter') ? 'change' : 'input';
@@ -631,6 +681,11 @@
             applyFilters();
         });
 
+        byId('tasksPanelToggle').addEventListener('click', function () {
+            state.leftPaneCollapsed = !state.leftPaneCollapsed;
+            syncShellLayout();
+        });
+
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
@@ -653,6 +708,11 @@
             if (bar) openModal(bar.getAttribute('data-task-id'));
         });
 
+        els.splitter.addEventListener('pointerdown', function (e) {
+            state.resizing = { startX: e.clientX, width: state.leftPaneWidth };
+            e.preventDefault();
+        });
+
         els.ganttWrap.addEventListener('pointerdown', function (e) {
             const hit = e.target.closest('.gantt-bar, .gantt-handle');
             if (!hit) return;
@@ -664,11 +724,18 @@
         });
 
         window.addEventListener('pointermove', function (e) {
+            if (state.resizing) {
+                state.leftPaneCollapsed = false;
+                state.leftPaneWidth = state.resizing.width + (e.clientX - state.resizing.startX);
+                syncShellLayout();
+                return;
+            }
             if (!state.drag) return;
             onDragMove(e.clientX);
         });
 
         window.addEventListener('pointerup', function () {
+            if (state.resizing) { state.resizing = null; return; }
             if (!state.drag) return;
             finishDrag();
         });
@@ -677,6 +744,9 @@
             if (!event || !event.data) return;
             if (event.data.type === 'darkModeToggle') {
                 document.body.classList.toggle('dark-mode', !!event.data.enabled);
+            }
+            if (event.data.type === 'setReferrer') {
+                loadTasks();
             }
         });
     }
@@ -703,6 +773,9 @@
         els.clearFiltersBtn = byId('tasksClearFilters');
         els.listBody = byId('tasksListBody');
         els.ganttWrap = byId('tasksGanttWrap');
+        els.shell = byId('tasksShell');
+        els.splitter = byId('tasksSplitter');
+        els.panelToggleBtn = byId('tasksPanelToggle');
     }
 
     function bootstrapInventoryHint() {
@@ -830,6 +903,7 @@
         bootstrapInventoryHint();
         syncFilterPanelUi();
         syncZoomOutUi();
+        syncShellLayout();
         await loadTasks();
     }
 
