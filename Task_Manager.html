@@ -116,6 +116,26 @@
             background: rgba(255,255,255,0.06);
             border-left: 1px solid rgba(255,255,255,0.08);
             border-right: 1px solid rgba(255,255,255,0.08);
+            position: relative;
+        }
+        .tasks-splitter::after {
+            content: '↔';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(210, 220, 230, 0.72);
+            font-size: 12px;
+            line-height: 1;
+            pointer-events: none;
+        }
+        body:not(.dark-mode) .tasks-splitter {
+            background: rgba(78, 92, 106, 0.16);
+            border-left-color: rgba(78, 92, 106, 0.38);
+            border-right-color: rgba(78, 92, 106, 0.38);
+        }
+        body:not(.dark-mode) .tasks-splitter::after {
+            color: rgba(56, 70, 84, 0.78);
         }
         .tasks-shell.left-collapsed .tasks-splitter { display:none; }
         .tasks-card {
@@ -137,7 +157,7 @@
             color: var(--text-secondary);
         }
         .tasks-list-gap {
-            height: 32px;
+            height: 22px;
         }
         .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; margin-top: -10px; }
         .tasks-row {
@@ -178,7 +198,14 @@
             overflow: auto;
             border-top: 1px solid rgba(160,160,160,0.22);
             background: transparent;
+            scrollbar-color: #2ab8ad rgba(255,255,255,0.12);
+            scrollbar-width: thin;
         }
+        .gantt-wrap::-webkit-scrollbar { height: 10px; width: 10px; }
+        .gantt-wrap::-webkit-scrollbar-track { background: rgba(255,255,255,0.12); }
+        .gantt-wrap::-webkit-scrollbar-thumb { background: #2ab8ad; border-radius: 999px; }
+        .gantt-wrap::-webkit-scrollbar-thumb:hover { background: #1ea79c; }
+
         .gantt-head, .gantt-row { display: grid; min-width: 900px; }
         .gantt-head {
             position: sticky;
@@ -195,6 +222,8 @@
             padding: 6px 2px;
             border-right: 1px solid rgba(150,150,150,0.18);
         }
+        .gantt-head .gantt-cell { background: rgba(23, 28, 38, 0.72); }
+        body:not(.dark-mode) .gantt-head .gantt-cell { background: rgba(224, 232, 238, 0.88); }
         .gantt-cell.month-marker {
             font-size: 10px;
             background: transparent;
