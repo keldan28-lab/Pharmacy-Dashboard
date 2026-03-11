@@ -135,6 +135,10 @@
             text-transform: uppercase;
             color: var(--text-secondary);
         }
+        .tasks-list-gap {
+            height: 32px;
+            border-bottom: 1px solid rgba(160,160,160,0.18);
+        }
         .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; }
         .tasks-row {
             display: grid;
@@ -150,9 +154,22 @@
         .tasks-row:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.09); }
         .tree-toggle { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
         .tree-toggle:hover { background: rgba(255,255,255,0.08); }
-        .task-title-wrap { min-width: 0; }
+        .task-title-wrap { min-width: 0; position: relative; }
         .task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
         .task-color-badge { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 7px; vertical-align: middle; }
+        .task-connector {
+            position: absolute;
+            left: -14px;
+            top: 50%;
+            height: 1px;
+            width: 0;
+            background: rgba(42, 184, 173, 0.55);
+        }
+        .task-connector.anim { animation: taskConnectorGrow 220ms ease-out forwards; }
+        @keyframes taskConnectorGrow {
+            from { width: 0; opacity: 0.2; }
+            to { width: 12px; opacity: 1; }
+        }
 
         .gantt-wrap {
             min-height: 0;
@@ -327,6 +344,7 @@
         <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
                 <div class="tasks-list-header">Task Name</div>
+                <div class="tasks-list-gap" aria-hidden="true"></div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>
             <div id="tasksSplitter" class="tasks-splitter" aria-label="Resize task panel" role="separator"></div>

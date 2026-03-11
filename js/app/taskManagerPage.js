@@ -310,9 +310,10 @@
             const expanded = state.expanded[task.taskId] !== false;
             const indent = row.depth * 14;
             const badge = getColorDef(task.colorKey).base;
+            const connector = row.depth > 0 ? '<span class="task-connector anim" aria-hidden="true"></span>' : '';
             return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
-                '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '">' + (hasChildren ? (expanded ? '▾' : '▸') : '•') + '</button>' +
-                '<div class="task-title-wrap" style="padding-left:' + indent + 'px"><span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
+                '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '">' + (hasChildren ? (expanded ? '▾' : '▸') : '') + '</button>' +
+                '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
             '</div>';
         }).join('');
     }
@@ -482,6 +483,13 @@
         byId('taskParentId').value = task ? task.parentId : '';
         byId('taskArchiveBtn').style.display = task ? 'inline-block' : 'none';
         byId('taskModal').classList.add('open');
+
+        byId('taskParentId').onchange = function () {
+            const parent = state.tasks.find(function (t) { return t.taskId === byId('taskParentId').value; });
+            if (!parent) return;
+            byId('taskStartDate').value = parent.startDate;
+            if (toDate(byId('taskDueDate').value) < toDate(parent.startDate)) byId('taskDueDate').value = parent.startDate;
+        };
     }
 
     function closeModal() {
@@ -490,9 +498,11 @@
 
     async function saveTask() {
         const now = isoNow();
+        const parentIdValue = byId('taskParentId').value;
+        const parentTask = parentIdValue ? state.tasks.find(function (t) { return t.taskId === parentIdValue; }) : null;
         const payload = {
             taskId: state.editingId || ('TASK-' + Date.now()),
-            parentId: byId('taskParentId').value,
+            parentId: parentIdValue,
             sortOrder: nextSortOrder(),
             level: byId('taskParentId').value ? 'child' : 'group',
             title: byId('taskTitle').value.trim() || 'New Task',
@@ -514,6 +524,11 @@
             updatedAt: now,
             createdBy: 'dashboard'
         };
+
+        if (parentTask) {
+            payload.startDate = parentTask.startDate;
+            if (payload.dueDate && toDate(payload.dueDate) < toDate(payload.startDate)) payload.dueDate = payload.startDate;
+        }
 
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
@@ -539,7 +554,24 @@
         applyFilters();
     }
 
+    function getChildTasks(parentId) {
+        return state.tasks.filter(function (t) { return String(t.parentId || '') === String(parentId || ''); });
+    }
+
+    function shiftTaskWithChildren(parentTask, deltaDays, out) {
+        const children = getChildTasks(parentTask.taskId);
+        children.forEach(function (child) {
+            ensureTaskDates(child);
+            child.startDate = shiftIsoDate(child.startDate, deltaDays);
+            child.dueDate = shiftIsoDate(child.dueDate, deltaDays);
+            child.updatedAt = isoNow();
+            out.push(child);
+            shiftTaskWithChildren(child, deltaDays, out);
+        });
+    }
+
     async function updateTaskDatesFromDrag(task, nextStart, nextDue) {
+        const prevStart = task.startDate;
         task.startDate = nextStart;
         task.dueDate = nextDue;
         task.updatedAt = isoNow();
@@ -549,6 +581,21 @@
             dueDate: task.dueDate,
             updatedAt: task.updatedAt
         });
+
+        const deltaDays = Math.round((toDate(task.startDate) - toDate(prevStart)) / DAY_MS);
+        if (deltaDays && getChildTasks(task.taskId).length) {
+            const shifted = [];
+            shiftTaskWithChildren(task, deltaDays, shifted);
+            for (let i = 0; i < shifted.length; i++) {
+                const child = shifted[i];
+                await writeTask('updateTask', {
+                    taskId: child.taskId,
+                    startDate: child.startDate,
+                    dueDate: child.dueDate,
+                    updatedAt: child.updatedAt
+                });
+            }
+        }
     }
 
     function startDrag(taskId, dragType, clientX) {
@@ -699,7 +746,13 @@
                 return;
             }
             const row = e.target.closest('.tasks-row');
-            if (row) openModal(row.getAttribute('data-task-id'));
+            if (!row) return;
+            const taskId = row.getAttribute('data-task-id');
+            const task = state.tasks.find(function (t) { return t.taskId === taskId; });
+            if (task && task.children && task.children.length) {
+                state.expanded[taskId] = state.expanded[taskId] === false;
+                applyFilters();
+            }
         });
 
         els.ganttWrap.addEventListener('click', function (e) {
