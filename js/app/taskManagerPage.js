@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','taskColor','archived','createdAt','updatedAt','createdBy'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -20,7 +20,8 @@
         filtersOpen: false,
         drag: null,
         range: null,
-        colPx: 42
+        colPx: 42,
+        itemLookupRows: []
     };
 
     const els = {};
@@ -31,6 +32,29 @@
     function toISODate(v) { const d = toDate(v); return d ? d.toISOString().slice(0, 10) : ''; }
     function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]; }); }
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function normalizeColor(color) {
+        const v = String(color || '').trim();
+        return /^#[0-9a-fA-F]{6}$/.test(v) ? v : '#11998e';
+    }
+
+    function lightenHex(hex, amount) {
+        const c = normalizeColor(hex).replace('#', '');
+        const r = parseInt(c.slice(0, 2), 16);
+        const g = parseInt(c.slice(2, 4), 16);
+        const b = parseInt(c.slice(4, 6), 16);
+        const a = clamp(Number(amount || 0), 0, 1);
+        const nr = Math.round(r + (255 - r) * a);
+        const ng = Math.round(g + (255 - g) * a);
+        const nb = Math.round(b + (255 - b) * a);
+        return '#' + [nr, ng, nb].map(function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+    }
+
+    function toColorGradient(hex, isChild) {
+        const base = normalizeColor(hex);
+        const light = lightenHex(base, isChild ? 0.32 : 0.18);
+        return 'linear-gradient(135deg, ' + base + ', ' + light + ')';
+    }
 
     function shiftIsoDate(iso, days) {
         const base = toDate(iso) || new Date();
@@ -127,15 +151,7 @@
         return (localStorage.getItem('spike_webAppUrl') || localStorage.getItem('jsonp_proxy_webAppUrl') || '').trim();
     }
 
-    function sampleTasks() {
-        const now = isoNow();
-        return [
-            { taskId:'GRP-1', parentId:'', sortOrder:10, level:'group', title:'Quarterly Optimization', description:'Main group', status:'In Progress', priority:'High', assignee:'SARV', startDate:'2026-03-01', dueDate:'2026-03-31', percentComplete:48, itemCode:'', itemName:'', location:'Main Pharmacy', sublocation:'', dependencyIds:'', archived:false, createdAt:now, updatedAt:now, createdBy:'system' },
-            { taskId:'TSK-1', parentId:'GRP-1', sortOrder:20, level:'parent', title:'Update shortage protocol', description:'Parent task', status:'In Progress', priority:'High', assignee:'Alex', startDate:'2026-03-02', dueDate:'2026-03-18', percentComplete:62, itemCode:'12345', itemName:'Epinephrine', location:'ED', sublocation:'Pyxis A', dependencyIds:'', archived:false, createdAt:now, updatedAt:now, createdBy:'system' },
-            { taskId:'SUB-1', parentId:'TSK-1', sortOrder:30, level:'child', title:'Review substitution paths', description:'Subtask', status:'Not Started', priority:'Medium', assignee:'Jordan', startDate:'2026-03-08', dueDate:'2026-03-15', percentComplete:10, itemCode:'12345', itemName:'Epinephrine', location:'ED', sublocation:'Pyxis A', dependencyIds:'', archived:false, createdAt:now, updatedAt:now, createdBy:'system' },
-            { taskId:'SUB-2', parentId:'TSK-1', sortOrder:40, level:'child', title:'Validate cabinet locations', description:'Subtask', status:'Blocked', priority:'Critical', assignee:'Taylor', startDate:'2026-03-11', dueDate:'2026-03-20', percentComplete:20, itemCode:'77612', itemName:'Norepinephrine', location:'ICU', sublocation:'Tower 3', dependencyIds:'SUB-1', archived:false, createdAt:now, updatedAt:now, createdBy:'system' }
-        ];
-    }
+    function emptyFallbackTasks() { return []; }
 
     function normalizeTask(raw, idx) {
         const out = {};
@@ -146,6 +162,7 @@
         out.title = String(out.title || 'New Task');
         out.status = String(out.status || 'Not Started');
         out.priority = String(out.priority || 'Medium');
+        out.taskColor = String(out.taskColor || '#11998e');
         out.percentComplete = Math.max(0, Math.min(100, Number(out.percentComplete || 0)));
         out.archived = String(out.archived).toLowerCase() === 'true' || out.archived === true;
         out.startDate = toISODate(out.startDate);
@@ -163,7 +180,7 @@
         const webAppUrl = getWebAppUrl();
         if (!webAppUrl) {
             state.usingMock = true;
-            state.tasks = sampleTasks().map(normalizeTask);
+            state.tasks = emptyFallbackTasks().map(normalizeTask);
             state.loading = false;
             applyFilters();
             return;
@@ -177,9 +194,9 @@
             state.tasks = res.tasks.map(normalizeTask);
             state.usingMock = false;
         } catch (e) {
-            console.warn('Task load failed, using sample data', e);
+            console.warn('Task load failed, using empty fallback', e);
             state.usingMock = true;
-            state.tasks = sampleTasks().map(normalizeTask);
+            state.tasks = emptyFallbackTasks().map(normalizeTask);
         }
 
         state.loading = false;
@@ -296,7 +313,9 @@
             const indent = row.depth * 14;
             return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '">' + (hasChildren ? (expanded ? '▾' : '▸') : '•') + '</button>' +
-                '<div class="task-title-wrap" style="padding-left:' + indent + 'px"><span class="task-title" title="' + esc(task.title) + '">' + esc(task.title) + '</span></div>' +
+                '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' +
+                '<span class="task-color-badge" style="background:' + esc(normalizeColor(task.taskColor)) + '"></span>' +
+                '<span class="task-title" title="' + esc(task.title) + '">' + esc(task.title) + '</span></div>' +
             '</div>';
         }).join('');
     }
@@ -330,10 +349,10 @@
     }
 
     function ganttColor(status) {
-        if (status === 'Done') return 'rgba(79, 176, 91, 0.9)';
-        if (status === 'Blocked') return 'rgba(223, 108, 78, 0.9)';
-        if (status === 'Not Started') return 'rgba(124, 132, 143, 0.9)';
-        return 'rgba(43, 191, 179, 0.9)';
+        if (status === 'Done') return 'linear-gradient(135deg, #42e9a0, #20c8b5)';
+        if (status === 'Blocked') return 'linear-gradient(135deg, #ff7f67, #ff5454)';
+        if (status === 'Not Started') return 'linear-gradient(135deg, #8e9eab, #6b7280)';
+        return 'linear-gradient(135deg, #11998e, #38ef7d)';
     }
 
     function renderGantt() {
@@ -350,20 +369,43 @@
         state.range = range;
 
         const cols = [];
-        for (let i = 0; i < days; i++) {
-            const dt = new Date(range.start.getTime() + (i * DAY_MS));
-            if (state.zoom === 'month' && dt.getDay() !== 1) continue;
-            cols.push(dt);
+        if (state.zoom === 'month') {
+            const cursor = new Date(range.start.getFullYear(), range.start.getMonth(), 1);
+            while (cursor <= range.end) {
+                cols.push(new Date(cursor));
+                cursor.setMonth(cursor.getMonth() + 1);
+            }
+        } else {
+            for (let i = 0; i < days; i++) {
+                const dt = new Date(range.start.getTime() + (i * DAY_MS));
+                cols.push(dt);
+            }
         }
 
-        els.ganttWrap.style.backgroundSize = colPx + 'px 100%, 100% 34px';
+        function weekIndexFrom(date) {
+            const startMonday = new Date(range.start);
+            const startOffset = (startMonday.getDay() + 6) % 7;
+            startMonday.setDate(startMonday.getDate() - startOffset);
+            return Math.floor((date - startMonday) / DAY_MS / 7);
+        }
 
         const gridCols = 'repeat(' + cols.length + ',' + colPx + 'px)';
-        const head = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
-            const label = state.zoom === 'day'
-                ? ((d.getMonth() + 1) + '/' + d.getDate() + ' ' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()])
-                : ((d.getMonth() + 1) + '/' + d.getDate());
-            return '<div class="gantt-cell">' + esc(label) + '</div>';
+        const monthHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+            let monthLabel = '';
+            if (state.zoom === 'month') monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+            else if (d.getDate() === 1) monthLabel = d.toLocaleString('en-US', { month: 'short' });
+            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
+            return '<div class="gantt-cell month-marker' + weekAlt + '">' + esc(monthLabel) + '</div>';
+        }).join('') + '</div>';
+
+        const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const axisHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+            let label = '';
+            if (state.zoom === 'day') label = dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0');
+            else if (state.zoom === 'week') label = String(d.getDate()).padStart(2, '0');
+            else label = d.toLocaleString('en-US', { month: 'short' });
+            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
+            return '<div class="gantt-cell' + weekAlt + '">' + esc(label) + '</div>';
         }).join('') + '</div>';
 
         const body = rows.map(function (row) {
@@ -374,19 +416,28 @@
             if (sDate && dDate) {
                 const startOffsetDays = Math.max(0, Math.floor((sDate - range.start) / DAY_MS));
                 const durationDays = Math.max(1, Math.floor((dDate - sDate) / DAY_MS) + 1);
-                const leftUnits = state.zoom === 'month' ? Math.floor(startOffsetDays / 7) : startOffsetDays;
-                const widthUnits = state.zoom === 'month' ? Math.max(1, Math.ceil(durationDays / 7)) : durationDays;
+                const leftUnits = state.zoom === 'month'
+                    ? Math.max(0, ((sDate.getFullYear() * 12) + sDate.getMonth()) - ((range.start.getFullYear() * 12) + range.start.getMonth()))
+                    : startOffsetDays;
+                const widthUnits = state.zoom === 'month'
+                    ? Math.max(1, (((dDate.getFullYear() * 12) + dDate.getMonth()) - ((sDate.getFullYear() * 12) + sDate.getMonth()) + 1))
+                    : durationDays;
                 const left = leftUnits * colPx;
                 const width = Math.max(18, (widthUnits * colPx) - 6);
-                bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t.status) + '">' +
+                const isChild = !!String(t.parentId || '').trim();
+                const barBg = (t.taskColor && String(t.taskColor).trim()) ? toColorGradient(t.taskColor, isChild) : ganttColor(t.status);
+                bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + (isChild ? ' is-child' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + barBg + '">' +
                     '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
                     '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                 '</div>';
             }
-            return '<div class="gantt-row" style="grid-template-columns:' + gridCols + '">' + cols.map(function () { return '<div class="gantt-cell"></div>'; }).join('') + bar + '</div>';
+            return '<div class="gantt-row" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+                const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
+                return '<div class="gantt-cell' + weekAlt + '"></div>';
+            }).join('') + bar + '</div>';
         }).join('');
 
-        els.ganttWrap.innerHTML = head + body;
+        els.ganttWrap.innerHTML = monthHead + axisHead + body;
     }
 
     function openModal(taskId) {
@@ -402,10 +453,14 @@
         byId('taskPercent').value = task ? task.percentComplete : 0;
         byId('taskItemCode').value = task ? task.itemCode : '';
         byId('taskItemName').value = task ? task.itemName : '';
+        autoSizeItemCodeInput((task && (task.itemName || task.description)) || byId('taskItemCode').value);
+        closeItemLookup();
         byId('taskLocation').value = task ? task.location : '';
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
+        byId('taskColor').value = normalizeColor(task ? task.taskColor : '#11998e');
+        syncTaskColorPickerUi();
 
         byId('taskParentId').innerHTML = ['<option value="">No parent (group)</option>'].concat(
             state.tasks.filter(function (t) { return !task || t.taskId !== task.taskId; }).map(function (t) {
@@ -441,6 +496,7 @@
             location: byId('taskLocation').value.trim(),
             sublocation: byId('taskSublocation').value.trim(),
             dependencyIds: '',
+            taskColor: normalizeColor(byId('taskColor').value),
             archived: false,
             createdAt: state.editingId ? (state.tasks.find(function (t) { return t.taskId === state.editingId; }) || {}).createdAt || now : now,
             updatedAt: now,
@@ -564,23 +620,8 @@
     }
 
     function createNewTaskBlock() {
-        const now = toISODate(new Date());
-        const id = 'TASK-' + Date.now();
-        const draft = normalizeTask({
-            taskId: id,
-            title: 'New Task',
-            startDate: now,
-            dueDate: shiftIsoDate(now, 2),
-            status: 'Not Started',
-            priority: 'Medium',
-            sortOrder: nextSortOrder(),
-            createdAt: isoNow(),
-            updatedAt: isoNow(),
-            createdBy: 'dashboard'
-        }, state.tasks.length);
-        state.tasks.push(draft);
-        applyFilters();
-        openModal(id);
+        state.editingId = null;
+        openModal();
     }
 
     function bindEvents() {
@@ -626,6 +667,16 @@
         byId('taskSaveBtn').addEventListener('click', saveTask);
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
 
+        const colorPicker = byId('taskColorPicker');
+        if (colorPicker) {
+            colorPicker.addEventListener('click', function (e) {
+                const btn = e.target.closest('[data-task-color]');
+                if (!btn) return;
+                byId('taskColor').value = normalizeColor(btn.getAttribute('data-task-color'));
+                syncTaskColorPickerUi();
+            });
+        }
+
         els.listBody.addEventListener('click', function (e) {
             const toggleId = e.target && e.target.getAttribute('data-toggle');
             if (toggleId) {
@@ -663,11 +714,27 @@
             finishDrag();
         });
 
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) loadTasks();
+        });
+
         window.addEventListener('message', function (event) {
             if (!event || !event.data) return;
             if (event.data.type === 'darkModeToggle') {
                 document.body.classList.toggle('dark-mode', !!event.data.enabled);
             }
+            if (event.data.type === 'setReferrer') {
+                loadTasks();
+            }
+        });
+    }
+
+    function syncTaskColorPickerUi() {
+        const active = normalizeColor((byId('taskColor') && byId('taskColor').value) || '#11998e');
+        const nodes = document.querySelectorAll('#taskColorPicker [data-task-color]');
+        nodes.forEach(function (node) {
+            const c = normalizeColor(node.getAttribute('data-task-color'));
+            node.classList.toggle('active', c === active);
         });
     }
 
@@ -706,9 +773,117 @@
         } catch (_) {}
     }
 
+
+    function getLookupItems() {
+        const uniq = new Map();
+        function addRows(rows) {
+            if (!Array.isArray(rows)) return;
+            rows.forEach(function (row) {
+                const itemCode = String((row && row.itemCode) || '').trim();
+                const description = String((row && row.description) || '').trim();
+                const drugName = String((row && row.drugName) || '').trim();
+                if (!itemCode && !description && !drugName) return;
+                const key = (itemCode + '|' + description + '|' + drugName).toLowerCase();
+                if (!uniq.has(key)) uniq.set(key, { itemCode: itemCode, description: description, drugName: drugName });
+            });
+        }
+        try {
+            if (window.parent && window.parent.ITEMS_DATA && Array.isArray(window.parent.ITEMS_DATA.items)) addRows(window.parent.ITEMS_DATA.items);
+        } catch (_) {}
+        try { if (window.ITEMS_DATA && Array.isArray(window.ITEMS_DATA.items)) addRows(window.ITEMS_DATA.items); } catch (_) {}
+        try {
+            const parentData = window.parent && window.parent.MOCK_DATA;
+            if (parentData && Array.isArray(parentData.items)) addRows(parentData.items);
+        } catch (_) {}
+        return Array.from(uniq.values());
+    }
+
+    function autoSizeItemCodeInput(text) {
+        const el = byId('taskItemCode');
+        if (!el) return;
+        const next = String(text || '').trim();
+        const len = clamp(next.length, 18, 90);
+        el.style.minWidth = (len * 7) + 'px';
+    }
+
+    function closeItemLookup() {
+        const dd = byId('taskItemLookup');
+        if (!dd) return;
+        dd.style.display = 'none';
+        dd.innerHTML = '';
+    }
+
+    function renderItemLookup(matches) {
+        const dd = byId('taskItemLookup');
+        if (!dd) return;
+        if (!matches.length) { closeItemLookup(); return; }
+        dd.innerHTML = matches.map(function (m, idx) {
+            const label = m.description || m.drugName || '';
+            return '<div class="dropdown-option" data-lookup-idx="' + idx + '" role="option">' +
+                '<span class="lookup-option-code">' + esc(m.itemCode || '—') + '</span>' +
+                '<span class="lookup-option-name">' + esc(label) + '</span>' +
+            '</div>';
+        }).join('');
+        dd.style.display = 'block';
+    }
+
+    function bindTaskItemLookup() {
+        const input = byId('taskItemCode');
+        const itemNameInput = byId('taskItemName');
+        const dd = byId('taskItemLookup');
+        if (!input || !dd || !itemNameInput) return;
+
+        state.itemLookupRows = getLookupItems();
+
+        function findMatches(term) {
+            const q = String(term || '').trim().toLowerCase();
+            if (!q) return [];
+            const results = [];
+            for (let i = 0; i < state.itemLookupRows.length; i++) {
+                const row = state.itemLookupRows[i];
+                const hay = [row.description, row.drugName, row.itemCode].join(' ').toLowerCase();
+                if (hay.indexOf(q) === -1) continue;
+                results.push(row);
+                if (results.length >= 12) break;
+            }
+            return results;
+        }
+
+        input.addEventListener('input', function () {
+            const matches = findMatches(input.value);
+            renderItemLookup(matches);
+            autoSizeItemCodeInput(input.value);
+        });
+
+        input.addEventListener('focus', function () {
+            if (!input.value) return;
+            renderItemLookup(findMatches(input.value));
+        });
+
+        dd.addEventListener('mousedown', function (e) {
+            const opt = e.target.closest('.dropdown-option');
+            if (!opt) return;
+            e.preventDefault();
+            const idx = Number(opt.getAttribute('data-lookup-idx'));
+            const rows = findMatches(input.value);
+            const pick = rows[idx];
+            if (!pick) return;
+            input.value = String(pick.itemCode || '');
+            itemNameInput.value = String(pick.description || pick.drugName || '');
+            autoSizeItemCodeInput(itemNameInput.value || input.value);
+            closeItemLookup();
+        });
+
+        document.addEventListener('click', function (e) {
+            const wrap = e.target.closest('.task-itemcode-lookup');
+            if (!wrap) closeItemLookup();
+        });
+    }
+
     async function init() {
         cacheEls();
         bindEvents();
+        bindTaskItemLookup();
         bootstrapInventoryHint();
         syncFilterPanelUi();
         syncZoomOutUi();

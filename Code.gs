@@ -463,7 +463,7 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','taskColor','archived','createdAt','updatedAt','createdBy'];
 }
 
 function ensureTaskSheet_(sheetId, tabName) {
