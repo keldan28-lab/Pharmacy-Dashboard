@@ -155,6 +155,30 @@
             letter-spacing: 0.06em;
             text-transform: uppercase;
             color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .tasks-sort-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border: 1px solid rgba(160,160,160,0.22);
+            background: rgba(255,255,255,0.04);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            line-height: 1;
+        }
+        .tasks-sort-btn:hover { background: rgba(255,255,255,0.1); }
+        .tasks-sort-mode {
+            opacity: 0.86;
+            font-size: 10px;
+            letter-spacing: 0.04em;
         }
         .tasks-list-gap {
             height: 22px;
@@ -398,7 +422,7 @@
 
         <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
-                <div class="tasks-list-header">Task Name</div>
+                <div class="tasks-list-header"><span>Task Name <span id="tasksSortMode" class="tasks-sort-mode">(Manual)</span></span><button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button></div>
                 <div class="tasks-list-gap" aria-hidden="true"></div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>

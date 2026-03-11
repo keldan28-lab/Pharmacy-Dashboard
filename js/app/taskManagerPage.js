@@ -33,7 +33,8 @@
         itemLookupRows: [],
         leftPaneCollapsed: false,
         leftPaneWidth: 360,
-        resizing: null
+        resizing: null,
+        sortMode: 'manual'
     };
 
     const els = {};
@@ -220,6 +221,23 @@
         applyFilters();
     }
 
+
+    function priorityRank(priority) {
+        const p = String(priority || '').toLowerCase();
+        if (p === 'critical') return 0;
+        if (p === 'high') return 1;
+        if (p === 'medium') return 2;
+        if (p === 'low') return 3;
+        return 4;
+    }
+
+    function taskComparator(a, b) {
+        if (state.sortMode === 'name') return String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' }) || (a.sortOrder - b.sortOrder);
+        if (state.sortMode === 'priority') return priorityRank(a.priority) - priorityRank(b.priority) || String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' });
+        if (state.sortMode === 'assignee') return String(a.assignee || '').localeCompare(String(b.assignee || ''), undefined, { sensitivity: 'base' }) || String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' });
+        return a.sortOrder - b.sortOrder;
+    }
+
     function buildTree() {
         const byIdMap = {};
         state.tasks.forEach(function (t) { t.children = []; byIdMap[t.taskId] = t; });
@@ -230,7 +248,7 @@
         });
 
         function sortChildren(arr) {
-            arr.sort(function (a, b) { return a.sortOrder - b.sortOrder; });
+            arr.sort(taskComparator);
             arr.forEach(function (child) { sortChildren(child.children); });
         }
         sortChildren(roots);
@@ -629,7 +647,54 @@
         }
     }
 
-    function startDrag(taskId, dragType, clientX) {
+
+    function updateSortUi() {
+        const btn = byId('tasksSortBtn');
+        const modeEl = byId('tasksSortMode');
+        const labels = { manual: 'Manual', name: 'Name', priority: 'Importance', assignee: 'Assignee' };
+        const label = labels[state.sortMode] || 'Manual';
+        if (btn) btn.title = 'Sort: ' + label;
+        if (modeEl) modeEl.textContent = '(' + label + ')';
+    }
+
+    function persistSiblingOrder(parentId) {
+        const siblings = state.tasks
+            .filter(function (t) { return String(t.parentId || '') === String(parentId || ''); })
+            .sort(function (a, b) { return a.sortOrder - b.sortOrder; });
+        return Promise.all(siblings.map(function (task, idx) {
+            task.sortOrder = (idx + 1) * 10;
+            task.updatedAt = isoNow();
+            return writeTask('reorderTask', { taskId: task.taskId, parentId: task.parentId || '', sortOrder: task.sortOrder, updatedAt: task.updatedAt });
+        }));
+    }
+
+    function reorderWithinHierarchy(drag, clientY) {
+        const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
+        if (!task) return;
+        const rowHeight = 40;
+        const ganttTop = els.ganttWrap.getBoundingClientRect().top + 68;
+        const idx = Math.floor((clientY - ganttTop) / rowHeight);
+        if (idx < 0 || idx >= state.flatRows.length) return;
+        const targetTask = state.flatRows[idx].task;
+        if (!targetTask || targetTask.taskId === task.taskId) return;
+        if (String(targetTask.parentId || '') !== String(task.parentId || '')) return;
+
+        const siblings = state.tasks
+            .filter(function (t) { return String(t.parentId || '') === String(task.parentId || ''); })
+            .sort(function (a, b) { return a.sortOrder - b.sortOrder; });
+        const fromIdx = siblings.findIndex(function (t) { return t.taskId === task.taskId; });
+        const toIdx = siblings.findIndex(function (t) { return t.taskId === targetTask.taskId; });
+        if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+
+        const moved = siblings.splice(fromIdx, 1)[0];
+        siblings.splice(toIdx, 0, moved);
+        siblings.forEach(function (sibling, orderIdx) { sibling.sortOrder = (orderIdx + 1) * 10; });
+        drag.reordered = true;
+        drag.moved = true;
+        applyFilters();
+    }
+
+    function startDrag(taskId, dragType, clientX, clientY) {
         const task = state.tasks.find(function (t) { return t.taskId === taskId; });
         if (!task) return;
         ensureTaskDates(task);
@@ -642,7 +707,9 @@
             dueDate: task.dueDate,
             stepDays: 1,
             moved: false,
-            lastDeltaDays: 0
+            lastDeltaDays: 0,
+            startY: clientY,
+            reordered: false
         };
     }
 
@@ -652,15 +719,27 @@
         if (!drag || !drag.moved) return;
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
+        if (drag.reordered) {
+            await persistSiblingOrder(task.parentId || '');
+            applyFilters();
+            return;
+        }
         await updateTaskDatesFromDrag(task, task.startDate, task.dueDate);
         applyFilters();
     }
 
-    function onDragMove(clientX) {
+    function onDragMove(clientX, clientY) {
         const drag = state.drag;
         if (!drag) return;
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
+
+        const yDelta = clientY - drag.startY;
+        const xDelta = clientX - drag.startX;
+        if (drag.dragType === 'move' && Math.abs(yDelta) > 12 && Math.abs(yDelta) > Math.abs(xDelta)) {
+            reorderWithinHierarchy(drag, clientY);
+            return;
+        }
 
         const rawDeltaCols = (clientX - drag.startX) / Math.max(1, state.colPx);
         const deltaDays = (rawDeltaCols >= 0 ? Math.floor(rawDeltaCols) : Math.ceil(rawDeltaCols)) * drag.stepDays;
@@ -761,6 +840,14 @@
             renderGantt();
         });
 
+        byId('tasksSortBtn').addEventListener('click', function () {
+            const order = ['manual', 'name', 'priority', 'assignee'];
+            const idx = order.indexOf(state.sortMode);
+            state.sortMode = order[(idx + 1) % order.length];
+            updateSortUi();
+            applyFilters();
+        });
+
         byId('tasksExpandAll').addEventListener('click', function () {
             const collapse = state.flatRows.some(function (r) { return r.task.children && r.task.children.length && state.expanded[r.task.taskId] !== false; });
             state.flatRows.forEach(function (r) {
@@ -835,7 +922,7 @@
             const dragType = hit.getAttribute('data-drag-type') || 'move';
             if (!taskId) return;
             e.preventDefault();
-            startDrag(taskId, dragType, e.clientX);
+            startDrag(taskId, dragType, e.clientX, e.clientY);
         });
 
         window.addEventListener('pointermove', function (e) {
@@ -846,7 +933,7 @@
                 return;
             }
             if (!state.drag) return;
-            onDragMove(e.clientX);
+            onDragMove(e.clientX, e.clientY);
         });
 
         window.addEventListener('pointerup', function () {
@@ -1024,6 +1111,7 @@
         syncFilterPanelUi();
         syncZoomOutUi();
         syncShellLayout();
+        updateSortUi();
         await loadTasks();
     }
 
