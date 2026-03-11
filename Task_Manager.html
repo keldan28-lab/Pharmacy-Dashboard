@@ -60,7 +60,7 @@
             color: #f7ffff;
         }
         .tasks-top-icon svg { width: 20px; height: 20px; }
-        .tasks-top-title { font-size: 18px; font-weight: 600; color: #f7ffff; letter-spacing: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .tasks-top-title { font-size: clamp(2.1rem, 4vw, 3rem); font-weight: 600; color: #f7ffff; letter-spacing: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.05; }
         .tasks-top-subtitle { color: rgba(245,255,255,0.85); font-size: 12px; margin-top: 2px; }
         .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto auto; gap: 8px; }
 
@@ -129,6 +129,7 @@
 
         .tasks-list-header {
             padding: 8px 12px;
+            margin-top: 20px;
             border-bottom: 1px solid rgba(160,160,160,0.18);
             font-size: 11px;
             letter-spacing: 0.06em;
@@ -137,9 +138,8 @@
         }
         .tasks-list-gap {
             height: 32px;
-            border-bottom: 1px solid rgba(160,160,160,0.18);
         }
-        .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; }
+        .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; margin-top: -10px; }
         .tasks-row {
             display: grid;
             grid-template-columns: 24px 1fr;
@@ -159,16 +159,18 @@
         .task-color-badge { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 7px; vertical-align: middle; }
         .task-connector {
             position: absolute;
-            left: -9px;
+            left: -16px;
             top: 50%;
-            height: 1px;
-            width: 0;
-            background: rgba(42, 184, 173, 0.55);
+            height: 2px;
+            width: 14px;
+            transform: translateY(-50%);
+            background: currentColor;
+            opacity: 0;
         }
-        .task-connector.anim { animation: taskConnectorGrow 220ms ease-out forwards; }
+        .task-connector.anim { animation: taskConnectorGrow 260ms ease-out forwards; }
         @keyframes taskConnectorGrow {
             from { width: 0; opacity: 0.2; }
-            to { width: 14px; opacity: 1; }
+            to { width: 18px; opacity: 0.9; }
         }
 
         .gantt-wrap {
@@ -200,10 +202,6 @@
             color: var(--text-secondary);
             min-height: 20px;
             border-bottom: 1px solid rgba(160,160,160,0.16);
-        }
-        .gantt-cell.week-alt,
-        .gantt-row .gantt-cell.week-alt {
-            background: rgba(17, 153, 142, 0.05);
         }
         .gantt-cell.weekend-cell,
         .gantt-row .gantt-cell.weekend-cell {

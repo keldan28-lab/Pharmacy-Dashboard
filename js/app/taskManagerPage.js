@@ -310,9 +310,9 @@
             const expanded = state.expanded[task.taskId] !== false;
             const indent = row.depth * 14;
             const badge = getColorDef(task.colorKey).base;
-            const connector = row.depth > 0 ? '<span class="task-connector anim" aria-hidden="true"></span>' : '';
+            const connector = row.depth > 0 ? '<span class="task-connector anim" style="color:' + esc(badge) + '" aria-hidden="true"></span>' : '';
             return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
-                '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '">' + (hasChildren ? (expanded ? '▾' : '▸') : '') + '</button>' +
+                '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
                 '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
             '</div>';
         }).join('');
@@ -407,9 +407,7 @@
         function cellClassForDate(d) {
             const day = d.getDay();
             const isWeekend = day === 0 || day === 6;
-            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
-            const weekend = isWeekend ? ' weekend-cell' : '';
-            return weekAlt + weekend;
+            return isWeekend ? ' weekend-cell' : '';
         }
 
         const monthHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
