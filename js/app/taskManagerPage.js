@@ -708,6 +708,18 @@
         openModal();
     }
 
+
+    function openNewTaskWithPrefill(prefill) {
+        state.editingId = null;
+        openModal();
+        const itemCode = String((prefill && prefill.itemCode) || '').trim();
+        const itemName = String((prefill && prefill.itemName) || '').trim();
+        if (itemCode) byId('taskItemCode').value = itemCode;
+        if (itemName) byId('taskItemName').value = itemName;
+        autoSizeItemCodeInput(itemName || itemCode);
+        closeItemLookup();
+    }
+
     function syncShellLayout() {
         if (!els.shell) return;
         els.shell.style.setProperty('--left-pane-width', Math.max(240, Math.min(620, state.leftPaneWidth)) + 'px');
@@ -842,6 +854,10 @@
             }
             if (event.data.type === 'setReferrer') {
                 loadTasks();
+            }
+            if (event.data.type === 'openTaskComposer') {
+                const prefill = event.data.prefill || {};
+                openNewTaskWithPrefill(prefill);
             }
         });
     }

@@ -571,6 +571,7 @@
             const severityButtons = modalRoot.querySelectorAll('#etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity]');
             const severityGroup = modalRoot.querySelector('#etaSeverityToggleGroup');
             const severitySuggestion = modalRoot.querySelector('#etaSeveritySuggestion');
+            const addTaskBtn = modalRoot.querySelector('#etaAddTaskBtn');
             const fileInput = modalRoot.querySelector('#etaFileInput');
             const fileBtn = modalRoot.querySelector('#etaFileBtn');
             const filePath = modalRoot.querySelector('#etaFilePath');
@@ -882,6 +883,27 @@
                 });
             }
 
+
+
+            if (addTaskBtn) {
+                addTaskBtn.addEventListener('click', () => {
+                    const selected = getSelectedItem() || {};
+                    const itemCode = String(selected.itemCode || '').trim();
+                    const itemName = String(selected.description || selected.drugName || selected.name || '').trim();
+                    try {
+                        window.parent && window.parent.postMessage({
+                            type: 'OPEN_TASK_CREATE',
+                            data: {
+                                itemCode: itemCode,
+                                itemName: itemName
+                            }
+                        }, '*');
+                    } catch (err) {
+                        console.warn('⚠️ Failed to open task composer from ETA modal', err);
+                    }
+                    if (typeof closeDetailsModal === 'function') closeDetailsModal();
+                });
+            }
 
             saveBtn.addEventListener('click', async () => {
                 writeNotesToDraft();
@@ -2170,6 +2192,7 @@
                             <div class="eta-notes-toggle-group" id="etaNotesToggleGroup" role="group" aria-label="Notes type">
                                 <button type="button" class="eta-toggle-btn" data-notes-type="general">General</button>
                                 <button type="button" class="eta-toggle-btn" data-notes-type="sbar">SBAR</button>
+                                <button type="button" class="eta-toggle-btn eta-add-task-btn" id="etaAddTaskBtn">+ Add Task</button>
                             </div>
                             <textarea id="etaNotesInput" class="eta-notes-input" rows="3" placeholder="Add notes"></textarea>
                         </div>
