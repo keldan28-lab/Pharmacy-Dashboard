@@ -28,13 +28,6 @@
         }
         .tasks-header {
             display: flex;
-            flex-direction: column;
-            align-items: stretch;
-            gap: 10px;
-            width: 100%;
-        }
-        .tasks-header-main {
-            display: flex;
             align-items: center;
             gap: 12px;
         }
@@ -50,9 +43,7 @@
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            color: var(--text-primary);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            position: relative;
         }
         .tasks-top-card { border: 1px solid var(--card-border); border-radius: 16px; overflow: hidden; background: var(--card-bg); box-shadow: 0 8px 28px rgba(0,0,0,0.16); }
         .tasks-top-accent { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; gap: 12px; }
@@ -210,7 +201,6 @@
         .gantt-handle.left { left: 3px; }
         .gantt-handle.right { right: 3px; }
         .priority-high { box-shadow: inset 0 0 0 1px rgba(255,84,84,0.72), 0 8px 20px rgba(255, 84, 84, 0.26); }
-        .gantt-bar.is-child { box-shadow: 0 3px 8px rgba(17, 153, 142, 0.18); filter: saturate(0.85); }
 
         .tasks-empty { color: var(--text-secondary); text-align: center; padding: 24px; font-size: 13px; }
 
@@ -270,10 +260,6 @@
         .task-itemcode-lookup .dropdown-option:hover { background: rgba(17,153,142,0.12); }
         .task-itemcode-lookup .lookup-option-code { font-weight: 700; color: var(--teal-primary); margin-right: 8px; }
         .task-itemcode-lookup .lookup-option-name { color: var(--text-primary); }
-        .task-color-picker { grid-column: 1 / -1; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-        .task-color-picker-label { font-size: 12px; color: var(--text-secondary); font-weight: 700; margin-right: 6px; }
-        .task-color-dot { width: 22px; height: 22px; border-radius: 999px; border: 2px solid rgba(255,255,255,0.65); cursor:pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
-        .task-color-dot.active { outline: 2px solid var(--teal-primary); outline-offset: 1px; }
         .task-modal-actions { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
 
         @media (max-width: 980px) {
@@ -289,35 +275,33 @@
 <body>
     <div class="analytics-container tasks-container">
         <div class="analytics-header">
-            <div class="tasks-header">
-                <div class="header-content tasks-header-main">
-                    <span class="tasks-top-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M3 9h18"></path><path d="M8 3v3"></path><path d="M16 3v3"></path><rect x="4" y="5" width="16" height="16" rx="2" ry="2"></rect>
-                        </svg>
-                    </span>
-                    <div>
-                        <div class="tasks-top-title">Task Timeline</div>
-                        <div class="tasks-top-subtitle">Plan hierarchy + gantt bars with drag scheduling</div>
-                    </div>
-                </div>
-                <div class="tasks-top-controls">
-                    <input id="tasksSearch" class="tasks-input" placeholder="Search tasks" />
-                    <select id="tasksZoom" class="tasks-select">
-                        <option value="day">Day View</option>
-                        <option value="week" selected>Week View</option>
-                        <option value="month">Month View</option>
-                    </select>
-                    <button id="tasksZoomOutBtn" class="tasks-button" type="button">Zoom Out</button>
-                    <button id="tasksExpandAll" class="tasks-button" type="button">Expand/Collapse</button>
-                    <button id="tasksFilterToggle" class="tasks-button" type="button">Filters</button>
-                    <button id="tasksAddBtn" class="tasks-button primary" type="button">+ Add Task</button>
+            <div class="header-content tasks-header">
+                <span class="tasks-top-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9h18"></path><path d="M8 3v3"></path><path d="M16 3v3"></path><rect x="4" y="5" width="16" height="16" rx="2" ry="2"></rect>
+                    </svg>
+                </span>
+                <div>
+                    <div class="tasks-top-title">Task Timeline</div>
+                    <div class="tasks-top-subtitle">Plan hierarchy + gantt bars with drag scheduling</div>
                 </div>
             </div>
         </div>
         <div class="analytics-content tasks-content">
     <div class="tasks-page">
         <div class="tasks-top-card">
+            <div class="tasks-top-controls">
+                <input id="tasksSearch" class="tasks-input" placeholder="Search tasks" />
+                <select id="tasksZoom" class="tasks-select">
+                    <option value="day">Day View</option>
+                    <option value="week" selected>Week View</option>
+                    <option value="month">Month View</option>
+                </select>
+                <button id="tasksZoomOutBtn" class="tasks-button" type="button">Zoom Out</button>
+                <button id="tasksExpandAll" class="tasks-button" type="button">Expand/Collapse</button>
+                <button id="tasksFilterToggle" class="tasks-button" type="button">Filters</button>
+                <button id="tasksAddBtn" class="tasks-button primary" type="button">+ Add Task</button>
+            </div>
             <div id="tasksFiltersPanel" class="tasks-filter-panel">
                 <select id="tasksStatusFilter" class="tasks-select"></select>
                 <select id="tasksAssigneeFilter" class="tasks-select"></select>
@@ -360,15 +344,6 @@
                         <div class="task-optional-grid">
                             <select id="taskPriority" class="tasks-select"></select>
                             <input id="taskPercent" type="number" min="0" max="100" class="tasks-input" placeholder="Percent Complete" />
-                            <div class="task-color-picker" id="taskColorPicker" role="group" aria-label="Task color">
-                                <span class="task-color-picker-label">Color</span>
-                                <button type="button" class="task-color-dot" data-task-color="#11998e" style="background:#11998e"></button>
-                                <button type="button" class="task-color-dot" data-task-color="#2f80ed" style="background:#2f80ed"></button>
-                                <button type="button" class="task-color-dot" data-task-color="#f2994a" style="background:#f2994a"></button>
-                                <button type="button" class="task-color-dot" data-task-color="#bb6bd9" style="background:#bb6bd9"></button>
-                                <button type="button" class="task-color-dot" data-task-color="#eb5757" style="background:#eb5757"></button>
-                                <input type="hidden" id="taskColor" value="#11998e" />
-                            </div>
                             <div class="task-itemcode-lookup">
                                 <input id="taskItemCode" class="tasks-input" placeholder="Item code or drug name" autocomplete="off" />
                                 <div id="taskItemLookup" class="dropdown-options" role="listbox" aria-label="Item matches"></div>
