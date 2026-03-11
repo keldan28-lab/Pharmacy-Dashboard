@@ -810,6 +810,13 @@
                 e.preventDefault();
                 e.stopPropagation();
                 const willOpen = !etaCard.classList.contains('is-expanded');
+                if (willOpen) {
+                    const password = window.prompt('Enter password to expand details:');
+                    if (password !== 'admin') {
+                        window.alert('Access denied');
+                        return;
+                    }
+                }
                 setExpanded(willOpen);
                 if (willOpen) {
                     await refreshSelectedItemFromLatestSheet();

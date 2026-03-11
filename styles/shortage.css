@@ -2009,9 +2009,9 @@
 
         
         .eta-group-title {
-            font-size: 0.82em;
+            font-size: clamp(0.85em, 1.4vw, 0.95em);
             color: var(--teal-primary);
-            font-weight: 700;
+            font-weight: 600;
             margin-top: 2px;
         }
 
@@ -2054,6 +2054,24 @@
             border-color: rgba(17, 153, 142, 0.56);
             color: var(--teal-primary);
             transform: translateY(-1px);
+        }
+
+        #etaStatusToggleGroup .eta-toggle-btn:not(.active),
+        #etaNotesToggleGroup .eta-toggle-btn:not(.active) {
+            background: rgba(17, 153, 142, 0.03);
+            border-color: rgba(17, 153, 142, 0.22);
+        }
+
+        #etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity="moderate"] {
+            border-color: rgba(242, 201, 76, 0.58);
+            color: #8b6a00;
+            background: rgba(242, 201, 76, 0.12);
+        }
+
+        #etaSeverityToggleGroup .eta-toggle-btn[data-eta-severity="moderate"].active {
+            background: #f2c94c;
+            border-color: #d8ae2f;
+            color: #4a3600;
         }
 
          .eta-toggle-btn.active {
@@ -2144,6 +2162,14 @@
             padding: 6px 10px;
             cursor: pointer;
             font-weight: 600;
+            transition: transform 140ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
+        }
+
+        .eta-file-btn:hover {
+            transform: translateY(-1px);
+            background: rgba(17, 153, 142, 0.18);
+            border-color: rgba(17, 153, 142, 0.62);
+            box-shadow: 0 6px 14px rgba(17, 153, 142, 0.16);
         }
 
         .eta-file-path {
