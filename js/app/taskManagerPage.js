@@ -404,12 +404,20 @@
         }
 
         const gridCols = 'repeat(' + cols.length + ',' + colPx + 'px)';
+        function cellClassForDate(d) {
+            const day = d.getDay();
+            const isWeekend = day === 0 || day === 6;
+            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
+            const weekend = isWeekend ? ' weekend-cell' : '';
+            return weekAlt + weekend;
+        }
+
         const monthHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
             let monthLabel = '';
             if (state.zoom === 'month') monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
             else if (state.zoom === 'day') monthLabel = String(d.getDate()).padStart(2, '0');
             else if (d.getDate() === 1) monthLabel = d.toLocaleString('en-US', { month: 'short' });
-            return '<div class="gantt-cell month-marker">' + esc(monthLabel) + '</div>';
+            return '<div class="gantt-cell month-marker' + cellClassForDate(d) + '">' + esc(monthLabel) + '</div>';
         }).join('') + '</div>';
 
         const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -418,8 +426,7 @@
             if (state.zoom === 'day') label = dayNames[d.getDay()];
             else if (state.zoom === 'week') label = String(d.getDate()).padStart(2, '0');
             else label = d.toLocaleString('en-US', { month: 'short' });
-            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
-            return '<div class="gantt-cell' + weekAlt + '">' + esc(label) + '</div>';
+            return '<div class="gantt-cell' + cellClassForDate(d) + '">' + esc(label) + '</div>';
         }).join('') + '</div>';
 
         const body = rows.map(function (row) {
@@ -446,8 +453,7 @@
                 '</div>';
             }
             return '<div class="gantt-row" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
-                const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
-                return '<div class="gantt-cell' + weekAlt + '"></div>';
+                return '<div class="gantt-cell' + cellClassForDate(d) + '"></div>';
             }).join('') + bar + '</div>';
         }).join('');
 
