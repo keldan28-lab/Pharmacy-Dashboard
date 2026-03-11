@@ -20,7 +20,8 @@
         filtersOpen: false,
         drag: null,
         range: null,
-        colPx: 42
+        colPx: 42,
+        itemLookupRows: []
     };
 
     const els = {};
@@ -424,6 +425,8 @@
         byId('taskPercent').value = task ? task.percentComplete : 0;
         byId('taskItemCode').value = task ? task.itemCode : '';
         byId('taskItemName').value = task ? task.itemName : '';
+        autoSizeItemCodeInput((task && (task.itemName || task.description)) || byId('taskItemCode').value);
+        closeItemLookup();
         byId('taskLocation').value = task ? task.location : '';
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
@@ -713,9 +716,117 @@
         } catch (_) {}
     }
 
+
+    function getLookupItems() {
+        const uniq = new Map();
+        function addRows(rows) {
+            if (!Array.isArray(rows)) return;
+            rows.forEach(function (row) {
+                const itemCode = String((row && row.itemCode) || '').trim();
+                const description = String((row && row.description) || '').trim();
+                const drugName = String((row && row.drugName) || '').trim();
+                if (!itemCode && !description && !drugName) return;
+                const key = (itemCode + '|' + description + '|' + drugName).toLowerCase();
+                if (!uniq.has(key)) uniq.set(key, { itemCode: itemCode, description: description, drugName: drugName });
+            });
+        }
+        try {
+            if (window.parent && window.parent.ITEMS_DATA && Array.isArray(window.parent.ITEMS_DATA.items)) addRows(window.parent.ITEMS_DATA.items);
+        } catch (_) {}
+        try { if (window.ITEMS_DATA && Array.isArray(window.ITEMS_DATA.items)) addRows(window.ITEMS_DATA.items); } catch (_) {}
+        try {
+            const parentData = window.parent && window.parent.MOCK_DATA;
+            if (parentData && Array.isArray(parentData.items)) addRows(parentData.items);
+        } catch (_) {}
+        return Array.from(uniq.values());
+    }
+
+    function autoSizeItemCodeInput(text) {
+        const el = byId('taskItemCode');
+        if (!el) return;
+        const next = String(text || '').trim();
+        const len = clamp(next.length, 18, 90);
+        el.style.minWidth = (len * 7) + 'px';
+    }
+
+    function closeItemLookup() {
+        const dd = byId('taskItemLookup');
+        if (!dd) return;
+        dd.style.display = 'none';
+        dd.innerHTML = '';
+    }
+
+    function renderItemLookup(matches) {
+        const dd = byId('taskItemLookup');
+        if (!dd) return;
+        if (!matches.length) { closeItemLookup(); return; }
+        dd.innerHTML = matches.map(function (m, idx) {
+            const label = m.description || m.drugName || '';
+            return '<div class="dropdown-option" data-lookup-idx="' + idx + '" role="option">' +
+                '<span class="lookup-option-code">' + esc(m.itemCode || '—') + '</span>' +
+                '<span class="lookup-option-name">' + esc(label) + '</span>' +
+            '</div>';
+        }).join('');
+        dd.style.display = 'block';
+    }
+
+    function bindTaskItemLookup() {
+        const input = byId('taskItemCode');
+        const itemNameInput = byId('taskItemName');
+        const dd = byId('taskItemLookup');
+        if (!input || !dd || !itemNameInput) return;
+
+        state.itemLookupRows = getLookupItems();
+
+        function findMatches(term) {
+            const q = String(term || '').trim().toLowerCase();
+            if (!q) return [];
+            const results = [];
+            for (let i = 0; i < state.itemLookupRows.length; i++) {
+                const row = state.itemLookupRows[i];
+                const hay = [row.description, row.drugName, row.itemCode].join(' ').toLowerCase();
+                if (hay.indexOf(q) === -1) continue;
+                results.push(row);
+                if (results.length >= 12) break;
+            }
+            return results;
+        }
+
+        input.addEventListener('input', function () {
+            const matches = findMatches(input.value);
+            renderItemLookup(matches);
+            autoSizeItemCodeInput(input.value);
+        });
+
+        input.addEventListener('focus', function () {
+            if (!input.value) return;
+            renderItemLookup(findMatches(input.value));
+        });
+
+        dd.addEventListener('mousedown', function (e) {
+            const opt = e.target.closest('.dropdown-option');
+            if (!opt) return;
+            e.preventDefault();
+            const idx = Number(opt.getAttribute('data-lookup-idx'));
+            const rows = findMatches(input.value);
+            const pick = rows[idx];
+            if (!pick) return;
+            input.value = String(pick.itemCode || '');
+            itemNameInput.value = String(pick.description || pick.drugName || '');
+            autoSizeItemCodeInput(itemNameInput.value || input.value);
+            closeItemLookup();
+        });
+
+        document.addEventListener('click', function (e) {
+            const wrap = e.target.closest('.task-itemcode-lookup');
+            if (!wrap) closeItemLookup();
+        });
+    }
+
     async function init() {
         cacheEls();
         bindEvents();
+        bindTaskItemLookup();
         bootstrapInventoryHint();
         syncFilterPanelUi();
         syncZoomOutUi();

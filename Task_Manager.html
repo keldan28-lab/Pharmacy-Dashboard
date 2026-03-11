@@ -230,6 +230,31 @@
         .task-form-grid details { grid-column: 1 / -1; border: 1px solid var(--card-border); border-radius: 10px; padding: 8px; }
         .task-form-grid summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); font-weight: 700; }
         .task-optional-grid { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(170px, 1fr)); gap: 8px; }
+        .task-itemcode-lookup { grid-column: 1 / -1; position: relative; }
+        .task-itemcode-lookup .tasks-input { width: 100%; }
+        .task-itemcode-lookup .dropdown-options {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            z-index: 30;
+            max-height: 240px;
+            overflow: auto;
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            background: var(--card-bg);
+            box-shadow: 0 8px 18px rgba(0,0,0,0.18);
+            display: none;
+        }
+        .task-itemcode-lookup .dropdown-option {
+            padding: 8px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(150,150,150,0.15);
+        }
+        .task-itemcode-lookup .dropdown-option:last-child { border-bottom: 0; }
+        .task-itemcode-lookup .dropdown-option:hover { background: rgba(17,153,142,0.12); }
+        .task-itemcode-lookup .lookup-option-code { font-weight: 700; color: var(--teal-primary); margin-right: 8px; }
+        .task-itemcode-lookup .lookup-option-name { color: var(--text-primary); }
         .task-modal-actions { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
 
         @media (max-width: 980px) {
@@ -312,7 +337,10 @@
                         <div class="task-optional-grid">
                             <select id="taskPriority" class="tasks-select"></select>
                             <input id="taskPercent" type="number" min="0" max="100" class="tasks-input" placeholder="Percent Complete" />
-                            <input id="taskItemCode" class="tasks-input" placeholder="Item Code" />
+                            <div class="task-itemcode-lookup">
+                                <input id="taskItemCode" class="tasks-input" placeholder="Item code or drug name" autocomplete="off" />
+                                <div id="taskItemLookup" class="dropdown-options" role="listbox" aria-label="Item matches"></div>
+                            </div>
                             <input id="taskItemName" class="tasks-input" placeholder="Item Name" />
                             <input id="taskLocation" class="tasks-input" placeholder="Location" />
                             <input id="taskSublocation" class="tasks-input" placeholder="Sublocation" />
@@ -328,6 +356,7 @@
         </div>
     </div>
 
+    <script src="items_details_mockdata.js"></script>
     <script src="js/app/taskManagerPage.js"></script>
 </body>
 </html>
