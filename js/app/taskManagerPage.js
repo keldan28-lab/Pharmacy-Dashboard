@@ -127,15 +127,7 @@
         return (localStorage.getItem('spike_webAppUrl') || localStorage.getItem('jsonp_proxy_webAppUrl') || '').trim();
     }
 
-    function sampleTasks() {
-        const now = isoNow();
-        return [
-            { taskId:'GRP-1', parentId:'', sortOrder:10, level:'group', title:'Quarterly Optimization', description:'Main group', status:'In Progress', priority:'High', assignee:'SARV', startDate:'2026-03-01', dueDate:'2026-03-31', percentComplete:48, itemCode:'', itemName:'', location:'Main Pharmacy', sublocation:'', dependencyIds:'', archived:false, createdAt:now, updatedAt:now, createdBy:'system' },
-            { taskId:'TSK-1', parentId:'GRP-1', sortOrder:20, level:'parent', title:'Update shortage protocol', description:'Parent task', status:'In Progress', priority:'High', assignee:'Alex', startDate:'2026-03-02', dueDate:'2026-03-18', percentComplete:62, itemCode:'12345', itemName:'Epinephrine', location:'ED', sublocation:'Pyxis A', dependencyIds:'', archived:false, createdAt:now, updatedAt:now, createdBy:'system' },
-            { taskId:'SUB-1', parentId:'TSK-1', sortOrder:30, level:'child', title:'Review substitution paths', description:'Subtask', status:'Not Started', priority:'Medium', assignee:'Jordan', startDate:'2026-03-08', dueDate:'2026-03-15', percentComplete:10, itemCode:'12345', itemName:'Epinephrine', location:'ED', sublocation:'Pyxis A', dependencyIds:'', archived:false, createdAt:now, updatedAt:now, createdBy:'system' },
-            { taskId:'SUB-2', parentId:'TSK-1', sortOrder:40, level:'child', title:'Validate cabinet locations', description:'Subtask', status:'Blocked', priority:'Critical', assignee:'Taylor', startDate:'2026-03-11', dueDate:'2026-03-20', percentComplete:20, itemCode:'77612', itemName:'Norepinephrine', location:'ICU', sublocation:'Tower 3', dependencyIds:'SUB-1', archived:false, createdAt:now, updatedAt:now, createdBy:'system' }
-        ];
-    }
+    function emptyFallbackTasks() { return []; }
 
     function normalizeTask(raw, idx) {
         const out = {};
@@ -163,7 +155,7 @@
         const webAppUrl = getWebAppUrl();
         if (!webAppUrl) {
             state.usingMock = true;
-            state.tasks = sampleTasks().map(normalizeTask);
+            state.tasks = emptyFallbackTasks().map(normalizeTask);
             state.loading = false;
             applyFilters();
             return;
@@ -177,9 +169,9 @@
             state.tasks = res.tasks.map(normalizeTask);
             state.usingMock = false;
         } catch (e) {
-            console.warn('Task load failed, using sample data', e);
+            console.warn('Task load failed, using empty fallback', e);
             state.usingMock = true;
-            state.tasks = sampleTasks().map(normalizeTask);
+            state.tasks = emptyFallbackTasks().map(normalizeTask);
         }
 
         state.loading = false;
@@ -350,20 +342,43 @@
         state.range = range;
 
         const cols = [];
-        for (let i = 0; i < days; i++) {
-            const dt = new Date(range.start.getTime() + (i * DAY_MS));
-            if (state.zoom === 'month' && dt.getDay() !== 1) continue;
-            cols.push(dt);
+        if (state.zoom === 'month') {
+            const cursor = new Date(range.start.getFullYear(), range.start.getMonth(), 1);
+            while (cursor <= range.end) {
+                cols.push(new Date(cursor));
+                cursor.setMonth(cursor.getMonth() + 1);
+            }
+        } else {
+            for (let i = 0; i < days; i++) {
+                const dt = new Date(range.start.getTime() + (i * DAY_MS));
+                cols.push(dt);
+            }
         }
 
-        els.ganttWrap.style.backgroundSize = colPx + 'px 100%, 100% 40px';
+        function weekIndexFrom(date) {
+            const startMonday = new Date(range.start);
+            const startOffset = (startMonday.getDay() + 6) % 7;
+            startMonday.setDate(startMonday.getDate() - startOffset);
+            return Math.floor((date - startMonday) / DAY_MS / 7);
+        }
 
         const gridCols = 'repeat(' + cols.length + ',' + colPx + 'px)';
-        const head = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
-            const label = state.zoom === 'day'
-                ? ((d.getMonth() + 1) + '/' + d.getDate() + ' ' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()])
-                : ((d.getMonth() + 1) + '/' + d.getDate());
-            return '<div class="gantt-cell">' + esc(label) + '</div>';
+        const monthHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+            let monthLabel = '';
+            if (state.zoom === 'month') monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+            else if (d.getDate() === 1) monthLabel = d.toLocaleString('en-US', { month: 'short' });
+            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
+            return '<div class="gantt-cell month-marker' + weekAlt + '">' + esc(monthLabel) + '</div>';
+        }).join('') + '</div>';
+
+        const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const axisHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+            let label = '';
+            if (state.zoom === 'day') label = dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0');
+            else if (state.zoom === 'week') label = String(d.getDate()).padStart(2, '0');
+            else label = d.toLocaleString('en-US', { month: 'short' });
+            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
+            return '<div class="gantt-cell' + weekAlt + '">' + esc(label) + '</div>';
         }).join('') + '</div>';
 
         const body = rows.map(function (row) {
@@ -374,8 +389,12 @@
             if (sDate && dDate) {
                 const startOffsetDays = Math.max(0, Math.floor((sDate - range.start) / DAY_MS));
                 const durationDays = Math.max(1, Math.floor((dDate - sDate) / DAY_MS) + 1);
-                const leftUnits = state.zoom === 'month' ? Math.floor(startOffsetDays / 7) : startOffsetDays;
-                const widthUnits = state.zoom === 'month' ? Math.max(1, Math.ceil(durationDays / 7)) : durationDays;
+                const leftUnits = state.zoom === 'month'
+                    ? Math.max(0, ((sDate.getFullYear() * 12) + sDate.getMonth()) - ((range.start.getFullYear() * 12) + range.start.getMonth()))
+                    : startOffsetDays;
+                const widthUnits = state.zoom === 'month'
+                    ? Math.max(1, (((dDate.getFullYear() * 12) + dDate.getMonth()) - ((sDate.getFullYear() * 12) + sDate.getMonth()) + 1))
+                    : durationDays;
                 const left = leftUnits * colPx;
                 const width = Math.max(18, (widthUnits * colPx) - 6);
                 bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t.status) + '">' +
@@ -383,10 +402,13 @@
                     '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                 '</div>';
             }
-            return '<div class="gantt-row" style="grid-template-columns:' + gridCols + '">' + cols.map(function () { return '<div class="gantt-cell"></div>'; }).join('') + bar + '</div>';
+            return '<div class="gantt-row" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+                const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
+                return '<div class="gantt-cell' + weekAlt + '"></div>';
+            }).join('') + bar + '</div>';
         }).join('');
 
-        els.ganttWrap.innerHTML = head + body;
+        els.ganttWrap.innerHTML = monthHead + axisHead + body;
     }
 
     function openModal(taskId) {
@@ -564,23 +586,8 @@
     }
 
     function createNewTaskBlock() {
-        const now = toISODate(new Date());
-        const id = 'TASK-' + Date.now();
-        const draft = normalizeTask({
-            taskId: id,
-            title: 'New Task',
-            startDate: now,
-            dueDate: shiftIsoDate(now, 2),
-            status: 'Not Started',
-            priority: 'Medium',
-            sortOrder: nextSortOrder(),
-            createdAt: isoNow(),
-            updatedAt: isoNow(),
-            createdBy: 'dashboard'
-        }, state.tasks.length);
-        state.tasks.push(draft);
-        applyFilters();
-        openModal(id);
+        state.editingId = null;
+        openModal();
     }
 
     function bindEvents() {
