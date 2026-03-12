@@ -148,58 +148,67 @@
         .tasks-card-title { padding: 10px 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; color: var(--text-secondary); border-bottom: 1px solid var(--card-border); }
 
         .tasks-list-header {
-            padding: 8px 12px;
-            margin-top: 20px;
-            border-bottom: 1px solid rgba(160,160,160,0.18);
+            padding: 8px 10px;
+            margin-top: 10px;
+            border-bottom: 1px solid rgba(160,160,160,0.2);
             font-size: 11px;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            text-transform: none;
             color: var(--text-secondary);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 24px 1fr 66px 54px;
             gap: 8px;
+            align-items: center;
+            background: rgba(255,255,255,0.03);
         }
         .tasks-sort-btn {
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            border: 1px solid rgba(160,160,160,0.22);
-            background: rgba(255,255,255,0.04);
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            border: 0;
+            background: rgba(255,255,255,0.06);
             color: var(--text-secondary);
             cursor: pointer;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 14px;
+            font-size: 11px;
             line-height: 1;
+            margin-left: 6px;
         }
-        .tasks-sort-btn:hover { background: rgba(255,255,255,0.1); }
+        .tasks-sort-btn:hover { background: rgba(255,255,255,0.12); }
         .tasks-sort-mode {
-            opacity: 0.86;
+            opacity: 0.8;
             font-size: 10px;
-            letter-spacing: 0.04em;
+            letter-spacing: 0;
+            margin-left: 4px;
         }
+        .tasks-list-col { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tasks-list-col.duration, .tasks-list-col.assignee { text-align: center; }
         .tasks-list-gap {
-            height: 22px;
+            height: 6px;
         }
-        .tasks-list-body { min-height: 0; overflow: auto; padding: 6px; margin-top: -15px; display: flex; flex-direction: column; gap: 5px; }
+        .tasks-list-body { min-height: 0; overflow: auto; padding: 0; margin-top: 0; display: flex; flex-direction: column; gap: 0; }
         .tasks-row {
             display: grid;
-            grid-template-columns: 24px 1fr;
+            grid-template-columns: 24px 1fr 66px 54px;
             gap: 8px;
             align-items: center;
-            padding: 7px 8px;
-            border-radius: 8px;
-            border: 1px solid transparent;
+            padding: 9px 10px;
+            border-radius: 0;
+            border: 0;
+            border-bottom: 1px solid rgba(160,160,160,0.14);
             cursor: pointer;
             font-size: 13px;
+            background: rgba(255,255,255,0.01);
         }
-        .tasks-row:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.09); }
+        .tasks-row:hover { background: rgba(255,255,255,0.06); }
         .tree-toggle { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
         .tree-toggle:hover { background: rgba(255,255,255,0.08); }
         .task-title-wrap { min-width: 0; position: relative; }
         .task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+        .task-duration { font-size: 12px; color: var(--text-secondary); text-align: center; }
+        .task-assignee-avatar { width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; background: linear-gradient(145deg, #8aa9d8, #5b7fb7); margin: 0 auto; border: 2px solid rgba(255,255,255,0.4); }
         .task-color-badge { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 7px; vertical-align: middle; }
         .task-connector {
             position: absolute;
@@ -287,7 +296,7 @@
         body:not(.dark-mode) .gantt-head { background: rgba(230,236,239,0.9); }
         body:not(.dark-mode) .gantt-cell { color: #5c6772; }
 
-        .gantt-row { position: relative; min-height: 40px; border-bottom: 1px solid rgba(160,160,160,0.14); }
+        .gantt-row { position: relative; min-height: 40px; border-bottom: 1px solid rgba(160,160,160,0.14); transition: transform 140ms ease; }
         .gantt-row.drag-disabled { opacity: 0.35; }
         .gantt-row.drag-target { background: rgba(56, 200, 160, 0.12); }
         .gantt-bar {
@@ -435,7 +444,7 @@
 
         <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
-                <div class="tasks-list-header"><span>Task Name <span id="tasksSortMode" class="tasks-sort-mode">(Manual)</span></span><button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button></div>
+                <div class="tasks-list-header"><span class="tasks-list-col name">Name <button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button><span id="tasksSortMode" class="tasks-sort-mode">Manual</span></span><span class="tasks-list-col duration">Duration</span><span class="tasks-list-col assignee">Assignee</span></div>
                 <div class="tasks-list-gap" aria-hidden="true"></div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>

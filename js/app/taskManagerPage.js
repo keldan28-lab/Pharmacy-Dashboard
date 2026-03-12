@@ -337,6 +337,35 @@
         }).join('');
     }
 
+
+    function formatDurationLabel(task) {
+        const s = toDate(task.startDate);
+        const d = toDate(task.dueDate);
+        if (!s || !d) return '0h';
+        const days = Math.max(1, Math.floor((d - s) / DAY_MS) + 1);
+        return String(days * 10) + 'h';
+    }
+
+    function initialsForAssignee(task) {
+        const parts = String(task.assignee || '').trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return '—';
+        const a = parts[0] ? parts[0][0] : '';
+        const b = parts.length > 1 ? parts[parts.length - 1][0] : '';
+        return (a + b).toUpperCase();
+    }
+
+    function childSpanCountFromFlatIndex(flatIdx) {
+        const row = state.flatRows[flatIdx];
+        if (!row) return 1;
+        const baseDepth = row.depth;
+        let count = 1;
+        for (let i = flatIdx + 1; i < state.flatRows.length; i++) {
+            if (state.flatRows[i].depth <= baseDepth) break;
+            count++;
+        }
+        return count;
+    }
+
     function renderList() {
         if (state.loading) {
             els.listBody.innerHTML = '<div class="tasks-empty">Loading tasks…</div>';
@@ -349,14 +378,16 @@
 
         els.listBody.innerHTML = state.flatRows.map(function (row) {
             const task = row.task;
-            const hasChildren = task.children && task.children.length;
-            const expanded = state.expanded[task.taskId] !== false;
             const indent = row.depth * 14;
             const badge = getColorDef(task.colorKey).base;
             const connector = row.depth > 0 ? '<span class="task-connector anim" style="color:' + esc(badge) + '" aria-hidden="true"></span>' : '';
+            const duration = formatDurationLabel(task);
+            const avatar = initialsForAssignee(task);
             return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
                 '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
+                '<div class="task-duration">' + esc(duration) + '</div>' +
+                '<div class="task-assignee-avatar" title="' + esc(task.assignee || 'Unassigned') + '">' + esc(avatar) + '</div>' +
             '</div>';
         }).join('');
     }
@@ -466,7 +497,7 @@
             return '<div class="gantt-cell' + cellClassForDate(d) + '">' + esc(label) + '</div>';
         }).join('') + '</div>';
 
-        const body = rows.map(function (row) {
+        const body = rows.map(function (row, rowIdx) {
             const t = row.task;
             const sDate = toDate(t.startDate);
             const dDate = toDate(t.dueDate);
@@ -504,7 +535,7 @@
                     }
                 }
             }
-            return '<div class="gantt-row" data-task-id="' + esc(t.taskId) + '" data-parent-id="' + esc(t.parentId || '') + '" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+            return '<div class="gantt-row" data-row-index="' + rowIdx + '" data-task-id="' + esc(t.taskId) + '" data-parent-id="' + esc(t.parentId || '') + '" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
                 return '<div class="gantt-cell' + cellClassForDate(d) + '"></div>';
             }).join('') + bar + '</div>';
         }).join('');
@@ -673,6 +704,25 @@
         }
     }
 
+    function clearDropPreviewTransforms() {
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-row-index]') : [];
+        for (let i = 0; i < rows.length; i++) rows[i].style.transform = '';
+    }
+
+    function updateDropPreviewTransforms(drag) {
+        clearDropPreviewTransforms();
+        if (!drag || drag.pendingTargetRowIndex == null || !drag.pendingTargetTaskId || !drag.draggedRowIndexes || !drag.draggedRowIndexes.length) return;
+        const shiftPx = drag.draggedRowIndexes.length * 40;
+        const targetIdx = drag.pendingTargetRowIndex;
+        const draggedSet = new Set(drag.draggedRowIndexes);
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-row-index]') : [];
+        for (let i = 0; i < rows.length; i++) {
+            const idx = Number(rows[i].getAttribute('data-row-index'));
+            if (draggedSet.has(idx)) continue;
+            if (idx >= targetIdx) rows[i].style.transform = 'translateY(' + shiftPx + 'px)';
+        }
+    }
+
     function updateDragRowHighlights(drag) {
         if (!drag || drag.dragType !== 'move') { clearDragRowHighlights(); return; }
         const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-task-id]') : [];
@@ -707,7 +757,7 @@
         const labels = { manual: 'Manual', name: 'Name', priority: 'Importance', assignee: 'Assignee' };
         const label = labels[state.sortMode] || 'Manual';
         if (btn) btn.title = 'Sort: ' + label;
-        if (modeEl) modeEl.textContent = '(' + label + ')';
+        if (modeEl) modeEl.textContent = label;
     }
 
     function persistSiblingOrder(parentId) {
@@ -726,6 +776,7 @@
         if (!task) return;
         const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-task-id]') : [];
         let targetId = '';
+        let targetRowIndex = null;
         for (let i = 0; i < rows.length; i++) {
             const rect = rows[i].getBoundingClientRect();
             if (clientY >= rect.top && clientY <= rect.bottom) {
@@ -733,12 +784,16 @@
                 const candidateParent = rows[i].getAttribute('data-parent-id') || '';
                 if (candidateId && candidateId !== task.taskId && String(candidateParent) === String(task.parentId || '')) {
                     targetId = candidateId;
+                    targetRowIndex = Number(rows[i].getAttribute('data-row-index') || 0);
                 }
                 break;
             }
         }
         drag.pendingTargetTaskId = targetId;
+        drag.pendingTargetRowIndex = targetRowIndex;
+        if (targetId) drag.moved = true;
         updateDragRowHighlights(drag);
+        updateDropPreviewTransforms(drag);
     }
 
     function startDrag(taskId, dragType, clientX, clientY) {
@@ -759,9 +814,18 @@
             reordered: false,
             sourceParentId: task.parentId || '',
             pendingTargetTaskId: '',
+            pendingTargetRowIndex: null,
             dragEl: null,
-            dragElStartLeft: 0
+            dragElStartLeft: 0,
+            draggedRowStartIndex: state.flatRows.findIndex(function (r) { return r.task.taskId === task.taskId; }),
+            draggedRowIndexes: []
         };
+        if (state.drag.draggedRowStartIndex >= 0) {
+            const span = childSpanCountFromFlatIndex(state.drag.draggedRowStartIndex);
+            const list = [];
+            for (let i = 0; i < span; i++) list.push(state.drag.draggedRowStartIndex + i);
+            state.drag.draggedRowIndexes = list;
+        }
     }
 
     async function finishDrag() {
@@ -770,12 +834,16 @@
         if (!drag || !drag.moved) return;
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
-        if (drag.dragEl) {
-            drag.dragEl.style.transform = '';
-            drag.dragEl.style.zIndex = '';
-            drag.dragEl.style.pointerEvents = '';
+        const movedEls = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-bar[data-task-id]') : [];
+        for (let i = 0; i < movedEls.length; i++) {
+            if (movedEls[i].style.pointerEvents === 'none' || movedEls[i].style.transform) {
+                movedEls[i].style.transform = '';
+                movedEls[i].style.zIndex = '';
+                movedEls[i].style.pointerEvents = '';
+            }
         }
         clearDragRowHighlights();
+        clearDropPreviewTransforms();
         if (drag.pendingTargetTaskId) {
             const changed = reorderSiblingsLocal(task.taskId, drag.pendingTargetTaskId);
             if (changed) {
@@ -806,7 +874,11 @@
                     drag.dragEl.style.pointerEvents = 'none';
                 }
             }
-            if (drag.dragEl) drag.dragEl.style.transform = 'translate(' + xDelta + 'px,' + yDelta + 'px)';
+            const moveIds = [task.taskId].concat(getChildTasks(task.taskId).map(function (c) { return c.taskId; }));
+            for (let i = 0; i < moveIds.length; i++) {
+                const el = els.ganttWrap.querySelector('.gantt-bar[data-task-id="' + moveIds[i] + '"]');
+                if (el) { el.style.zIndex = '15'; el.style.pointerEvents = 'none'; el.style.transform = 'translate(' + xDelta + 'px,' + yDelta + 'px)'; }
+            }
             reorderWithinHierarchy(drag, clientY);
             return;
         }
@@ -816,7 +888,9 @@
             drag.dragEl.style.pointerEvents = '';
             drag.dragEl = null;
             drag.pendingTargetTaskId = '';
+            drag.pendingTargetRowIndex = null;
             clearDragRowHighlights();
+            clearDropPreviewTransforms();
         }
 
         const rawDeltaCols = (clientX - drag.startX) / Math.max(1, state.colPx);
