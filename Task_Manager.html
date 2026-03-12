@@ -288,6 +288,8 @@
         body:not(.dark-mode) .gantt-cell { color: #5c6772; }
 
         .gantt-row { position: relative; min-height: 40px; border-bottom: 1px solid rgba(160,160,160,0.14); }
+        .gantt-row.drag-disabled { opacity: 0.35; }
+        .gantt-row.drag-target { background: rgba(56, 200, 160, 0.12); }
         .gantt-bar {
             position: absolute;
             color: #fff;
@@ -316,6 +318,17 @@
         .gantt-handle.left { left: 3px; }
         .gantt-handle.right { right: 3px; }
         .priority-high { box-shadow: inset 0 0 0 1px rgba(255,84,84,0.72), 0 8px 20px rgba(255, 84, 84, 0.26); }
+        .gantt-bar.out-of-range {
+            color: rgba(230, 236, 242, 0.9);
+            background: linear-gradient(90deg, rgba(147,157,169,0.82), rgba(102,112,124,0.54));
+            box-shadow: inset 0 0 0 1px rgba(198,206,216,0.28);
+        }
+        .gantt-bar.out-of-range.left {
+            background: linear-gradient(90deg, rgba(102,112,124,0.2), rgba(147,157,169,0.86));
+        }
+        .gantt-bar.out-of-range.right {
+            background: linear-gradient(90deg, rgba(147,157,169,0.86), rgba(102,112,124,0.2));
+        }
 
         .tasks-empty { color: var(--text-secondary); text-align: center; padding: 24px; font-size: 13px; }
 

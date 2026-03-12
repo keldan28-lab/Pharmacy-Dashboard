@@ -34,7 +34,8 @@
         leftPaneCollapsed: false,
         leftPaneWidth: 360,
         resizing: null,
-        sortMode: 'manual'
+        sortMode: 'manual',
+        dragPreview: null
     };
 
     const els = {};
@@ -471,24 +472,39 @@
             const dDate = toDate(t.dueDate);
             let bar = '';
             if (sDate && dDate) {
-                const startOffsetDays = Math.max(0, Math.floor((sDate - range.start) / DAY_MS));
-                const durationDays = Math.max(1, Math.floor((dDate - sDate) / DAY_MS) + 1);
-                const leftUnits = state.zoom === 'month'
-                    ? Math.max(0, ((sDate.getFullYear() * 12) + sDate.getMonth()) - ((range.start.getFullYear() * 12) + range.start.getMonth()))
-                    : startOffsetDays;
-                const widthUnits = state.zoom === 'month'
-                    ? Math.max(1, (((dDate.getFullYear() * 12) + dDate.getMonth()) - ((sDate.getFullYear() * 12) + sDate.getMonth()) + 1))
-                    : durationDays;
-                const left = leftUnits * colPx;
-                const width = Math.max(18, (widthUnits * colPx) - 6);
+                const rangeStartUnit = state.zoom === 'month'
+                    ? ((range.start.getFullYear() * 12) + range.start.getMonth())
+                    : 0;
+                const toUnit = function (date) {
+                    if (state.zoom === 'month') return ((date.getFullYear() * 12) + date.getMonth()) - rangeStartUnit;
+                    return Math.floor((date - range.start) / DAY_MS);
+                };
+                const startUnit = toUnit(sDate);
+                const endUnit = toUnit(dDate);
+                const maxUnit = cols.length - 1;
+                const overlapStart = Math.max(0, startUnit);
+                const overlapEnd = Math.min(maxUnit, endUnit);
                 const barShadow = row.depth > 0 ? '0 3px 10px rgba(17, 153, 142, 0.14)' : '0 6px 16px rgba(17, 153, 142, 0.25)';
-                bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
-                    esc(t.title) +
-                    '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
-                    '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
-                '</div>';
+                if (overlapStart <= overlapEnd) {
+                    const left = overlapStart * colPx;
+                    const widthUnits = Math.max(1, overlapEnd - overlapStart + 1);
+                    const width = Math.max(18, (widthUnits * colPx) - 6);
+                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                        esc(t.title) +
+                        '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
+                        '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
+                    '</div>';
+                } else {
+                    const stubWidth = Math.max(20, Math.round(colPx * 0.9));
+                    if (endUnit < 0) {
+                        bar = '<div class="gantt-bar out-of-range left" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:2px;width:' + stubWidth + 'px">' + esc(t.title) + '</div>';
+                    } else if (startUnit > maxUnit) {
+                        const leftEdge = Math.max(2, (maxUnit * colPx) - stubWidth + colPx - 4);
+                        bar = '<div class="gantt-bar out-of-range right" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + leftEdge + 'px;width:' + stubWidth + 'px">' + esc(t.title) + '</div>';
+                    }
+                }
             }
-            return '<div class="gantt-row" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+            return '<div class="gantt-row" data-task-id="' + esc(t.taskId) + '" data-parent-id="' + esc(t.parentId || '') + '" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
                 return '<div class="gantt-cell' + cellClassForDate(d) + '"></div>';
             }).join('') + bar + '</div>';
         }).join('');
@@ -648,6 +664,43 @@
     }
 
 
+
+    function clearDragRowHighlights() {
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row') : [];
+        for (let i = 0; i < rows.length; i++) {
+            rows[i].classList.remove('drag-disabled');
+            rows[i].classList.remove('drag-target');
+        }
+    }
+
+    function updateDragRowHighlights(drag) {
+        if (!drag || drag.dragType !== 'move') { clearDragRowHighlights(); return; }
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-task-id]') : [];
+        for (let i = 0; i < rows.length; i++) {
+            const rowTaskId = rows[i].getAttribute('data-task-id') || '';
+            const allowed = String(rows[i].getAttribute('data-parent-id') || '') === String(drag.sourceParentId || '');
+            rows[i].classList.toggle('drag-disabled', !allowed);
+            rows[i].classList.toggle('drag-target', !!drag.pendingTargetTaskId && rowTaskId === drag.pendingTargetTaskId);
+        }
+    }
+
+    function reorderSiblingsLocal(taskId, targetTaskId) {
+        const task = state.tasks.find(function (t) { return t.taskId === taskId; });
+        const target = state.tasks.find(function (t) { return t.taskId === targetTaskId; });
+        if (!task || !target) return false;
+        if (String(task.parentId || '') !== String(target.parentId || '')) return false;
+        const siblings = state.tasks
+            .filter(function (t) { return String(t.parentId || '') === String(task.parentId || ''); })
+            .sort(function (a, b) { return a.sortOrder - b.sortOrder; });
+        const fromIdx = siblings.findIndex(function (t) { return t.taskId === task.taskId; });
+        const toIdx = siblings.findIndex(function (t) { return t.taskId === target.taskId; });
+        if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return false;
+        const moved = siblings.splice(fromIdx, 1)[0];
+        siblings.splice(toIdx, 0, moved);
+        siblings.forEach(function (sibling, orderIdx) { sibling.sortOrder = (orderIdx + 1) * 10; sibling.updatedAt = isoNow(); });
+        return true;
+    }
+
     function updateSortUi() {
         const btn = byId('tasksSortBtn');
         const modeEl = byId('tasksSortMode');
@@ -671,27 +724,21 @@
     function reorderWithinHierarchy(drag, clientY) {
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
-        const rowHeight = 40;
-        const ganttTop = els.ganttWrap.getBoundingClientRect().top + 68;
-        const idx = Math.floor((clientY - ganttTop) / rowHeight);
-        if (idx < 0 || idx >= state.flatRows.length) return;
-        const targetTask = state.flatRows[idx].task;
-        if (!targetTask || targetTask.taskId === task.taskId) return;
-        if (String(targetTask.parentId || '') !== String(task.parentId || '')) return;
-
-        const siblings = state.tasks
-            .filter(function (t) { return String(t.parentId || '') === String(task.parentId || ''); })
-            .sort(function (a, b) { return a.sortOrder - b.sortOrder; });
-        const fromIdx = siblings.findIndex(function (t) { return t.taskId === task.taskId; });
-        const toIdx = siblings.findIndex(function (t) { return t.taskId === targetTask.taskId; });
-        if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
-
-        const moved = siblings.splice(fromIdx, 1)[0];
-        siblings.splice(toIdx, 0, moved);
-        siblings.forEach(function (sibling, orderIdx) { sibling.sortOrder = (orderIdx + 1) * 10; });
-        drag.reordered = true;
-        drag.moved = true;
-        applyFilters();
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-task-id]') : [];
+        let targetId = '';
+        for (let i = 0; i < rows.length; i++) {
+            const rect = rows[i].getBoundingClientRect();
+            if (clientY >= rect.top && clientY <= rect.bottom) {
+                const candidateId = rows[i].getAttribute('data-task-id') || '';
+                const candidateParent = rows[i].getAttribute('data-parent-id') || '';
+                if (candidateId && candidateId !== task.taskId && String(candidateParent) === String(task.parentId || '')) {
+                    targetId = candidateId;
+                }
+                break;
+            }
+        }
+        drag.pendingTargetTaskId = targetId;
+        updateDragRowHighlights(drag);
     }
 
     function startDrag(taskId, dragType, clientX, clientY) {
@@ -709,7 +756,11 @@
             moved: false,
             lastDeltaDays: 0,
             startY: clientY,
-            reordered: false
+            reordered: false,
+            sourceParentId: task.parentId || '',
+            pendingTargetTaskId: '',
+            dragEl: null,
+            dragElStartLeft: 0
         };
     }
 
@@ -719,13 +770,24 @@
         if (!drag || !drag.moved) return;
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
-        if (drag.reordered) {
-            await persistSiblingOrder(task.parentId || '');
-            applyFilters();
-            return;
+        if (drag.dragEl) {
+            drag.dragEl.style.transform = '';
+            drag.dragEl.style.zIndex = '';
+            drag.dragEl.style.pointerEvents = '';
         }
-        await updateTaskDatesFromDrag(task, task.startDate, task.dueDate);
-        applyFilters();
+        clearDragRowHighlights();
+        if (drag.pendingTargetTaskId) {
+            const changed = reorderSiblingsLocal(task.taskId, drag.pendingTargetTaskId);
+            if (changed) {
+                await persistSiblingOrder(task.parentId || '');
+                applyFilters();
+                return;
+            }
+        }
+        if (drag.moved) {
+            await updateTaskDatesFromDrag(task, task.startDate, task.dueDate);
+            applyFilters();
+        }
     }
 
     function onDragMove(clientX, clientY) {
@@ -737,8 +799,24 @@
         const yDelta = clientY - drag.startY;
         const xDelta = clientX - drag.startX;
         if (drag.dragType === 'move' && Math.abs(yDelta) > 12 && Math.abs(yDelta) > Math.abs(xDelta)) {
+            if (!drag.dragEl) {
+                drag.dragEl = els.ganttWrap.querySelector('.gantt-bar[data-task-id="' + task.taskId + '"]');
+                if (drag.dragEl) {
+                    drag.dragEl.style.zIndex = '15';
+                    drag.dragEl.style.pointerEvents = 'none';
+                }
+            }
+            if (drag.dragEl) drag.dragEl.style.transform = 'translate(' + xDelta + 'px,' + yDelta + 'px)';
             reorderWithinHierarchy(drag, clientY);
             return;
+        }
+        if (drag.dragEl) {
+            drag.dragEl.style.transform = '';
+            drag.dragEl.style.zIndex = '';
+            drag.dragEl.style.pointerEvents = '';
+            drag.dragEl = null;
+            drag.pendingTargetTaskId = '';
+            clearDragRowHighlights();
         }
 
         const rawDeltaCols = (clientX - drag.startX) / Math.max(1, state.colPx);
