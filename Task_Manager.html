@@ -218,7 +218,9 @@
         .tasks-row.depth-1 .task-title { font-weight: 620; }
         .tasks-row.depth-2 .task-title { font-weight: 520; }
         .tasks-row.depth-3 .task-title { font-weight: 460; }
-        .task-assignee-avatar { width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; background: linear-gradient(145deg, #8aa9d8, #5b7fb7); margin: 0 auto; border: 2px solid rgba(255,255,255,0.4); }
+        .task-assignee-avatar { width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--text-secondary); background: rgba(126, 154, 188, 0.16); margin: 0 auto; border: 1px solid rgba(126, 154, 188, 0.28); cursor: pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }
+        .task-assignee-avatar:hover { background: rgba(42,184,173,0.16); border-color: rgba(42,184,173,0.46); color: var(--text-primary); }
+        .assignee-focus { border-color: rgba(42,184,173,0.9) !important; box-shadow: 0 0 0 3px rgba(42,184,173,0.2); }
         .task-color-badge { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 7px; vertical-align: middle; }
         .task-connector {
             position: absolute;

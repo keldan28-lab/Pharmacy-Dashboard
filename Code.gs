@@ -622,7 +622,7 @@ function checklistWrite_(sheetId, tabName, payload) {
   for (let i = 0; i < items.length; i++) {
     const text = String((items[i] && items[i].text) || '').trim();
     if (!text) continue;
-    rows.push([taskId, taskId + '-CHK-' + (i + 1), items[i].done ? 'true' : 'false', text, now]);
+    rows.push([taskId, String(i + 1), items[i].done ? 'true' : 'false', text, now]);
   }
   if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, header.length).setValues(rows);
   return { ok: true, taskId: taskId, written: rows.length, taskAction: 'saveChecklist' };

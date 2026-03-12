@@ -420,7 +420,7 @@
             return '<div class="tasks-row ' + depthClass + '" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
                 '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
-                '<div class="task-assignee-avatar" title="' + esc(task.assignee || 'Unassigned') + '">' + esc(avatar) + '</div>' +
+                '<button class="task-assignee-avatar" type="button" data-assignee-open="' + esc(task.taskId) + '" title="' + esc(task.assignee || 'Unassigned') + '">' + esc(avatar) + '</button>' +
             '</div>';
         }).join('');
     }
@@ -696,6 +696,17 @@
         loadChecklist(task ? task.taskId : null);
     }
 
+
+    function focusAssigneeFieldSoon() {
+        const assignee = byId('taskAssignee');
+        if (!assignee) return;
+        setTimeout(function () {
+            assignee.focus();
+            assignee.classList.add('assignee-focus');
+            setTimeout(function () { assignee.classList.remove('assignee-focus'); }, 1200);
+        }, 40);
+    }
+
     function closeModal() {
         byId('taskModal').classList.remove('open');
     }
@@ -962,9 +973,6 @@
         state.drag = null;
         const dz0 = byId('tasksDeleteZone');
         if (dz0) { dz0.classList.remove('show'); dz0.classList.remove('hot'); }
-        if (!drag || !drag.moved) return;
-        const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
-        if (!task) return;
         const movedEls = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-bar[data-task-id]') : [];
         for (let i = 0; i < movedEls.length; i++) {
             if (movedEls[i].style.pointerEvents === 'none' || movedEls[i].style.transform) {
@@ -973,6 +981,9 @@
                 movedEls[i].style.pointerEvents = '';
             }
         }
+        if (!drag || (!drag.moved && !drag.deleteHot)) return;
+        const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
+        if (!task) return;
         clearDragRowHighlights();
         clearDropPreviewTransforms();
         const dz = byId('tasksDeleteZone');
@@ -1018,6 +1029,7 @@
             const r = dz.getBoundingClientRect();
             const hot = clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
             drag.deleteHot = hot;
+            if (hot) drag.moved = true;
             dz.classList.toggle('hot', hot);
         }
         if (drag.dragType === 'move' && Math.abs(yDelta) > 12 && Math.abs(yDelta) > Math.abs(xDelta)) {
@@ -1207,6 +1219,12 @@
         byId('taskChecklistRows').addEventListener('change', syncChecklistDraftFromUi);
 
         els.listBody.addEventListener('click', function (e) {
+            const assigneeOpen = e.target.closest('[data-assignee-open]');
+            if (assigneeOpen) {
+                openModal(assigneeOpen.getAttribute('data-assignee-open'));
+                focusAssigneeFieldSoon();
+                return;
+            }
             const toggleId = e.target && e.target.getAttribute('data-toggle');
             if (toggleId) {
                 state.expanded[toggleId] = state.expanded[toggleId] === false;
