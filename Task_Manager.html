@@ -189,6 +189,12 @@
             height: 6px;
         }
         .tasks-list-body { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; margin-top: 0; display: flex; flex-direction: column; gap: 0; }
+
+        .tasks-list-body::-webkit-scrollbar { width: 10px; }
+        .tasks-list-body::-webkit-scrollbar-thumb { background: rgba(42,184,173,0.88); border-radius: 999px; }
+        .tasks-list-body::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+        .tasks-list-body { scrollbar-color: rgba(42,184,173,0.88) rgba(255,255,255,0.05); scrollbar-width: thin; }
+
         .tasks-row {
             display: grid;
             grid-template-columns: 24px 1fr 54px;
@@ -233,10 +239,12 @@
         .gantt-wrap {
             min-height: 0;
             overflow: auto;
+            scrollbar-width: none;
             border-top: 1px solid rgba(160,160,160,0.22);
             background: transparent;
             position: relative;
         }
+        .gantt-wrap::-webkit-scrollbar { width: 0; height: 0; display: none; }
         .timeline-nav-arrow {
             position: absolute;
             top: 50%;
@@ -329,6 +337,9 @@
         }
         .gantt-bar:active { cursor: grabbing; }
         .gantt-bar:hover { filter: brightness(1.03); box-shadow: 0 4px 12px rgba(17, 153, 142, 0.24); }
+        .gantt-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+        .gantt-menu-btn { position: absolute; right: 4px; top: 4px; width: 16px; height: 16px; border: 0; border-radius: 3px; background: rgba(0,0,0,0.18); color: rgba(255,255,255,0.92); font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity 120ms ease; }
+        .gantt-bar:hover .gantt-menu-btn { opacity: 1; }
         .gantt-progress {
             position: absolute;
             left: 0;
@@ -469,7 +480,7 @@
         <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
                 <div class="tasks-list-header"><span class="tasks-list-col"></span><span class="tasks-list-col name">Name <button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button><span id="tasksSortMode" class="tasks-sort-mode">Manual</span></span><span class="tasks-list-col assignee">Assignee</span></div>
-                <div class="tasks-list-gap" aria-hidden="true"></div>
+                <div id="tasksListGap" class="tasks-list-gap" aria-hidden="true"></div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>
             <div id="tasksSplitter" class="tasks-splitter" aria-label="Resize task panel" role="separator"></div>
@@ -496,6 +507,11 @@
                     <input id="taskStartDate" type="date" class="tasks-input" />
                     <input id="taskDueDate" type="date" class="tasks-input" />
                     <textarea id="taskDescription" class="tasks-input" placeholder="Description (optional)"></textarea>
+                    <div class="task-checklist">
+                        <div class="task-checklist-title">Checklist</div>
+                        <div id="taskChecklistRows"></div>
+                        <button id="taskChecklistAdd" class="tasks-button" type="button">+ Add checklist item</button>
+                    </div>
                     <details>
                         <summary>Optional fields</summary>
                         <div class="task-optional-grid">

@@ -36,7 +36,8 @@
         resizing: null,
         sortMode: 'manual',
         dragPreview: null,
-        syncingScroll: false
+        syncingScroll: false,
+        checklistDraft: []
     };
 
     const els = {};
@@ -533,7 +534,8 @@
                     const width = Math.max(18, (widthUnits * colPx) - 6);
                     bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
                         '<span class="gantt-label">' + esc(t.title) + '</span>' +
-                        '<span class="gantt-progress" style="width:' + progressPct + '%"></span>' +
+                        '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
+                        '<button class="gantt-menu-btn" type="button" data-task-menu="' + esc(t.taskId) + '" aria-label="Open task">⋯</button>' +
                         '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
                         '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                     '</div>';
@@ -560,7 +562,55 @@
         const navTop = Math.max(56, Math.min(Math.round(tableHeight / 2), (els.ganttWrap.clientHeight || tableHeight) - 18));
         if (prevBtn) prevBtn.style.top = navTop + 'px';
         if (nextBtn) nextBtn.style.top = navTop + 'px';
+        const heads = els.ganttWrap.querySelectorAll('.gantt-head');
+        let headH = 0;
+        for (let i = 0; i < heads.length; i++) headH += Math.round(heads[i].getBoundingClientRect().height || 0);
+        if (els.listGap) els.listGap.style.height = Math.max(6, headH) + 'px';
         if (els.listBody && els.ganttWrap) els.ganttWrap.scrollTop = els.listBody.scrollTop;
+    }
+
+
+    function renderChecklistDraft() {
+        const wrap = byId('taskChecklistRows');
+        if (!wrap) return;
+        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, text: '' }];
+        wrap.innerHTML = state.checklistDraft.map(function (item, idx) {
+            return '<div class="checklist-row">' +
+                '<input type="checkbox" data-check-idx="' + idx + '" ' + (item.done ? 'checked' : '') + ' />' +
+                '<input class="tasks-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
+            '</div>';
+        }).join('');
+    }
+
+    function syncChecklistDraftFromUi() {
+        const wrap = byId('taskChecklistRows');
+        if (!wrap) return;
+        const next = [];
+        const rows = wrap.querySelectorAll('.checklist-row');
+        for (let i = 0; i < rows.length; i++) {
+            const cb = rows[i].querySelector('input[type="checkbox"]');
+            const tx = rows[i].querySelector('input[data-check-text-idx]');
+            const text = String((tx && tx.value) || '').trim();
+            if (!text && !(cb && cb.checked)) continue;
+            next.push({ done: !!(cb && cb.checked), text: text });
+        }
+        state.checklistDraft = next;
+    }
+
+    async function loadChecklist(taskId) {
+        state.checklistDraft = [];
+        if (!taskId) { renderChecklistDraft(); return; }
+        const webAppUrl = getWebAppUrl();
+        const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
+        if (!webAppUrl || !sheetId) { renderChecklistDraft(); return; }
+        try {
+            const url = webAppUrl + '?action=checklistRead&sheetId=' + encodeURIComponent(sheetId) + '&taskId=' + encodeURIComponent(taskId);
+            const res = await jsonp(url, 12000);
+            if (res && res.ok && Array.isArray(res.items)) {
+                state.checklistDraft = res.items.map(function (it) { return { done: String(it.done) === 'true' || it.done === true, text: String(it.text || '') }; });
+            }
+        } catch (_) {}
+        renderChecklistDraft();
     }
 
     function openModal(taskId) {
@@ -599,6 +649,8 @@
             byId('taskStartDate').value = parent.startDate;
             if (toDate(byId('taskDueDate').value) < toDate(parent.startDate)) byId('taskDueDate').value = parent.startDate;
         };
+
+        loadChecklist(task ? task.taskId : null);
     }
 
     function closeModal() {
@@ -639,6 +691,8 @@
             if (payload.dueDate && toDate(payload.dueDate) < toDate(payload.startDate)) payload.dueDate = payload.startDate;
         }
 
+        syncChecklistDraftFromUi();
+
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
             if (idx >= 0) state.tasks[idx] = normalizeTask(payload, idx);
@@ -648,6 +702,7 @@
             await writeTask('createTask', payload);
         }
 
+        await writeTask('saveChecklist', { taskId: payload.taskId, items: state.checklistDraft });
         closeModal();
         applyFilters();
     }
@@ -875,8 +930,8 @@
         if (drag.pendingTargetTaskId) {
             const changed = reorderSiblingsLocal(task.taskId, drag.pendingTargetTaskId);
             if (changed) {
-                await persistSiblingOrder(task.parentId || '');
                 applyFilters();
+                persistSiblingOrder(task.parentId || '').catch(function () {});
                 return;
             }
         }
@@ -1072,6 +1127,13 @@
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
+        byId('taskChecklistAdd').addEventListener('click', function () {
+            syncChecklistDraftFromUi();
+            state.checklistDraft.push({ done: false, text: '' });
+            renderChecklistDraft();
+        });
+        byId('taskChecklistRows').addEventListener('input', syncChecklistDraftFromUi);
+        byId('taskChecklistRows').addEventListener('change', syncChecklistDraftFromUi);
 
         els.listBody.addEventListener('click', function (e) {
             const toggleId = e.target && e.target.getAttribute('data-toggle');
@@ -1100,8 +1162,8 @@
                 return;
             }
             if (state.drag && state.drag.moved) return;
-            const bar = e.target.closest('.gantt-bar');
-            if (bar) openModal(bar.getAttribute('data-task-id'));
+            const menuBtn = e.target.closest('[data-task-menu]');
+            if (menuBtn) openModal(menuBtn.getAttribute('data-task-menu'));
         });
 
         els.splitter.addEventListener('pointerdown', function (e) {
@@ -1173,6 +1235,7 @@
         els.filtersPanel = byId('tasksFiltersPanel');
         els.clearFiltersBtn = byId('tasksClearFilters');
         els.listBody = byId('tasksListBody');
+        els.listGap = byId('tasksListGap');
         els.ganttWrap = byId('tasksGanttWrap');
         els.shell = byId('tasksShell');
         els.splitter = byId('tasksSplitter');
