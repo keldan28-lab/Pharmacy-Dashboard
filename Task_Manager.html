@@ -28,6 +28,12 @@
         }
         .tasks-header {
             display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+        }
+        .tasks-header-main {
+            display: flex;
             align-items: center;
             gap: 12px;
         }
@@ -62,7 +68,7 @@
         .tasks-top-icon svg { width: 20px; height: 20px; }
         .tasks-top-title { font-size: clamp(2.1rem, 4vw, 3rem); font-weight: 600; color: #f7ffff; letter-spacing: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.05; }
         .tasks-top-subtitle { color: rgba(245,255,255,0.85); font-size: 12px; margin-top: 2px; }
-        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: auto minmax(160px, 1fr) auto auto auto auto; gap: 8px; align-items: center; }
+        .tasks-top-controls { width: 100%; display: grid; grid-template-columns: auto minmax(160px, 1fr) auto auto auto auto auto; gap: 8px; align-items: center; }
         .tasks-search-trigger { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.03); color: var(--text-secondary); cursor: pointer; }
         .tasks-search-wrap { width: 40px; overflow: hidden; transition: width 180ms ease; }
         .tasks-search-wrap.open { width: min(360px, 42vw); }
@@ -91,7 +97,7 @@
         .tasks-button.primary { background: linear-gradient(135deg, #11998e, #38ef7d); color: #fff; border: 0; }
 
         .tasks-filter-panel {
-            margin: 0 14px 12px;
+            margin: 0;
             border: 1px solid var(--card-border);
             border-radius: 12px;
             background: rgba(255,255,255,0.02);
@@ -461,19 +467,16 @@
     <div class="analytics-container tasks-container">
         <div class="analytics-header">
             <div class="header-content tasks-header">
-                <span class="tasks-top-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 9h18"></path><path d="M8 3v3"></path><path d="M16 3v3"></path><rect x="4" y="5" width="16" height="16" rx="2" ry="2"></rect>
-                    </svg>
-                </span>
-                <div>
-                    <div class="tasks-top-title">Task Timeline</div>
-                                    </div>
-            </div>
-        </div>
-        <div class="analytics-content tasks-content">
-    <div class="tasks-page">
-        <div class="tasks-top-card">
+                <div class="tasks-header-main">
+                    <span class="tasks-top-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 9h18"></path><path d="M8 3v3"></path><path d="M16 3v3"></path><rect x="4" y="5" width="16" height="16" rx="2" ry="2"></rect>
+                        </svg>
+                    </span>
+                    <div>
+                        <div class="tasks-top-title">Task Timeline</div>
+                    </div>
+                </div>
             <div class="tasks-top-controls">
                 <button id="tasksSearchBtn" class="tasks-search-trigger" type="button" aria-label="Search">🔎</button>
                 <div id="tasksSearchWrap" class="tasks-search-wrap"><input id="tasksSearch" class="tasks-input" placeholder="Search tasks" /></div>
@@ -498,6 +501,9 @@
                 <button id="tasksClearFilters" class="tasks-button" type="button">Clear</button>
             </div>
         </div>
+        </div>
+        <div class="analytics-content tasks-content">
+    <div class="tasks-page">
 
         <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
