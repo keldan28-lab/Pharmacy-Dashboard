@@ -355,6 +355,21 @@
         return (a + b).toUpperCase();
     }
 
+    function assigneeStatusClass(task) {
+        const s = String((task && task.status) || '').toLowerCase();
+        if (s === 'in progress') return 'status-in-progress';
+        if (s === 'blocked') return 'status-blocked';
+        if (s === 'done') return 'status-done';
+        return 'status-not-started';
+    }
+
+    function assigneeAvatarContent(task) {
+        if (String((task && task.status) || '').toLowerCase() === 'done') {
+            return '<svg class="assignee-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.1 3.1L13 4.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+        }
+        return esc(initialsForAssignee(task));
+    }
+
     function childSpanCountFromFlatIndex(flatIdx) {
         const row = state.flatRows[flatIdx];
         if (!row) return 1;
@@ -446,12 +461,13 @@
             const indent = row.depth * 14;
             const badge = getColorDef(task.colorKey).base;
             const connector = row.depth > 0 ? '<span class="task-connector anim" style="color:' + esc(badge) + '" aria-hidden="true"></span>' : '';
-            const avatar = initialsForAssignee(task);
+            const avatar = assigneeAvatarContent(task);
             const depthClass = 'depth-' + Math.min(3, row.depth);
+            const avatarClass = assigneeStatusClass(task);
             return '<div class="tasks-row ' + depthClass + '" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
                 '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
-                '<button class="task-assignee-avatar" type="button" data-assignee-open="' + esc(task.taskId) + '" title="' + esc(task.assignee || 'Unassigned') + '">' + esc(avatar) + '</button>' +
+                '<button class="task-assignee-avatar ' + avatarClass + '" type="button" data-assignee-open="' + esc(task.taskId) + '" title="' + esc(task.assignee || 'Unassigned') + '">' + avatar + '</button>' +
             '</div>';
         }).join('');
     }
@@ -652,6 +668,7 @@
             return '<div class="checklist-row">' +
                 '<input type="checkbox" data-check-idx="' + idx + '" ' + (item.done ? 'checked' : '') + ' />' +
                 '<input class="tasks-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
+                '<button type="button" class="task-checklist-remove" data-check-remove-idx="' + idx + '" aria-label="Remove checklist item">-</button>' +
             '</div>';
         }).join('');
     }
@@ -1263,6 +1280,14 @@
         });
         byId('taskChecklistRows').addEventListener('input', syncChecklistDraftFromUi);
         byId('taskChecklistRows').addEventListener('change', syncChecklistDraftFromUi);
+        byId('taskChecklistRows').addEventListener('click', function (e) {
+            const removeBtn = e.target.closest('[data-check-remove-idx]');
+            if (!removeBtn) return;
+            syncChecklistDraftFromUi();
+            const idx = Number(removeBtn.getAttribute('data-check-remove-idx'));
+            if (!isNaN(idx) && idx >= 0 && idx < state.checklistDraft.length) state.checklistDraft.splice(idx, 1);
+            renderChecklistDraft();
+        });
 
         els.listBody.addEventListener('click', function (e) {
             const assigneeOpen = e.target.closest('[data-assignee-open]');
