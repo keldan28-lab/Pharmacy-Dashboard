@@ -1245,6 +1245,7 @@
         });
 
         els.ganttWrap.addEventListener('pointerdown', function (e) {
+            if (e.target.closest('.gantt-menu-btn, .gantt-child-btn')) return;
             const hit = e.target.closest('.gantt-bar, .gantt-handle');
             if (!hit) return;
             const taskId = hit.getAttribute('data-task-id');
