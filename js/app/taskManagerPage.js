@@ -37,7 +37,8 @@
         sortMode: 'manual',
         dragPreview: null,
         syncingScroll: false,
-        checklistDraft: []
+        checklistDraft: [],
+        dragDeleteHot: false
     };
 
     const els = {};
@@ -374,6 +375,31 @@
         return count ? Math.round(sum / count) : 0;
     }
 
+
+    function isDoneStatus(task) {
+        return String(task.status || '').toLowerCase() === 'done';
+    }
+
+    function openNewChildTaskFrom(parentTaskId) {
+        const parent = state.tasks.find(function (t) { return t.taskId === parentTaskId; });
+        state.editingId = null;
+        openModal();
+        if (!parent) return;
+        byId('taskParentId').value = parent.taskId;
+        byId('taskTitle').value = 'New child task';
+        byId('taskStatus').value = 'Not Started';
+        byId('taskPriority').value = parent.priority || 'Medium';
+        byId('taskColor').value = parent.colorKey || 'teal';
+        byId('taskAssignee').value = parent.assignee || '';
+        byId('taskStartDate').value = parent.startDate || toISODate(new Date());
+        byId('taskDueDate').value = parent.dueDate || shiftIsoDate(byId('taskStartDate').value, 1);
+        byId('taskLocation').value = parent.location || '';
+        byId('taskSublocation').value = parent.sublocation || '';
+        byId('taskItemCode').value = parent.itemCode || '';
+        byId('taskItemName').value = parent.itemName || '';
+        autoSizeItemCodeInput(byId('taskItemName').value || byId('taskItemCode').value);
+    }
+
     function renderList() {
         if (state.loading) {
             els.listBody.innerHTML = '<div class="tasks-empty">Loading tasks…</div>';
@@ -508,10 +534,13 @@
             return '<div class="gantt-cell' + cellClassForDate(d) + '">' + esc(label) + '</div>';
         }).join('') + '</div>';
 
+        const today = new Date();
+        today.setHours(0,0,0,0);
         const body = rows.map(function (row, rowIdx) {
             const t = row.task;
             const sDate = toDate(t.startDate);
             const dDate = toDate(t.dueDate);
+            let overdueShade = '';
             let bar = '';
             if (sDate && dDate) {
                 const rangeStartUnit = state.zoom === 'month'
@@ -526,6 +555,19 @@
                 const maxUnit = cols.length - 1;
                 const overlapStart = Math.max(0, startUnit);
                 const overlapEnd = Math.min(maxUnit, endUnit);
+
+                if (!isDoneStatus(t) && dDate < today) {
+                    const overdueStartUnit = Math.max(0, Math.min(maxUnit, endUnit + 1));
+                    const todayUnit = state.zoom === 'month'
+                        ? ((today.getFullYear() * 12) + today.getMonth()) - rangeStartUnit
+                        : Math.floor((today - range.start) / DAY_MS);
+                    const overdueEndUnit = Math.max(0, Math.min(maxUnit, todayUnit));
+                    if (overdueStartUnit <= overdueEndUnit) {
+                        const oLeft = overdueStartUnit * colPx;
+                        const oWidth = Math.max(10, ((overdueEndUnit - overdueStartUnit + 1) * colPx) - 2);
+                        overdueShade = '<div class="gantt-overdue" style="left:' + oLeft + 'px;width:' + oWidth + 'px"></div>';
+                    }
+                }
                 const barShadow = row.depth > 0 ? '0 2px 8px rgba(17, 153, 142, 0.12)' : '0 4px 12px rgba(17, 153, 142, 0.18)';
                 const progressPct = taskProgressForBar(t);
                 if (overlapStart <= overlapEnd) {
@@ -535,6 +577,7 @@
                     bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
                         '<span class="gantt-label">' + esc(t.title) + '</span>' +
                         '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
+                        '<button class="gantt-child-btn" type="button" data-task-child="' + esc(t.taskId) + '" aria-label="Add child task">+</button>' +
                         '<button class="gantt-menu-btn" type="button" data-task-menu="' + esc(t.taskId) + '" aria-label="Open task">⋯</button>' +
                         '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
                         '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
@@ -551,10 +594,10 @@
             }
             return '<div class="gantt-row" data-row-index="' + rowIdx + '" data-task-id="' + esc(t.taskId) + '" data-parent-id="' + esc(t.parentId || '') + '" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
                 return '<div class="gantt-cell' + cellClassForDate(d) + '"></div>';
-            }).join('') + bar + '</div>';
+            }).join('') + overdueShade + bar + '</div>';
         }).join('');
 
-        els.ganttWrap.innerHTML = '<button id="tasksPrevRange" class="timeline-nav-arrow left" type="button" aria-label="Previous period">‹</button>' + '<button id="tasksNextRange" class="timeline-nav-arrow right" type="button" aria-label="Next period">›</button>' + monthHead + axisHead + body;
+        els.ganttWrap.innerHTML = '<div id="tasksDeleteZone" class="gantt-delete-zone" aria-hidden="true">🗑</div>' + '<button id="tasksPrevRange" class="timeline-nav-arrow left" type="button" aria-label="Previous period">‹</button>' + '<button id="tasksNextRange" class="timeline-nav-arrow right" type="button" aria-label="Next period">›</button>' + monthHead + axisHead + body;
 
         const prevBtn = els.ganttWrap.querySelector('#tasksPrevRange');
         const nextBtn = els.ganttWrap.querySelector('#tasksNextRange');
@@ -901,8 +944,11 @@
             dragEl: null,
             dragElStartLeft: 0,
             draggedRowStartIndex: state.flatRows.findIndex(function (r) { return r.task.taskId === task.taskId; }),
-            draggedRowIndexes: []
+            draggedRowIndexes: [],
+            deleteHot: false
         };
+        const dz = byId('tasksDeleteZone');
+        if (dz) dz.classList.add('show');
         if (state.drag.draggedRowStartIndex >= 0) {
             const span = childSpanCountFromFlatIndex(state.drag.draggedRowStartIndex);
             const list = [];
@@ -914,6 +960,8 @@
     async function finishDrag() {
         const drag = state.drag;
         state.drag = null;
+        const dz0 = byId('tasksDeleteZone');
+        if (dz0) { dz0.classList.remove('show'); dz0.classList.remove('hot'); }
         if (!drag || !drag.moved) return;
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
@@ -927,6 +975,22 @@
         }
         clearDragRowHighlights();
         clearDropPreviewTransforms();
+        const dz = byId('tasksDeleteZone');
+        if (dz) { dz.classList.remove('show'); dz.classList.remove('hot'); }
+        if (drag.deleteHot) {
+            const ids = [task.taskId];
+            getDescendantTaskIds(task.taskId, ids);
+            for (let i = 0; i < ids.length; i++) {
+                const t = state.tasks.find(function (x) { return x.taskId === ids[i]; });
+                if (!t) continue;
+                t.archived = true;
+                t.updatedAt = isoNow();
+                writeTask('archiveTask', { taskId: t.taskId, archived: true, updatedAt: t.updatedAt });
+            }
+            applyFilters();
+            return;
+        }
+
         if (drag.pendingTargetTaskId) {
             const changed = reorderSiblingsLocal(task.taskId, drag.pendingTargetTaskId);
             if (changed) {
@@ -949,6 +1013,13 @@
 
         const yDelta = clientY - drag.startY;
         const xDelta = clientX - drag.startX;
+        const dz = byId('tasksDeleteZone');
+        if (dz) {
+            const r = dz.getBoundingClientRect();
+            const hot = clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+            drag.deleteHot = hot;
+            dz.classList.toggle('hot', hot);
+        }
         if (drag.dragType === 'move' && Math.abs(yDelta) > 12 && Math.abs(yDelta) > Math.abs(xDelta)) {
             if (!drag.dragEl) {
                 drag.dragEl = els.ganttWrap.querySelector('.gantt-bar[data-task-id="' + task.taskId + '"]');
@@ -1162,6 +1233,8 @@
                 return;
             }
             if (state.drag && state.drag.moved) return;
+            const childBtn = e.target.closest('[data-task-child]');
+            if (childBtn) { openNewChildTaskFrom(childBtn.getAttribute('data-task-child')); return; }
             const menuBtn = e.target.closest('[data-task-menu]');
             if (menuBtn) openModal(menuBtn.getAttribute('data-task-menu'));
         });
