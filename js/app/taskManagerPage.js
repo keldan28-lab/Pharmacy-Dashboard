@@ -336,16 +336,6 @@
             return '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>';
         }).join('');
     }
-
-
-    function formatDurationLabel(task) {
-        const s = toDate(task.startDate);
-        const d = toDate(task.dueDate);
-        if (!s || !d) return '0h';
-        const days = Math.max(1, Math.floor((d - s) / DAY_MS) + 1);
-        return String(days * 10) + 'h';
-    }
-
     function initialsForAssignee(task) {
         const parts = String(task.assignee || '').trim().split(/\s+/).filter(Boolean);
         if (!parts.length) return '—';
@@ -366,6 +356,22 @@
         return count;
     }
 
+    function taskProgressForBar(task) {
+        const kids = getChildTasks(task.taskId);
+        if (!kids.length) return clamp(Number(task.percentComplete || 0), 0, 100);
+        const stack = kids.slice();
+        let sum = 0;
+        let count = 0;
+        while (stack.length) {
+            const cur = stack.shift();
+            sum += clamp(Number(cur.percentComplete || 0), 0, 100);
+            count++;
+            const descendants = getChildTasks(cur.taskId);
+            for (let i = 0; i < descendants.length; i++) stack.push(descendants[i]);
+        }
+        return count ? Math.round(sum / count) : 0;
+    }
+
     function renderList() {
         if (state.loading) {
             els.listBody.innerHTML = '<div class="tasks-empty">Loading tasks…</div>';
@@ -381,12 +387,10 @@
             const indent = row.depth * 14;
             const badge = getColorDef(task.colorKey).base;
             const connector = row.depth > 0 ? '<span class="task-connector anim" style="color:' + esc(badge) + '" aria-hidden="true"></span>' : '';
-            const duration = formatDurationLabel(task);
             const avatar = initialsForAssignee(task);
             return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
                 '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
-                '<div class="task-duration">' + esc(duration) + '</div>' +
                 '<div class="task-assignee-avatar" title="' + esc(task.assignee || 'Unassigned') + '">' + esc(avatar) + '</div>' +
             '</div>';
         }).join('');
@@ -477,7 +481,11 @@
         function cellClassForDate(d) {
             const day = d.getDay();
             const isWeekend = day === 0 || day === 6;
-            return isWeekend ? ' weekend-cell' : '';
+            const today = new Date();
+            let isToday = false;
+            if (state.zoom === 'month') isToday = (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth());
+            else isToday = (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate());
+            return (isWeekend ? ' weekend-cell' : '') + (isToday ? ' today-cell' : '');
         }
 
         const monthHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
@@ -515,15 +523,15 @@
                 const maxUnit = cols.length - 1;
                 const overlapStart = Math.max(0, startUnit);
                 const overlapEnd = Math.min(maxUnit, endUnit);
-                const barShadow = row.depth > 0 ? '0 3px 10px rgba(17, 153, 142, 0.14)' : '0 6px 16px rgba(17, 153, 142, 0.25)';
+                const barShadow = row.depth > 0 ? '0 2px 8px rgba(17, 153, 142, 0.12)' : '0 4px 12px rgba(17, 153, 142, 0.18)';
+                const progressPct = taskProgressForBar(t);
                 if (overlapStart <= overlapEnd) {
                     const left = overlapStart * colPx;
                     const widthUnits = Math.max(1, overlapEnd - overlapStart + 1);
                     const width = Math.max(18, (widthUnits * colPx) - 6);
                     bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
                         esc(t.title) +
-                        '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
-                        '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
+                        '<span class="gantt-progress" style="width:' + progressPct + '%"></span>' +
                     '</div>';
                 } else {
                     const stubWidth = Math.max(20, Math.round(colPx * 0.9));
@@ -544,7 +552,7 @@
 
         const prevBtn = els.ganttWrap.querySelector('#tasksPrevRange');
         const nextBtn = els.ganttWrap.querySelector('#tasksNextRange');
-        const tableHeight = (2 * 34) + (rows.length * 40);
+        const tableHeight = (2 * 34) + (rows.length * 44);
         const navTop = Math.max(56, Math.min(Math.round(tableHeight / 2), (els.ganttWrap.clientHeight || tableHeight) - 18));
         if (prevBtn) prevBtn.style.top = navTop + 'px';
         if (nextBtn) nextBtn.style.top = navTop + 'px';
@@ -777,16 +785,18 @@
         const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-task-id]') : [];
         let targetId = '';
         let targetRowIndex = null;
+        let bestDistance = Infinity;
         for (let i = 0; i < rows.length; i++) {
             const rect = rows[i].getBoundingClientRect();
-            if (clientY >= rect.top && clientY <= rect.bottom) {
-                const candidateId = rows[i].getAttribute('data-task-id') || '';
-                const candidateParent = rows[i].getAttribute('data-parent-id') || '';
-                if (candidateId && candidateId !== task.taskId && String(candidateParent) === String(task.parentId || '')) {
-                    targetId = candidateId;
-                    targetRowIndex = Number(rows[i].getAttribute('data-row-index') || 0);
-                }
-                break;
+            const center = (rect.top + rect.bottom) / 2;
+            const distance = Math.abs(clientY - center);
+            if (distance > 28 || distance >= bestDistance) continue;
+            const candidateId = rows[i].getAttribute('data-task-id') || '';
+            const candidateParent = rows[i].getAttribute('data-parent-id') || '';
+            if (candidateId && candidateId !== task.taskId && String(candidateParent) === String(task.parentId || '')) {
+                targetId = candidateId;
+                targetRowIndex = Number(rows[i].getAttribute('data-row-index') || 0);
+                bestDistance = distance;
             }
         }
         drag.pendingTargetTaskId = targetId;
@@ -1068,10 +1078,10 @@
         });
 
         els.ganttWrap.addEventListener('pointerdown', function (e) {
-            const hit = e.target.closest('.gantt-bar, .gantt-handle');
+            const hit = e.target.closest('.gantt-bar');
             if (!hit) return;
             const taskId = hit.getAttribute('data-task-id');
-            const dragType = hit.getAttribute('data-drag-type') || 'move';
+            const dragType = 'move';
             if (!taskId) return;
             e.preventDefault();
             startDrag(taskId, dragType, e.clientX, e.clientY);
