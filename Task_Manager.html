@@ -27,6 +27,7 @@
             position: relative;
         }
         .tasks-header {
+            width: 100%;
             display: flex;
             flex-direction: column;
             align-items: stretch;
@@ -56,8 +57,8 @@
         .tasks-top-card { border: 1px solid var(--card-border); border-radius: 16px; overflow: hidden; background: var(--card-bg); box-shadow: 0 8px 28px rgba(0,0,0,0.16); }
         .tasks-top-accent { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; gap: 12px; }
         .tasks-top-icon {
-            width: 36px;
-            height: 36px;
+            width: clamp(36px, 5vw, 44px);
+            height: clamp(36px, 5vw, 44px);
             border-radius: 10px;
             display: inline-flex;
             align-items: center;
@@ -66,9 +67,9 @@
             color: #f7ffff;
         }
         .tasks-top-icon svg { width: 20px; height: 20px; }
-        .tasks-top-title { font-size: clamp(2.1rem, 4vw, 3rem); font-weight: 600; color: #f7ffff; letter-spacing: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.05; }
+        .tasks-top-title { font-size: clamp(1.5em, 4vw, 2em); font-weight: 600; color: #f7ffff; letter-spacing: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.1; }
         .tasks-top-subtitle { color: rgba(245,255,255,0.85); font-size: 12px; margin-top: 2px; }
-        .tasks-top-controls { width: 100%; display: grid; grid-template-columns: auto minmax(160px, 1fr) auto auto auto auto auto; gap: 8px; align-items: center; }
+        .tasks-top-controls { width: 100%; display: grid; grid-template-columns: auto minmax(160px, 1fr) auto auto auto auto auto; gap: 8px; align-items: center; padding-top: 2px; }
         .tasks-search-trigger { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.03); color: var(--text-secondary); cursor: pointer; }
         .tasks-search-wrap { width: 40px; overflow: hidden; transition: width 180ms ease; }
         .tasks-search-wrap.open { width: min(360px, 42vw); }
