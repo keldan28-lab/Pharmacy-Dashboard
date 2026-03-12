@@ -39,7 +39,8 @@
         syncingScroll: false,
         checklistDraft: [],
         dragDeleteHot: false,
-        printView: false
+        printView: false,
+        checklistLoading: false
     };
 
     const els = {};
@@ -662,7 +663,13 @@
 
     function renderChecklistDraft() {
         const wrap = byId('taskChecklistRows');
+        const panel = byId('taskChecklistPanel');
         if (!wrap) return;
+        if (panel) panel.classList.toggle('loading', !!state.checklistLoading);
+        if (state.checklistLoading) {
+            wrap.innerHTML = '<div class="tasks-empty" style="padding:8px 6px;">Loading checklist…</div>';
+            return;
+        }
         if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, text: '' }];
         wrap.innerHTML = state.checklistDraft.map(function (item, idx) {
             return '<div class="checklist-row">' +
@@ -689,11 +696,21 @@
     }
 
     async function loadChecklist(taskId) {
+        state.checklistLoading = true;
         state.checklistDraft = [];
-        if (!taskId) { renderChecklistDraft(); return; }
+        renderChecklistDraft();
+        if (!taskId) {
+            state.checklistLoading = false;
+            renderChecklistDraft();
+            return;
+        }
         const webAppUrl = getWebAppUrl();
         const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
-        if (!webAppUrl || !sheetId) { renderChecklistDraft(); return; }
+        if (!webAppUrl || !sheetId) {
+            state.checklistLoading = false;
+            renderChecklistDraft();
+            return;
+        }
         try {
             const url = webAppUrl + '?action=checklistRead&sheetId=' + encodeURIComponent(sheetId) + '&taskId=' + encodeURIComponent(taskId);
             const res = await jsonp(url, 12000);
@@ -701,6 +718,7 @@
                 state.checklistDraft = res.items.map(function (it) { return { done: String(it.done) === 'true' || it.done === true, text: String(it.text || '') }; });
             }
         } catch (_) {}
+        state.checklistLoading = false;
         renderChecklistDraft();
     }
 
@@ -1274,15 +1292,16 @@
         byId('taskSaveBtn').addEventListener('click', saveTask);
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
         byId('taskChecklistAdd').addEventListener('click', function () {
+            if (state.checklistLoading) return;
             syncChecklistDraftFromUi();
             state.checklistDraft.push({ done: false, text: '' });
             renderChecklistDraft();
         });
-        byId('taskChecklistRows').addEventListener('input', syncChecklistDraftFromUi);
-        byId('taskChecklistRows').addEventListener('change', syncChecklistDraftFromUi);
+        byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) syncChecklistDraftFromUi(); });
+        byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) syncChecklistDraftFromUi(); });
         byId('taskChecklistRows').addEventListener('click', function (e) {
             const removeBtn = e.target.closest('[data-check-remove-idx]');
-            if (!removeBtn) return;
+            if (!removeBtn || state.checklistLoading) return;
             syncChecklistDraftFromUi();
             const idx = Number(removeBtn.getAttribute('data-check-remove-idx'));
             if (!isNaN(idx) && idx >= 0 && idx < state.checklistDraft.length) state.checklistDraft.splice(idx, 1);
