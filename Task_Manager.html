@@ -62,7 +62,14 @@
         .tasks-top-icon svg { width: 20px; height: 20px; }
         .tasks-top-title { font-size: clamp(2.1rem, 4vw, 3rem); font-weight: 600; color: #f7ffff; letter-spacing: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.05; }
         .tasks-top-subtitle { color: rgba(245,255,255,0.85); font-size: 12px; margin-top: 2px; }
-        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto auto auto; gap: 8px; }
+        .tasks-top-controls { padding: 10px 14px; display: grid; grid-template-columns: auto minmax(160px, 1fr) auto auto auto auto; gap: 8px; align-items: center; }
+        .tasks-search-trigger { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.03); color: var(--text-secondary); cursor: pointer; }
+        .tasks-search-wrap { width: 40px; overflow: hidden; transition: width 180ms ease; }
+        .tasks-search-wrap.open { width: min(360px, 42vw); }
+        .tasks-toggle-frame { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--card-border); border-radius: 999px; background: rgba(255,255,255,0.03); box-shadow: inset 0 2px 4px rgba(0,0,0,0.18); }
+        .tasks-seg-btn { min-width: 32px; height: 30px; border-radius: 999px; border: 0; background: transparent; color: var(--text-secondary); font-weight: 700; cursor: pointer; }
+        .tasks-seg-btn.active { background: rgba(42,184,173,0.2); color: var(--text-primary); }
+        .tasks-add-outline { display:inline-flex; align-items:center; gap:8px; min-height:38px; padding:0 12px; border-radius:12px; border:2px solid rgba(42,184,173,0.78); background: transparent; color: var(--teal-primary); font-weight:800; }
 
         .tasks-input, .tasks-select, .tasks-button {
             min-height: 38px;
@@ -468,18 +475,20 @@
     <div class="tasks-page">
         <div class="tasks-top-card">
             <div class="tasks-top-controls">
-                <input id="tasksSearch" class="tasks-input" placeholder="Search tasks" />
-                <select id="tasksZoom" class="tasks-select">
-                    <option value="day">Day View</option>
-                    <option value="week" selected>Week View</option>
-                    <option value="month">Month View</option>
-                </select>
-                <button id="tasksZoomInBtn" class="tasks-button" type="button">Zoom In</button>
-                <button id="tasksZoomOutBtn" class="tasks-button" type="button">Zoom Out</button>
-                <button id="tasksExpandAll" class="tasks-button" type="button">Expand/Collapse</button>
-                <button id="tasksPanelToggle" class="tasks-button" type="button">Collapse Panel</button>
+                <button id="tasksSearchBtn" class="tasks-search-trigger" type="button" aria-label="Search">🔎</button>
+                <div id="tasksSearchWrap" class="tasks-search-wrap"><input id="tasksSearch" class="tasks-input" placeholder="Search tasks" /></div>
+                <div id="tasksZoomModeFrame" class="tasks-toggle-frame" role="group" aria-label="View mode">
+                    <button id="tasksZoomDayBtn" class="tasks-seg-btn" type="button">D</button>
+                    <button id="tasksZoomWeekBtn" class="tasks-seg-btn active" type="button">W</button>
+                    <button id="tasksZoomMonthBtn" class="tasks-seg-btn" type="button">M</button>
+                </div>
+                <div class="tasks-toggle-frame" role="group" aria-label="Zoom controls">
+                    <button id="tasksZoomInBtn" class="tasks-seg-btn" type="button">-</button>
+                    <button id="tasksZoomOutBtn" class="tasks-seg-btn" type="button">+</button>
+                </div>
+                <button id="tasksViewToggle" class="tasks-button" type="button">Printable Layout</button>
+                <button id="tasksAddBtn" class="tasks-add-outline" type="button"><span>⊞</span><span>+ Task</span></button>
                 <button id="tasksFilterToggle" class="tasks-button" type="button">Filters</button>
-                <button id="tasksAddBtn" class="tasks-button primary" type="button">+ Add Task</button>
             </div>
             <div id="tasksFiltersPanel" class="tasks-filter-panel">
                 <select id="tasksStatusFilter" class="tasks-select"></select>
@@ -492,7 +501,7 @@
 
         <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
-                <div class="tasks-list-header"><span class="tasks-list-col"></span><span class="tasks-list-col name">Name <button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button><span id="tasksSortMode" class="tasks-sort-mode">Manual</span></span><span class="tasks-list-col assignee">Assignee</span></div>
+                <div class="tasks-list-header"><span class="tasks-list-col"><button id="tasksExpandAllMini" class="tasks-sort-btn" type="button" title="Expand/Collapse">▾</button></span><span class="tasks-list-col name">Name <button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button><span id="tasksSortMode" class="tasks-sort-mode">Manual</span></span><span class="tasks-list-col assignee">Assignee</span></div>
                 <div id="tasksListGap" class="tasks-list-gap" aria-hidden="true"></div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>
@@ -504,6 +513,7 @@
                 </div>
             </div>
         </div>
+        <div id="tasksPrintView" class="tasks-top-card" style="display:none;padding:14px;overflow:auto;max-height:100%;"></div>
     </div>
         </div>
     </div>

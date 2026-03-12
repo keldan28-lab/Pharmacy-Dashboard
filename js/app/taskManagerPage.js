@@ -38,7 +38,8 @@
         dragPreview: null,
         syncingScroll: false,
         checklistDraft: [],
-        dragDeleteHot: false
+        dragDeleteHot: false,
+        printView: false
     };
 
     const els = {};
@@ -84,8 +85,13 @@
     }
 
     function syncZoomOutUi() {
-        if (els.zoomOutBtn) els.zoomOutBtn.textContent = 'Zoom Out ' + (state.zoomOutLevel > 0 ? ('(' + state.zoomOutLevel + ')') : '');
-        if (els.zoomInBtn) els.zoomInBtn.textContent = 'Zoom In';
+        if (els.zoomOutBtn) els.zoomOutBtn.textContent = '+';
+        if (els.zoomInBtn) els.zoomInBtn.textContent = '-';
+    }
+
+    function syncZoomModeButtons() {
+        const map = { day: byId('tasksZoomDayBtn'), week: byId('tasksZoomWeekBtn'), month: byId('tasksZoomMonthBtn') };
+        Object.keys(map).forEach(function (k) { if (map[k]) map[k].classList.toggle('active', state.zoom === k); });
     }
 
     function startOfDay(d) {
@@ -307,8 +313,10 @@
 
         syncFilterPanelUi();
         syncZoomOutUi();
+        syncZoomModeButtons();
         syncShellLayout();
         renderList();
+        renderPrintView();
         requestAnimationFrame(renderGantt);
     }
 
@@ -398,6 +406,29 @@
         byId('taskItemCode').value = parent.itemCode || '';
         byId('taskItemName').value = parent.itemName || '';
         autoSizeItemCodeInput(byId('taskItemName').value || byId('taskItemCode').value);
+    }
+
+
+    function renderPrintView() {
+        const wrap = byId('tasksPrintView');
+        if (!wrap) return;
+        if (!state.printView) { wrap.style.display = 'none'; return; }
+        wrap.style.display = 'block';
+        const rows = state.flatRows.map(function (r) {
+            const t = r.task;
+            return '<tr>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.title) + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.assignee || '') + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.status || '') + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.startDate || '') + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.dueDate || '') + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.location || '') + '</td>' +
+            '</tr>';
+        }).join('');
+        wrap.innerHTML = '<div style="font-weight:800;margin-bottom:10px;">Printable Action Plan</div>' +
+            '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+            '<thead><tr><th style="text-align:left;padding:6px;">Task</th><th style="text-align:left;padding:6px;">Assignee</th><th style="text-align:left;padding:6px;">Status</th><th style="text-align:left;padding:6px;">Start</th><th style="text-align:left;padding:6px;">Due</th><th style="text-align:left;padding:6px;">Location</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table>';
     }
 
     function renderList() {
@@ -1130,7 +1161,9 @@
         if (!els.shell) return;
         els.shell.style.setProperty('--left-pane-width', Math.max(240, Math.min(620, state.leftPaneWidth)) + 'px');
         els.shell.classList.toggle('left-collapsed', !!state.leftPaneCollapsed);
-        if (els.panelToggleBtn) els.panelToggleBtn.textContent = state.leftPaneCollapsed ? 'Expand Panel' : 'Collapse Panel';
+        els.shell.style.display = state.printView ? 'none' : 'grid';
+        const v = byId('tasksViewToggle');
+        if (v) v.textContent = state.printView ? 'Planner View' : 'Printable Layout';
     }
 
     function bindEvents() {
@@ -1139,12 +1172,17 @@
             els[k].addEventListener(ev, debounce(applyFilters, 120));
         });
 
-        els.zoom.addEventListener('change', function () {
-            state.zoom = els.zoom.value;
-            state.zoomOutLevel = 0;
-            state.currentAnchorDate = toISODate(new Date());
-            syncZoomOutUi();
-            renderGantt();
+        [['tasksZoomDayBtn','day'],['tasksZoomWeekBtn','week'],['tasksZoomMonthBtn','month']].forEach(function (pair) {
+            const btn = byId(pair[0]);
+            if (!btn) return;
+            btn.addEventListener('click', function () {
+                state.zoom = pair[1];
+                state.zoomOutLevel = 0;
+                state.currentAnchorDate = toISODate(new Date());
+                syncZoomOutUi();
+                syncZoomModeButtons();
+                renderGantt();
+            });
         });
 
         els.zoomInBtn.addEventListener('click', function () {
@@ -1167,7 +1205,7 @@
             applyFilters();
         });
 
-        byId('tasksExpandAll').addEventListener('click', function () {
+        byId('tasksExpandAllMini').addEventListener('click', function () {
             const collapse = state.flatRows.some(function (r) { return r.task.children && r.task.children.length && state.expanded[r.task.taskId] !== false; });
             state.flatRows.forEach(function (r) {
                 if (r.task.children && r.task.children.length) state.expanded[r.task.taskId] = collapse ? false : true;
@@ -1188,6 +1226,13 @@
             applyFilters();
         });
 
+        byId('tasksSearchBtn').addEventListener('click', function () {
+            const wrap = byId('tasksSearchWrap');
+            if (!wrap) return;
+            wrap.classList.toggle('open');
+            if (wrap.classList.contains('open') && els.search) els.search.focus();
+        });
+
         els.listBody.addEventListener('scroll', function () {
             if (state.syncingScroll) return;
             state.syncingScroll = true;
@@ -1201,9 +1246,10 @@
             requestAnimationFrame(function () { state.syncingScroll = false; });
         });
 
-        byId('tasksPanelToggle').addEventListener('click', function () {
-            state.leftPaneCollapsed = !state.leftPaneCollapsed;
+        byId('tasksViewToggle').addEventListener('click', function () {
+            state.printView = !state.printView;
             syncShellLayout();
+            renderPrintView();
         });
 
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
@@ -1320,7 +1366,6 @@
         els.assigneeFilter = byId('tasksAssigneeFilter');
         els.itemFilter = byId('tasksItemFilter');
         els.locationFilter = byId('tasksLocationFilter');
-        els.zoom = byId('tasksZoom');
         els.zoomInBtn = byId('tasksZoomInBtn');
         els.zoomOutBtn = byId('tasksZoomOutBtn');
         els.filterToggle = byId('tasksFilterToggle');
@@ -1331,7 +1376,7 @@
         els.ganttWrap = byId('tasksGanttWrap');
         els.shell = byId('tasksShell');
         els.splitter = byId('tasksSplitter');
-        els.panelToggleBtn = byId('tasksPanelToggle');
+        els.panelToggleBtn = byId('tasksViewToggle');
     }
 
     function bootstrapInventoryHint() {
@@ -1459,6 +1504,7 @@
         bootstrapInventoryHint();
         syncFilterPanelUi();
         syncZoomOutUi();
+        syncZoomModeButtons();
         syncShellLayout();
         updateSortUi();
         await loadTasks();
