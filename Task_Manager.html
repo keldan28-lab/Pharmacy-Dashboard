@@ -188,7 +188,7 @@
         .tasks-list-gap {
             height: 6px;
         }
-        .tasks-list-body { min-height: 0; overflow: auto; padding: 0; margin-top: 0; display: flex; flex-direction: column; gap: 0; }
+        .tasks-list-body { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; margin-top: 0; display: flex; flex-direction: column; gap: 0; }
         .tasks-row {
             display: grid;
             grid-template-columns: 24px 1fr 54px;
@@ -207,7 +207,11 @@
         .tree-toggle { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
         .tree-toggle:hover { background: rgba(255,255,255,0.08); }
         .task-title-wrap { min-width: 0; position: relative; }
-        .task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+        .task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
+        .tasks-row.depth-0 .task-title { font-weight: 720; }
+        .tasks-row.depth-1 .task-title { font-weight: 620; }
+        .tasks-row.depth-2 .task-title { font-weight: 520; }
+        .tasks-row.depth-3 .task-title { font-weight: 460; }
         .task-assignee-avatar { width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; background: linear-gradient(145deg, #8aa9d8, #5b7fb7); margin: 0 auto; border: 2px solid rgba(255,255,255,0.4); }
         .task-color-badge { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 7px; vertical-align: middle; }
         .task-connector {
@@ -228,7 +232,7 @@
 
         .gantt-wrap {
             min-height: 0;
-            overflow: hidden;
+            overflow: auto;
             border-top: 1px solid rgba(160,160,160,0.22);
             background: transparent;
             position: relative;
@@ -318,7 +322,7 @@
             padding: 0 10px;
             top: 8px;
             height: 28px;
-            border-radius: 1px;
+            border-radius: 3px;
             border: 1px solid rgba(255,255,255,0.18);
             cursor: grab;
             box-shadow: 0 3px 10px rgba(17, 153, 142, 0.2);
@@ -330,9 +334,22 @@
             left: 0;
             bottom: 0;
             height: 2px;
-            background: rgba(9, 97, 143, 0.9);
+            background: rgba(9, 97, 143, 0.95);
             pointer-events: none;
+            z-index: 2;
         }
+        .gantt-handle {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 10px;
+            opacity: 0;
+            cursor: ew-resize;
+            z-index: 3;
+        }
+        .gantt-handle.left { left: -1px; }
+        .gantt-handle.right { right: -1px; }
+        .gantt-bar:hover .gantt-handle { opacity: 0.16; background: rgba(255,255,255,0.65); }
         .priority-high { box-shadow: inset 0 0 0 1px rgba(255,84,84,0.72), 0 8px 20px rgba(255, 84, 84, 0.26); }
         .gantt-bar.out-of-range {
             color: rgba(230, 236, 242, 0.9);

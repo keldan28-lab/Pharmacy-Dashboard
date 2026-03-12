@@ -35,7 +35,8 @@
         leftPaneWidth: 360,
         resizing: null,
         sortMode: 'manual',
-        dragPreview: null
+        dragPreview: null,
+        syncingScroll: false
     };
 
     const els = {};
@@ -388,7 +389,8 @@
             const badge = getColorDef(task.colorKey).base;
             const connector = row.depth > 0 ? '<span class="task-connector anim" style="color:' + esc(badge) + '" aria-hidden="true"></span>' : '';
             const avatar = initialsForAssignee(task);
-            return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
+            const depthClass = 'depth-' + Math.min(3, row.depth);
+            return '<div class="tasks-row ' + depthClass + '" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
                 '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
                 '<div class="task-assignee-avatar" title="' + esc(task.assignee || 'Unassigned') + '">' + esc(avatar) + '</div>' +
@@ -530,8 +532,10 @@
                     const widthUnits = Math.max(1, overlapEnd - overlapStart + 1);
                     const width = Math.max(18, (widthUnits * colPx) - 6);
                     bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
-                        esc(t.title) +
+                        '<span class="gantt-label">' + esc(t.title) + '</span>' +
                         '<span class="gantt-progress" style="width:' + progressPct + '%"></span>' +
+                        '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
+                        '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                     '</div>';
                 } else {
                     const stubWidth = Math.max(20, Math.round(colPx * 0.9));
@@ -556,6 +560,7 @@
         const navTop = Math.max(56, Math.min(Math.round(tableHeight / 2), (els.ganttWrap.clientHeight || tableHeight) - 18));
         if (prevBtn) prevBtn.style.top = navTop + 'px';
         if (nextBtn) nextBtn.style.top = navTop + 'px';
+        if (els.listBody && els.ganttWrap) els.ganttWrap.scrollTop = els.listBody.scrollTop;
     }
 
     function openModal(taskId) {
@@ -662,6 +667,14 @@
         return state.tasks.filter(function (t) { return String(t.parentId || '') === String(parentId || ''); });
     }
 
+    function getDescendantTaskIds(parentId, out) {
+        const children = getChildTasks(parentId);
+        for (let i = 0; i < children.length; i++) {
+            out.push(children[i].taskId);
+            getDescendantTaskIds(children[i].taskId, out);
+        }
+    }
+
     function shiftTaskWithChildren(parentTask, deltaDays, out) {
         const children = getChildTasks(parentTask.taskId);
         children.forEach(function (child) {
@@ -720,7 +733,7 @@
     function updateDropPreviewTransforms(drag) {
         clearDropPreviewTransforms();
         if (!drag || drag.pendingTargetRowIndex == null || !drag.pendingTargetTaskId || !drag.draggedRowIndexes || !drag.draggedRowIndexes.length) return;
-        const shiftPx = drag.draggedRowIndexes.length * 40;
+        const shiftPx = drag.draggedRowIndexes.length * 44;
         const targetIdx = drag.pendingTargetRowIndex;
         const draggedSet = new Set(drag.draggedRowIndexes);
         const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-row-index]') : [];
@@ -781,26 +794,31 @@
 
     function reorderWithinHierarchy(drag, clientY) {
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
-        if (!task) return;
-        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-task-id]') : [];
-        let targetId = '';
-        let targetRowIndex = null;
-        let bestDistance = Infinity;
-        for (let i = 0; i < rows.length; i++) {
-            const rect = rows[i].getBoundingClientRect();
-            const center = (rect.top + rect.bottom) / 2;
-            const distance = Math.abs(clientY - center);
-            if (distance > 28 || distance >= bestDistance) continue;
-            const candidateId = rows[i].getAttribute('data-task-id') || '';
-            const candidateParent = rows[i].getAttribute('data-parent-id') || '';
-            if (candidateId && candidateId !== task.taskId && String(candidateParent) === String(task.parentId || '')) {
-                targetId = candidateId;
-                targetRowIndex = Number(rows[i].getAttribute('data-row-index') || 0);
-                bestDistance = distance;
-            }
+        if (!task || !els.ganttWrap) return;
+        const wrapRect = els.ganttWrap.getBoundingClientRect();
+        const yInWrap = clientY - wrapRect.top + els.ganttWrap.scrollTop;
+        const rowHeight = 44;
+        const headerOffset = 68;
+        let targetRowIndex = Math.floor((yInWrap - headerOffset) / rowHeight);
+        targetRowIndex = Math.max(0, Math.min(state.flatRows.length - 1, targetRowIndex));
+
+        const draggedSet = new Set(drag.draggedRowIndexes || []);
+        if (draggedSet.has(targetRowIndex)) {
+            drag.pendingTargetTaskId = '';
+            drag.pendingTargetRowIndex = null;
+            updateDragRowHighlights(drag);
+            updateDropPreviewTransforms(drag);
+            return;
         }
+
+        let targetId = '';
+        const row = state.flatRows[targetRowIndex];
+        if (row && String(row.task.parentId || '') === String(task.parentId || '') && row.task.taskId !== task.taskId) {
+            targetId = row.task.taskId;
+        }
+
         drag.pendingTargetTaskId = targetId;
-        drag.pendingTargetRowIndex = targetRowIndex;
+        drag.pendingTargetRowIndex = targetId ? targetRowIndex : null;
         if (targetId) drag.moved = true;
         updateDragRowHighlights(drag);
         updateDropPreviewTransforms(drag);
@@ -884,7 +902,8 @@
                     drag.dragEl.style.pointerEvents = 'none';
                 }
             }
-            const moveIds = [task.taskId].concat(getChildTasks(task.taskId).map(function (c) { return c.taskId; }));
+            const moveIds = [task.taskId];
+            getDescendantTaskIds(task.taskId, moveIds);
             for (let i = 0; i < moveIds.length; i++) {
                 const el = els.ganttWrap.querySelector('.gantt-bar[data-task-id="' + moveIds[i] + '"]');
                 if (el) { el.style.zIndex = '15'; el.style.pointerEvents = 'none'; el.style.transform = 'translate(' + xDelta + 'px,' + yDelta + 'px)'; }
@@ -1031,6 +1050,19 @@
             applyFilters();
         });
 
+        els.listBody.addEventListener('scroll', function () {
+            if (state.syncingScroll) return;
+            state.syncingScroll = true;
+            if (els.ganttWrap) els.ganttWrap.scrollTop = els.listBody.scrollTop;
+            requestAnimationFrame(function () { state.syncingScroll = false; });
+        });
+        els.ganttWrap.addEventListener('scroll', function () {
+            if (state.syncingScroll) return;
+            state.syncingScroll = true;
+            if (els.listBody) els.listBody.scrollTop = els.ganttWrap.scrollTop;
+            requestAnimationFrame(function () { state.syncingScroll = false; });
+        });
+
         byId('tasksPanelToggle').addEventListener('click', function () {
             state.leftPaneCollapsed = !state.leftPaneCollapsed;
             syncShellLayout();
@@ -1078,10 +1110,10 @@
         });
 
         els.ganttWrap.addEventListener('pointerdown', function (e) {
-            const hit = e.target.closest('.gantt-bar');
+            const hit = e.target.closest('.gantt-bar, .gantt-handle');
             if (!hit) return;
             const taskId = hit.getAttribute('data-task-id');
-            const dragType = 'move';
+            const dragType = hit.getAttribute('data-drag-type') || 'move';
             if (!taskId) return;
             e.preventDefault();
             startDrag(taskId, dragType, e.clientX, e.clientY);
