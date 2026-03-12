@@ -656,7 +656,7 @@
         const heads = els.ganttWrap.querySelectorAll('.gantt-head');
         let headH = 0;
         for (let i = 0; i < heads.length; i++) headH += Math.round(heads[i].getBoundingClientRect().height || 0);
-        if (els.listGap) els.listGap.style.height = Math.max(6, headH) + 'px';
+        if (els.listGap) els.listGap.style.height = Math.max(4, headH) + 'px';
         if (els.listBody && els.ganttWrap) els.ganttWrap.scrollTop = els.listBody.scrollTop;
     }
 
