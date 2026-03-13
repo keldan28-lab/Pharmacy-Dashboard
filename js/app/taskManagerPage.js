@@ -1090,7 +1090,7 @@
             assigned.forEach(function (name) { badges.push('<span class="checklist-badge">' + esc(name) + '</span>'); });
             const progressStatus = String((item && item.progressStatus) || (item && item.done ? 'Done' : 'Not Started'));
             badges.push('<button type="button" class="checklist-badge progress" data-check-progress-idx="' + idx + '">' + esc(progressStatus) + '</button>');
-            if (item && item.handoffMode === 'handoff' && assigned.length > 1) badges.push('<span class="checklist-badge">' + esc(assigned[0]) + ' → ' + esc(assigned[assigned.length - 1]) + '</span>');
+            if (item && item.handoffMode === 'handoff' && assigned.length > 1) badges.push('<span class="checklist-badge"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>' + esc(assigned[assigned.length - 1]) + '</span>');
             if (item && item.done) badges.push('<span class="checklist-badge done">Done</span>');
             return '<div class="checklist-row">' +
                 '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item && item.selected ? 'checked' : '') + ' />' +
@@ -1285,6 +1285,8 @@
         byId('taskAssigner').value = task ? task.assigner : '';
         byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
         byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
+        if (byId('taskStartDatePicker')) byId('taskStartDatePicker').value = byId('taskStartDate').value;
+        if (byId('taskDueDatePicker')) byId('taskDueDatePicker').value = byId('taskDueDate').value;
 const pctEl = byId('taskPercent');
         if (pctEl) pctEl.value = task ? task.percentComplete : 0;
         byId('taskItemCode').value = task ? task.itemCode : '';
@@ -2296,11 +2298,51 @@ syncChecklistAssigneesWithTask(assigneeList);
         }).join('');
     }
 
+
+    function bindTaskDatePopovers() {
+        const pairs = [
+            { field: byId('taskStartDate'), picker: byId('taskStartDatePicker'), pop: byId('taskStartDatePopover') },
+            { field: byId('taskDueDate'), picker: byId('taskDueDatePicker'), pop: byId('taskDueDatePopover') }
+        ];
+        function closeAll() {
+            pairs.forEach(function (p) { if (p && p.pop) p.pop.classList.remove('open'); });
+        }
+        pairs.forEach(function (pair) {
+            if (!pair.field || !pair.picker || !pair.pop) return;
+            pair.field.addEventListener('focus', function () {
+                closeAll();
+                pair.picker.value = pair.field.value || '';
+                pair.pop.classList.add('open');
+            });
+            pair.field.addEventListener('click', function () {
+                closeAll();
+                pair.picker.value = pair.field.value || '';
+                pair.pop.classList.add('open');
+            });
+            pair.picker.addEventListener('input', function () {
+                pair.field.value = pair.picker.value || '';
+                if (pair.field.id === 'taskStartDate' || pair.field.id === 'taskDueDate') {
+                    syncChecklistMasterDates();
+                    renderChecklistDraft();
+                }
+            });
+            pair.picker.addEventListener('change', function () {
+                pair.field.value = pair.picker.value || '';
+                pair.pop.classList.remove('open');
+            });
+        });
+        document.addEventListener('click', function (e) {
+            if (e.target.closest('.task-date-field')) return;
+            closeAll();
+        });
+    }
+
     async function init() {
         cacheEls();
         bindEvents();
         bindTaskItemLookup();
         bindTaskLocationLookup();
+        bindTaskDatePopovers();
         bootstrapInventoryHint();
         syncFilterPanelUi();
         syncZoomOutUi();

@@ -526,6 +526,10 @@
         .task-form-section { grid-column: 1 / -1; display: grid; gap: 8px; padding: 8px; border: 1px solid rgba(140,160,180,0.2); border-radius: 10px; background: rgba(255,255,255,0.02); }
         .task-form-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
         .task-dates-row { display: grid; grid-template-columns: 1fr 20px 1fr; gap: 8px; align-items: center; }
+        .task-date-field { position: relative; }
+        .task-date-popover { position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 100%; padding: 6px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--card-bg); box-shadow: 0 8px 20px rgba(0,0,0,0.2); transform: translateY(-6px); opacity: 0; pointer-events: none; transition: transform 180ms ease, opacity 180ms ease; z-index: 44; }
+        .task-date-popover.open { transform: translateY(0); opacity: 1; pointer-events: auto; }
+        .task-date-popover .tasks-input { width: 100%; min-height: 34px; }
         .task-date-arrow { text-align: center; color: var(--text-secondary); opacity: 0.9; }
         .task-track-row.locked { display: none; }
         .task-form-grid textarea { grid-column: 1 / -1; min-height: 74px; resize: vertical; }
@@ -703,9 +707,19 @@
                         <div class="task-form-label">Task dates</div>
                         <div id="taskMasterRangeNote" class="task-master-range-note"></div>
                         <div class="task-dates-row">
-                            <input id="taskStartDate" type="date" class="tasks-input" />
+                            <div class="task-date-field">
+                                <input id="taskStartDate" type="date" class="tasks-input" />
+                                <div id="taskStartDatePopover" class="task-date-popover" aria-hidden="true">
+                                    <input id="taskStartDatePicker" type="date" class="tasks-input" />
+                                </div>
+                            </div>
                             <span class="task-date-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>
-                            <input id="taskDueDate" type="date" class="tasks-input" />
+                            <div class="task-date-field">
+                                <input id="taskDueDate" type="date" class="tasks-input" />
+                                <div id="taskDueDatePopover" class="task-date-popover" aria-hidden="true">
+                                    <input id="taskDueDatePicker" type="date" class="tasks-input" />
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div id="taskChecklistPanel" class="task-checklist task-form-section">
