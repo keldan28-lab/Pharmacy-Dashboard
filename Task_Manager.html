@@ -506,6 +506,9 @@
             border-bottom: 1px solid rgba(255,255,255,0.16);
             font-size: 24px;
             font-weight: 800;
+            position: sticky;
+            top: 0;
+            z-index: 2;
         }
         .task-modal-body { padding: 16px; }
         .task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 10px; }
@@ -549,6 +552,7 @@
         .task-checklist-icon-btn { width: 28px; height: 28px; border-radius: 8px; border: 1px solid rgba(128,128,128,0.26); background: rgba(128,128,128,0.12); color: var(--text-secondary); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
         .task-checklist-icon-btn svg { width: 15px; height: 15px; }
         .task-checklist-icon-btn:hover { border-color: rgba(42,184,173,0.45); color: var(--text-primary); background: rgba(42,184,173,0.14); }
+        .task-checklist-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; border-color: rgba(128,128,128,0.22); background: rgba(128,128,128,0.08); color: var(--text-secondary); }
         .checklist-row { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center; margin-bottom: 5px; }
         .checklist-row .tasks-input { width: 100%; }
         .checklist-row input[type="checkbox"] { appearance: none; width: 16px; height: 16px; border-radius: 999px; border: 1px solid rgba(160,160,160,0.5); background: transparent; cursor: pointer; }
@@ -642,13 +646,14 @@
                     <select id="taskParentId" class="tasks-select"></select>
                     <select id="taskStatus" class="tasks-select"></select>
                     <input id="taskAssignee" class="tasks-input" placeholder="Assignee" />
+                    <input id="taskAssigner" class="tasks-input" placeholder="Assigner" />
                     <input id="taskStartDate" type="date" class="tasks-input" />
                     <input id="taskDueDate" type="date" class="tasks-input" />
                     <textarea id="taskDescription" class="tasks-input" placeholder="Description (optional)"></textarea>
                     <div id="taskChecklistPanel" class="task-checklist">
                         <div class="task-checklist-title">Checklist
                             <span class="task-checklist-actions">
-                                <button id="taskChecklistAdd" class="tasks-button" type="button">+ Add checklist item</button>
+                                <button id="taskChecklistAdd" class="task-checklist-icon-btn" type="button" title="Add checklist item" aria-label="Add checklist item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></button>
                                 <button id="taskChecklistDelete" class="task-checklist-icon-btn" type="button" title="Delete selected" aria-label="Delete selected checklist items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path></svg></button>
                                 <button id="taskChecklistDone" class="task-checklist-icon-btn" type="button" title="Mark selected done" aria-label="Mark selected checklist items done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg></button>
                                 <button id="taskChecklistHandoff" class="task-checklist-icon-btn" type="button" title="Handoff selected" aria-label="Handoff selected checklist items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 13h6a4 4 0 0 1 0 8H9"></path><path d="M17 11h-6a4 4 0 0 1 0-8h4"></path><path d="M7 13l-3 3 3 3"></path></svg></button>

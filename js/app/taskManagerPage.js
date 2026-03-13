@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assigner','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -469,6 +469,7 @@
         byId('taskPriority').value = parent.priority || 'Medium';
         byId('taskColor').value = parent.colorKey || 'teal';
         byId('taskAssignee').value = parent.assignee || '';
+        byId('taskAssigner').value = parent.assigner || '';
         byId('taskStartDate').value = parent.startDate || toISODate(new Date());
         byId('taskDueDate').value = parent.dueDate || shiftIsoDate(byId('taskStartDate').value, 1);
         byId('taskLocation').value = parent.location || '';
@@ -676,21 +677,46 @@
         el.value = serializeTracksForInput(tracks);
     }
 
-    function modalTracksToPayload(payload) {
+    function modalTracksToPayload(payload, preferredAssignees) {
+        const preferred = Array.isArray(preferredAssignees) ? preferredAssignees.map(function (v) { return String(v || '').trim(); }).filter(Boolean) : [];
         const tracksEl = byId('taskAssigneeTracks');
         const tracks = parseTracksFromInput(tracksEl ? tracksEl.value : '', payload.startDate, payload.dueDate);
         if (!tracks.length) {
             payload.assigneeTracks = '';
+            if (preferred.length) {
+                payload.assignees = serializeAssignees(preferred);
+                payload.assignee = preferred[0] || payload.assignee;
+            }
             return;
         }
         const normalized = tracks.map(function (track, idx) { return normalizeTrackRecord(track, idx, payload.startDate, payload.dueDate); });
         payload.assigneeTracks = JSON.stringify(normalized);
         const assigneesFromTracks = Array.from(new Set(normalized.map(function (t) { return t.assignee; }).filter(Boolean)));
-        if (assigneesFromTracks.length) {
-            payload.assignees = serializeAssignees(assigneesFromTracks);
-            payload.assignee = assigneesFromTracks[0] || payload.assignee;
+        const combined = Array.from(new Set(preferred.concat(assigneesFromTracks)));
+        if (combined.length) {
+            payload.assignees = serializeAssignees(combined);
+            payload.assignee = preferred[0] || combined[0] || payload.assignee;
         }
         syncTaskDateEnvelopeFromTracks(payload, normalized);
+    }
+
+    function syncChecklistAssigneesWithTask(assigneeList) {
+        const base = Array.isArray(assigneeList) ? assigneeList.filter(Boolean) : [];
+        let changed = false;
+        for (let i = 0; i < state.checklistDraft.length; i++) {
+            const item = state.checklistDraft[i];
+            if (!item) continue;
+            const existing = parseChecklistAssignees(item.assignees, '');
+            const merged = Array.from(new Set(existing.concat(base))).filter(Boolean);
+            if (merged.length && serializeAssignees(existing) !== serializeAssignees(merged)) {
+                item.assignees = serializeAssignees(merged);
+                changed = true;
+            }
+        }
+        if (changed) {
+            syncEditingTaskChecklistToState();
+            renderChecklistDraft();
+        }
     }
 
     function buildTracksByMode(mode) {
@@ -935,6 +961,7 @@
                         const label = seg.trackIndex === 0 ? esc(t.title) : esc(seg.assignee);
                         return '<div class="gantt-bar gantt-bar-track ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;top:' + top + 'px;height:' + trackHeight + 'px;background:' + assigneeTrackColor(t, row.depth, seg.assignee) + ';box-shadow:' + barShadow + '">' +
                             '<span class="gantt-label">' + label + '</span>' +
+                            '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
                             '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="start"></span>' +
                             '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="end"></span>' +
                         '</div>';
@@ -989,6 +1016,10 @@
         const selectedCount = state.checklistDraft.filter(function (it) { return !!(it && it.selected); }).length;
         const title = panel ? panel.querySelector('.task-checklist-title') : null;
         if (title) title.setAttribute('data-selected-count', String(selectedCount));
+        ['taskChecklistDelete','taskChecklistDone','taskChecklistHandoff','taskChecklistCollaborate'].forEach(function (id) {
+            const btn = byId(id);
+            if (btn) btn.disabled = selectedCount < 1;
+        });
         wrap.innerHTML = state.checklistDraft.map(function (item, idx) {
             const badges = [];
             const assigned = parseChecklistAssignees(item && item.assignees, '');
@@ -1113,6 +1144,13 @@
             item.dueDate = dueDate;
             item.selected = false;
         });
+        const existingTaskAssignees = parseAssignees(byId('taskAssignee').value);
+        const checklistAssignees = [];
+        state.checklistDraft.forEach(function (item) {
+            parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
+        });
+        const mergedForField = Array.from(new Set(existingTaskAssignees.concat(checklistAssignees))).filter(Boolean);
+        if (mergedForField.length) byId('taskAssignee').value = mergedForField.join(', ');
         syncEditingTaskChecklistToState();
         closeChecklistAssignMenu();
         renderChecklistDraft();
@@ -1167,6 +1205,7 @@
         byId('taskTitle').value = task ? task.title : '';
         byId('taskDescription').value = task ? task.description : '';
         byId('taskAssignee').value = task ? task.assignee : '';
+        byId('taskAssigner').value = task ? task.assigner : '';
         byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
         byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
         byId('taskPercent').value = task ? task.percentComplete : 0;
@@ -1179,6 +1218,11 @@
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
         byId('taskColor').value = task ? task.colorKey : 'teal';
+        const modalHeader = byId('taskModalTitle');
+        if (modalHeader) {
+            const headerColor = getColorDef(task ? task.colorKey : byId('taskColor').value).base;
+            modalHeader.style.background = 'linear-gradient(135deg, ' + headerColor + ', ' + lighten(headerColor, 0.28) + ')';
+        }
         writeTracksToModalFromTask(task || {
             assigneeTracks: '', assignee: byId('taskAssignee').value, assignees: parseAssignees(byId('taskAssignee').value), startDate: byId('taskStartDate').value, dueDate: byId('taskDueDate').value
         });
@@ -1233,6 +1277,7 @@
             priority: byId('taskPriority').value,
             colorKey: byId('taskColor').value,
             assignee: byId('taskAssignee').value.trim(),
+            assigner: byId('taskAssigner').value.trim(),
             assignees: '[]',
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
@@ -1247,10 +1292,17 @@
             updatedAt: now,
             createdBy: 'dashboard'
         };
-        const assigneeList = parseAssignees(payload.assignee);
+        syncChecklistDraftFromUi();
+        const checklistAssignees = [];
+        state.checklistDraft.forEach(function (item) {
+            parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
+        });
+        const assigneeList = Array.from(new Set(parseAssignees(payload.assignee).concat(checklistAssignees))).filter(Boolean);
+        if (assigneeList.length) byId('taskAssignee').value = assigneeList.join(', ');
         payload.assignees = serializeAssignees(assigneeList);
         payload.assignee = assigneeList[0] || '';
-        modalTracksToPayload(payload);
+        modalTracksToPayload(payload, assigneeList);
+        syncChecklistAssigneesWithTask(assigneeList);
 
         if (parentTask) {
             payload.startDate = parentTask.startDate;
