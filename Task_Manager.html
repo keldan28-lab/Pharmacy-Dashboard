@@ -544,14 +544,24 @@
         .task-itemcode-lookup .lookup-option-name { color: var(--text-primary); }
         .task-checklist { grid-column: 1 / -1; margin-top: 5px; border: 1px solid var(--card-border); border-radius: 10px; padding: 8px; }
         .task-checklist.loading { opacity: 0.45; pointer-events: none; }
-        .task-checklist-title { font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px; }
-        .checklist-row { display: grid; grid-template-columns: 22px 1fr 24px; gap: 8px; align-items: center; margin-bottom: 5px; }
+        .task-checklist-title { font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .task-checklist-actions { display: inline-flex; align-items: center; gap: 6px; position: relative; }
+        .task-checklist-icon-btn { width: 28px; height: 28px; border-radius: 8px; border: 1px solid rgba(128,128,128,0.26); background: rgba(128,128,128,0.12); color: var(--text-secondary); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+        .task-checklist-icon-btn svg { width: 15px; height: 15px; }
+        .task-checklist-icon-btn:hover { border-color: rgba(42,184,173,0.45); color: var(--text-primary); background: rgba(42,184,173,0.14); }
+        .checklist-row { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center; margin-bottom: 5px; }
         .checklist-row .tasks-input { width: 100%; }
         .checklist-row input[type="checkbox"] { appearance: none; width: 16px; height: 16px; border-radius: 999px; border: 1px solid rgba(160,160,160,0.5); background: transparent; cursor: pointer; }
-        .checklist-row input[type="checkbox"]:checked { background: rgba(42,184,173,0.95); border-color: rgba(42,184,173,1); }
-        .task-checklist-remove { width: 22px; height: 22px; border-radius: 999px; border: 1px solid rgba(255,84,84,0.55); background: rgba(255,84,84,0.14); color: #ffbcbc; font-weight: 800; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none; }
-        .checklist-row:focus-within .task-checklist-remove { opacity: 1; pointer-events: auto; }
-        .task-checklist-remove:hover { background: rgba(255,84,84,0.24); }
+        .checklist-row input[type="checkbox"]:checked { background: rgba(79,142,247,0.95); border-color: rgba(79,142,247,1); }
+        .checklist-item-main { min-width: 0; display: grid; gap: 4px; }
+        .checklist-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+        .checklist-badge { font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 999px; border: 1px solid rgba(126,154,188,0.4); background: rgba(126,154,188,0.14); color: var(--text-secondary); }
+        .checklist-badge.done { border-color: rgba(17,153,142,0.55); color: #dffffa; background: rgba(17,153,142,0.2); }
+        .task-checklist-assignee-menu { position: absolute; top: 32px; right: 0; width: min(320px, 88vw); border: 1px solid var(--card-border); border-radius: 10px; background: var(--card-bg); box-shadow: 0 8px 20px rgba(0,0,0,0.2); padding: 8px; display: none; z-index: 40; }
+        .task-checklist-assignee-menu.open { display: block; }
+        .task-checklist-assignee-menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .task-checklist-assignee-menu-grid .tasks-input:first-child { grid-column: 1 / -1; }
+        .task-checklist-assignee-save { margin-top: 6px; width: 100%; }
         .task-modal-actions { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
 
         @media (max-width: 980px) {
@@ -636,9 +646,24 @@
                     <input id="taskDueDate" type="date" class="tasks-input" />
                     <textarea id="taskDescription" class="tasks-input" placeholder="Description (optional)"></textarea>
                     <div id="taskChecklistPanel" class="task-checklist">
-                        <div class="task-checklist-title">Checklist</div>
+                        <div class="task-checklist-title">Checklist
+                            <span class="task-checklist-actions">
+                                <button id="taskChecklistAdd" class="tasks-button" type="button">+ Add checklist item</button>
+                                <button id="taskChecklistDelete" class="task-checklist-icon-btn" type="button" title="Delete selected" aria-label="Delete selected checklist items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path></svg></button>
+                                <button id="taskChecklistDone" class="task-checklist-icon-btn" type="button" title="Mark selected done" aria-label="Mark selected checklist items done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg></button>
+                                <button id="taskChecklistHandoff" class="task-checklist-icon-btn" type="button" title="Handoff selected" aria-label="Handoff selected checklist items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 13h6a4 4 0 0 1 0 8H9"></path><path d="M17 11h-6a4 4 0 0 1 0-8h4"></path><path d="M7 13l-3 3 3 3"></path></svg></button>
+                                <button id="taskChecklistCollaborate" class="task-checklist-icon-btn" type="button" title="Collaborate selected" aria-label="Collaborate selected checklist items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="10" r="3"></circle><path d="M3 20c0-3.3 2.7-6 6-6"></path><path d="M11 20c0-2.8 2.2-5 5-5"></path></svg></button>
+                                <div id="taskChecklistAssigneeMenu" class="task-checklist-assignee-menu" role="dialog" aria-label="Checklist assignee controls">
+                                    <div class="task-checklist-assignee-menu-grid">
+                                        <input id="taskChecklistAssignName" class="tasks-input" placeholder="Assignee" />
+                                        <input id="taskChecklistAssignStart" type="date" class="tasks-input" />
+                                        <input id="taskChecklistAssignDue" type="date" class="tasks-input" />
+                                    </div>
+                                    <button id="taskChecklistAssignSave" class="tasks-button task-checklist-assignee-save" type="button">✓ Save assignee range</button>
+                                </div>
+                            </span>
+                        </div>
                         <div id="taskChecklistRows"></div>
-                        <button id="taskChecklistAdd" class="tasks-button" type="button">+ Add checklist item</button>
                     </div>
                     <details>
                         <summary>Optional fields</summary>

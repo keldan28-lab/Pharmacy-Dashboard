@@ -581,7 +581,7 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
 
 
 function checklistColumns_() {
-  return ['taskId', 'itemId', 'done', 'text', 'updatedAt'];
+  return ['taskId', 'itemId', 'done', 'text', 'assignees', 'startDate', 'dueDate', 'handoffMode', 'updatedAt'];
 }
 
 function ensureChecklistSheet_(sheetId, tabName) {
@@ -618,7 +618,11 @@ function checklistRead_(sheetId, tabName, taskId) {
       itemId: values[i][1],
       done: String(values[i][2] || '') === 'true',
       text: String(values[i][3] || ''),
-      updatedAt: values[i][4]
+      assignees: String(values[i][4] || ''),
+      startDate: String(values[i][5] || ''),
+      dueDate: String(values[i][6] || ''),
+      handoffMode: String(values[i][7] || ''),
+      updatedAt: values[i][8]
     });
   }
   return { ok: true, items: out, taskId: taskId };
@@ -646,7 +650,11 @@ function checklistWrite_(sheetId, tabName, payload) {
   for (let i = 0; i < items.length; i++) {
     const text = String((items[i] && items[i].text) || '').trim();
     if (!text) continue;
-    rows.push([taskId, String(i + 1), items[i].done ? 'true' : 'false', text, now]);
+    const assignees = String((items[i] && items[i].assignees) || '').trim();
+    const startDate = String((items[i] && items[i].startDate) || '').trim();
+    const dueDate = String((items[i] && items[i].dueDate) || '').trim();
+    const handoffMode = String((items[i] && items[i].handoffMode) || '').trim();
+    rows.push([taskId, String(i + 1), items[i].done ? 'true' : 'false', text, assignees, startDate, dueDate, handoffMode, now]);
   }
   if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, header.length).setValues(rows);
   return { ok: true, taskId: taskId, written: rows.length, taskAction: 'saveChecklist' };
