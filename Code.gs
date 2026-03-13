@@ -481,20 +481,20 @@ function parseAssignees_(value) {
   if (Array.isArray(value)) {
     return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
   }
-  const raw = String(value == null ? '' : value).trim();
+  var raw = String(value == null ? '' : value).trim();
   if (!raw) return [];
   if (raw.charAt(0) === '[') {
     try {
-      const parsed = JSON.parse(raw);
+      var parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
-    } catch (_) {}
+    } catch (err) {}
   }
   return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
 }
 
 function normalizeAssigneeFields_(obj) {
-  const hasAssignees = obj && obj.assignees != null && String(obj.assignees).trim() !== '';
-  const list = hasAssignees ? parseAssignees_(obj.assignees) : parseAssignees_(obj.assignee);
+  var hasAssignees = obj && obj.assignees != null && String(obj.assignees).trim() !== '';
+  var list = hasAssignees ? parseAssignees_(obj.assignees) : parseAssignees_(obj.assignee);
   obj.assignees = JSON.stringify(list);
   obj.assignee = list.length ? list[0] : '';
   return obj;
@@ -560,7 +560,7 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   const existing = foundOffset >= 0 ? values[foundOffset] : header.map(function () { return ''; });
   const row = existing.slice();
   const now = new Date().toISOString();
-  const normalizedPayload = normalizeAssigneeFields_(Object.assign({}, payload));
+  var normalizedPayload = normalizeAssigneeFields_(Object.assign({}, payload));
 
   header.forEach(function (k) {
     if (normalizedPayload[k] != null && normalizedPayload[k] !== '') row[idx[k]] = normalizedPayload[k];
