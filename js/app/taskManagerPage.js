@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -182,6 +182,25 @@
         ];
     }
 
+    function parseAssignees(value) {
+        if (Array.isArray(value)) {
+            return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+        }
+        const raw = String(value == null ? '' : value).trim();
+        if (!raw) return [];
+        if (raw.charAt(0) === '[') {
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+            } catch (_) {}
+        }
+        return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+    }
+
+    function serializeAssignees(list) {
+        return JSON.stringify((Array.isArray(list) ? list : []).map(function (v) { return String(v || '').trim(); }).filter(Boolean));
+    }
+
     function normalizeTask(raw, idx) {
         const out = {};
         TASK_COLUMNS.forEach(function (k) { out[k] = raw[k] != null ? raw[k] : ''; });
@@ -198,6 +217,9 @@
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
         out.colorKey = String(out.colorKey || 'teal');
+        const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(out.assignee);
+        out.assignees = assigneeList;
+        out.assignee = String((assigneeList[0] || out.assignee || '')).trim();
         out.children = [];
         ensureTaskDates(out);
         return out;
@@ -293,7 +315,7 @@
         state.filtered = state.tasks.filter(function (task) {
             if (!state.showArchived && task.archived) return false;
             if (status !== 'all' && task.status !== status) return false;
-            if (assignee !== 'all' && task.assignee !== assignee) return false;
+            if (assignee !== 'all' && (!Array.isArray(task.assignees) || task.assignees.indexOf(assignee) === -1)) return false;
             const hay = [task.title, task.description, task.itemCode, task.itemName, task.location, task.sublocation].join(' ').toLowerCase();
             if (q && hay.indexOf(q) === -1) return false;
             if (itemTerm && (String(task.itemCode).toLowerCase().indexOf(itemTerm) === -1 && String(task.itemName).toLowerCase().indexOf(itemTerm) === -1)) return false;
@@ -323,7 +345,9 @@
 
     function populateFilters() {
         const currentAssignee = els.assigneeFilter.value || 'all';
-        const assignees = ['all'].concat(Array.from(new Set(state.tasks.map(function (t) { return t.assignee || ''; }).filter(Boolean))).sort());
+        const assignees = ['all'].concat(Array.from(new Set(state.tasks.reduce(function (acc, t) {
+            return acc.concat(Array.isArray(t.assignees) ? t.assignees : []);
+        }, []).filter(Boolean))).sort());
 
         els.assigneeFilter.innerHTML = assignees.map(function (a) {
             return '<option value="' + esc(a) + '">' + esc(a === 'all' ? 'All Assignees' : a) + '</option>';
@@ -792,6 +816,7 @@
             priority: byId('taskPriority').value,
             colorKey: byId('taskColor').value,
             assignee: byId('taskAssignee').value.trim(),
+            assignees: '[]',
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
             percentComplete: clamp(Number(byId('taskPercent').value || 0), 0, 100),
@@ -805,6 +830,9 @@
             updatedAt: now,
             createdBy: 'dashboard'
         };
+        const assigneeList = parseAssignees(payload.assignee);
+        payload.assignees = serializeAssignees(assigneeList);
+        payload.assignee = assigneeList[0] || '';
 
         if (parentTask) {
             payload.startDate = parentTask.startDate;
