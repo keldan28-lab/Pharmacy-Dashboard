@@ -636,9 +636,12 @@
         let dataRequestCallbacks = [];
         let itemStatusOverlayPromise = null;
 
+        const PB_DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec';
+        const PB_DEFAULT_SHEET_ID = '1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ';
+
         function getItemStatusSheetConfig() {
-            const webAppUrl = String((window.ITEM_STATUS_WEBAPP_URL || localStorage.getItem('itemStatusWebAppUrl') || localStorage.getItem('spike_webAppUrl') || '')).trim();
-            const sheetId = String((window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || '')).trim();
+            const webAppUrl = String((window.ITEM_STATUS_WEBAPP_URL || localStorage.getItem('itemStatusWebAppUrl') || localStorage.getItem('spike_webAppUrl') || PB_DEFAULT_WEBAPP_URL)).trim();
+            const sheetId = String((window.ITEM_STATUS_SHEET_ID || localStorage.getItem('itemStatusSheetId') || localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || PB_DEFAULT_SHEET_ID)).trim();
             return { webAppUrl, sheetId, tabName: 'itemStatus' };
         }
 

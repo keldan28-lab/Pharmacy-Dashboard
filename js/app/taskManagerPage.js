@@ -5,6 +5,8 @@
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
+    const PB_DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec';
+    const PB_DEFAULT_SHEET_ID = '1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ';
     const TASK_BADGE_COLORS = [
         { key: 'teal', label: 'Teal', base: '#2ab8ad' },{ key: 'green', label: 'Green', base: '#38c172' },{ key: 'blue', label: 'Blue', base: '#4f8ef7' },{ key: 'purple', label: 'Purple', base: '#8b6cf0' },{ key: 'orange', label: 'Orange', base: '#f39a45' },
         { key: 'rose', label: 'Rose', base: '#e66f97' },{ key: 'red', label: 'Red', base: '#e24f4f' },{ key: 'amber', label: 'Amber', base: '#d6a21f' },{ key: 'lime', label: 'Lime', base: '#91c91a' },{ key: 'mint', label: 'Mint', base: '#43d6a8' },
@@ -200,7 +202,11 @@
     }
 
     function getWebAppUrl() {
-        return (localStorage.getItem('spike_webAppUrl') || localStorage.getItem('jsonp_proxy_webAppUrl') || '').trim();
+        return (localStorage.getItem('spike_webAppUrl') || localStorage.getItem('jsonp_proxy_webAppUrl') || PB_DEFAULT_WEBAPP_URL).trim();
+    }
+
+    function getSheetId() {
+        return (localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || PB_DEFAULT_SHEET_ID).trim();
     }
 
     function emptyFallbackTasks() {
@@ -261,17 +267,64 @@
         const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(out.assignee);
         out.assignees = assigneeList;
         out.assignee = String((assigneeList[0] || out.assignee || '')).trim();
-        out.checklistItems = Array.isArray(out.checklistItems) ? out.checklistItems : [];
+        if (!Array.isArray(out.checklistItems)) {
+            try {
+                const parsedChecklist = JSON.parse(String(out.checklistItems || '[]'));
+                out.checklistItems = Array.isArray(parsedChecklist) ? parsedChecklist : [];
+            } catch (_) {
+                out.checklistItems = [];
+            }
+        }
         out.children = [];
         ensureTaskDates(out);
         return out;
+    }
+
+
+    function parseTaskRowsPayload(payload) {
+        if (!payload) return [];
+
+        function rowsToObjects(rows) {
+            if (!Array.isArray(rows) || !rows.length) return [];
+            const first = rows[0];
+            if (!Array.isArray(first)) return rows;
+            const headers = first.map(function (h) { return String(h || '').trim(); });
+            const hasHeader = headers.some(function (h) {
+                const k = h.toLowerCase();
+                return k === 'taskid' || k === 'title' || k === 'status' || k === 'duedate';
+            });
+            if (!hasHeader) return rows;
+            return rows.slice(1).map(function (row) {
+                if (!Array.isArray(row)) return row;
+                const out = {};
+                headers.forEach(function (h, i) { out[h] = row[i]; });
+                return out;
+            });
+        }
+
+        if (Array.isArray(payload)) return rowsToObjects(payload);
+        if (Array.isArray(payload.tasks)) return rowsToObjects(payload.tasks);
+        if (Array.isArray(payload.rows)) return rowsToObjects(payload.rows);
+        if (Array.isArray(payload.values)) return rowsToObjects(payload.values);
+        if (payload.data && typeof payload.data === 'object') {
+            if (Array.isArray(payload.data.tasks)) return rowsToObjects(payload.data.tasks);
+            if (Array.isArray(payload.data.rows)) return rowsToObjects(payload.data.rows);
+            if (Array.isArray(payload.data.values)) return rowsToObjects(payload.data.values);
+        }
+        if (payload.result && typeof payload.result === 'object') {
+            if (Array.isArray(payload.result.tasks)) return rowsToObjects(payload.result.tasks);
+            if (Array.isArray(payload.result.rows)) return rowsToObjects(payload.result.rows);
+            if (Array.isArray(payload.result.values)) return rowsToObjects(payload.result.values);
+        }
+        return [];
     }
 
     async function loadTasks() {
         state.loading = true;
         renderList();
         const webAppUrl = getWebAppUrl();
-        if (!webAppUrl) {
+        const sheetId = getSheetId();
+        if (!webAppUrl || !sheetId) {
             state.usingMock = true;
             state.tasks = emptyFallbackTasks().map(normalizeTask);
             state.loading = false;
@@ -280,11 +333,16 @@
         }
 
         try {
-            const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
-            const url = webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
-            const res = await jsonp(url, 12000);
-            if (!res || !res.ok || !Array.isArray(res.tasks)) throw new Error((res && res.error) || 'Invalid task payload');
-            state.tasks = res.tasks.map(normalizeTask);
+            const readTasksUrl = webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
+            const legacyPayload = await jsonp(readTasksUrl, 12000);
+            let rows = parseTaskRowsPayload(legacyPayload);
+            if (!rows.length) {
+                const readUrl = webAppUrl + '?action=read&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
+                const payload = await jsonp(readUrl, 12000);
+                rows = parseTaskRowsPayload(payload);
+            }
+            if (!rows.length) throw new Error('No task rows returned');
+            state.tasks = rows.map(normalizeTask);
             state.usingMock = false;
         } catch (e) {
             console.warn('Task load failed, using empty fallback', e);
@@ -1253,7 +1311,7 @@
             return;
         }
         const webAppUrl = getWebAppUrl();
-        const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
+        const sheetId = getSheetId();
         if (!webAppUrl || !sheetId) {
             state.checklistLoading = false;
             renderChecklistDraft();
@@ -1797,9 +1855,9 @@ syncChecklistAssigneesWithTask(assigneeList);
     async function writeTask(action, taskPayload) {
         const webAppUrl = getWebAppUrl();
         if (!webAppUrl) return;
-        const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
+        const sheetId = getSheetId();
         const payload = {
-            action: 'taskWrite',
+            action: action,
             taskAction: action,
             sheetId: sheetId,
             tabName: 'tasks',
@@ -2267,41 +2325,97 @@ syncChecklistAssigneesWithTask(assigneeList);
         const locationDd = byId('taskLocationLookup');
         const subDd = byId('taskSublocationLookup');
         if (!locationInput || !subInput || !locationDd || !subDd) return;
-        const rows = getLocationRows();
-        function render(dd, items, mode) {
+
+        const rows = getLocationRows().filter(function (r) { return String(r.location || '').trim() || String(r.sublocation || '').trim(); });
+        const uniqLocations = Array.from(new Set(rows.map(function (r) { return String(r.location || '').trim(); }).filter(Boolean)));
+
+        function locationForSubloc(text) {
+            const q = String(text || '').trim().toLowerCase();
+            if (!q) return '';
+            for (let i = 0; i < rows.length; i++) {
+                if (String(rows[i].sublocation || '').trim().toLowerCase() === q) return String(rows[i].location || '').trim();
+            }
+            return '';
+        }
+
+        function showDropdown(dd, items, mode) {
             if (!items.length) { dd.style.display = 'none'; dd.innerHTML = ''; return; }
             dd.innerHTML = items.map(function (r, idx) {
-                const primary = mode === 'location' ? r.location : r.sublocation;
-                const secondary = mode === 'location' ? r.sublocation : r.location;
+                const primary = mode === 'location' ? String(r.location || '') : String(r.sublocation || '');
+                const secondary = mode === 'location' ? String(r.sublocation || '') : String(r.location || '');
                 return '<div class="dropdown-option" data-loc-idx="' + idx + '"><span class="lookup-option-code">' + esc(primary) + '</span><span class="lookup-option-name">' + esc(secondary) + '</span></div>';
             }).join('');
             dd.style.display = 'block';
         }
-        function find(term, mode) {
+
+        function findLocations(term) {
             const q = String(term || '').trim().toLowerCase();
-            if (!q) return [];
             const out = [];
-            for (let i=0;i<rows.length;i++) {
-                const r = rows[i];
-                const hay = mode === 'location' ? (r.location + ' ' + r.sublocation + ' ' + r.department).toLowerCase() : (r.sublocation + ' ' + r.location + ' ' + r.department).toLowerCase();
-                if (hay.indexOf(q) === -1) continue;
-                out.push(r);
+            for (let i = 0; i < uniqLocations.length; i++) {
+                const loc = uniqLocations[i];
+                if (!q || loc.toLowerCase().indexOf(q) !== -1) out.push({ location: loc, sublocation: '' });
                 if (out.length >= 12) break;
             }
             return out;
         }
-        locationInput.addEventListener('input', function () { render(locationDd, find(locationInput.value, 'location'), 'location'); });
-        subInput.addEventListener('input', function () { render(subDd, find(subInput.value, 'sub'), 'sub'); });
+
+        function findSublocations(term) {
+            const q = String(term || '').trim().toLowerCase();
+            const selectedLoc = String(locationInput.value || '').trim().toLowerCase();
+            const out = [];
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                const sub = String(r.sublocation || '').trim();
+                const loc = String(r.location || '').trim();
+                if (!sub) continue;
+                if (selectedLoc && loc.toLowerCase() !== selectedLoc) continue;
+                const hay = (sub + ' ' + loc + ' ' + String(r.department || '')).toLowerCase();
+                if (!q || hay.indexOf(q) !== -1) out.push(r);
+                if (out.length >= 12) break;
+            }
+            return out;
+        }
+
+        locationInput.addEventListener('input', function () {
+            showDropdown(locationDd, findLocations(locationInput.value), 'location');
+            if (String(locationInput.value || '').trim()) {
+                showDropdown(subDd, findSublocations(subInput.value), 'sub');
+            }
+        });
+
+        locationInput.addEventListener('focus', function () {
+            showDropdown(locationDd, findLocations(locationInput.value), 'location');
+        });
+
+        subInput.addEventListener('input', function () {
+            showDropdown(subDd, findSublocations(subInput.value), 'sub');
+            const inferred = locationForSubloc(subInput.value);
+            if (inferred) {
+                locationInput.value = inferred;
+                showDropdown(locationDd, findLocations(inferred), 'location');
+            }
+        });
+
+        subInput.addEventListener('focus', function () {
+            showDropdown(subDd, findSublocations(subInput.value), 'sub');
+        });
+
         locationDd.addEventListener('mousedown', function (e) {
             const opt = e.target.closest('[data-loc-idx]'); if (!opt) return; e.preventDefault();
-            const pick = find(locationInput.value, 'location')[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
-            locationInput.value = pick.location; subInput.value = pick.sublocation; locationDd.style.display='none';
+            const pick = findLocations(locationInput.value)[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
+            locationInput.value = pick.location;
+            locationDd.style.display = 'none';
+            showDropdown(subDd, findSublocations(subInput.value), 'sub');
         });
+
         subDd.addEventListener('mousedown', function (e) {
             const opt = e.target.closest('[data-loc-idx]'); if (!opt) return; e.preventDefault();
-            const pick = find(subInput.value, 'sub')[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
-            locationInput.value = pick.location; subInput.value = pick.sublocation; subDd.style.display='none';
+            const pick = findSublocations(subInput.value)[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
+            locationInput.value = pick.location;
+            subInput.value = pick.sublocation;
+            subDd.style.display = 'none';
         });
+
         document.addEventListener('click', function (e) {
             if (!e.target.closest('.task-link-lookup')) { locationDd.style.display='none'; subDd.style.display='none'; }
         });
