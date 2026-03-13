@@ -474,22 +474,28 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assigner','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
 }
 
 function parseAssignees_(value) {
+  function clean_(v) {
+    var s = String(v || '').trim();
+    if (!s) return '';
+    if (s.toLowerCase() === 'unassigned') return '';
+    return s;
+  }
   if (Array.isArray(value)) {
-    return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+    return value.map(clean_).filter(Boolean);
   }
   var raw = String(value == null ? '' : value).trim();
   if (!raw) return [];
   if (raw.charAt(0) === '[') {
     try {
       var parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+      if (Array.isArray(parsed)) return parsed.map(clean_).filter(Boolean);
     } catch (err) {}
   }
-  return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+  return raw.split(/[|,;\n]/).map(clean_).filter(Boolean);
 }
 
 function normalizeAssigneeFields_(obj) {
@@ -581,7 +587,7 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
 
 
 function checklistColumns_() {
-  return ['taskId', 'itemId', 'done', 'text', 'updatedAt'];
+  return ['taskId', 'itemId', 'done', 'text', 'assignees', 'startDate', 'dueDate', 'handoffMode', 'updatedAt'];
 }
 
 function ensureChecklistSheet_(sheetId, tabName) {
@@ -618,7 +624,11 @@ function checklistRead_(sheetId, tabName, taskId) {
       itemId: values[i][1],
       done: String(values[i][2] || '') === 'true',
       text: String(values[i][3] || ''),
-      updatedAt: values[i][4]
+      assignees: String(values[i][4] || ''),
+      startDate: String(values[i][5] || ''),
+      dueDate: String(values[i][6] || ''),
+      handoffMode: String(values[i][7] || ''),
+      updatedAt: values[i][8]
     });
   }
   return { ok: true, items: out, taskId: taskId };
@@ -646,7 +656,11 @@ function checklistWrite_(sheetId, tabName, payload) {
   for (let i = 0; i < items.length; i++) {
     const text = String((items[i] && items[i].text) || '').trim();
     if (!text) continue;
-    rows.push([taskId, String(i + 1), items[i].done ? 'true' : 'false', text, now]);
+    const assignees = String((items[i] && items[i].assignees) || '').trim();
+    const startDate = String((items[i] && items[i].startDate) || '').trim();
+    const dueDate = String((items[i] && items[i].dueDate) || '').trim();
+    const handoffMode = String((items[i] && items[i].handoffMode) || '').trim();
+    rows.push([taskId, String(i + 1), items[i].done ? 'true' : 'false', text, assignees, startDate, dueDate, handoffMode, now]);
   }
   if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, header.length).setValues(rows);
   return { ok: true, taskId: taskId, written: rows.length, taskAction: 'saveChecklist' };

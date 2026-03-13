@@ -22,6 +22,8 @@ Trending item rows now also include:
 
 - Parse/syntax gate:
   - `npm run check:parse`
+- Focused transaction-loader regression:
+  - `npm run test:tx-loader-months`
 - Flu-season + reorder validation with synthetic weekly data:
   - `node scripts/test_flu_reorder.js`
 

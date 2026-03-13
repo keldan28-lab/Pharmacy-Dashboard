@@ -1,17 +1,16 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assigner','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
     const TASK_BADGE_COLORS = [
-        { key: 'teal', label: 'Teal', base: '#2ab8ad' },
-        { key: 'green', label: 'Green', base: '#38c172' },
-        { key: 'blue', label: 'Blue', base: '#4f8ef7' },
-        { key: 'purple', label: 'Purple', base: '#8b6cf0' },
-        { key: 'orange', label: 'Orange', base: '#f39a45' },
-        { key: 'rose', label: 'Rose', base: '#e66f97' }
+        { key: 'teal', label: 'Teal', base: '#2ab8ad' },{ key: 'green', label: 'Green', base: '#38c172' },{ key: 'blue', label: 'Blue', base: '#4f8ef7' },{ key: 'purple', label: 'Purple', base: '#8b6cf0' },{ key: 'orange', label: 'Orange', base: '#f39a45' },
+        { key: 'rose', label: 'Rose', base: '#e66f97' },{ key: 'red', label: 'Red', base: '#e24f4f' },{ key: 'amber', label: 'Amber', base: '#d6a21f' },{ key: 'lime', label: 'Lime', base: '#91c91a' },{ key: 'mint', label: 'Mint', base: '#43d6a8' },
+        { key: 'cyan', label: 'Cyan', base: '#22c7d8' },{ key: 'sky', label: 'Sky', base: '#4a9ff5' },{ key: 'indigo', label: 'Indigo', base: '#6474f2' },{ key: 'violet', label: 'Violet', base: '#9a5cf2' },{ key: 'magenta', label: 'Magenta', base: '#d64fd4' },
+        { key: 'pink', label: 'Pink', base: '#ef6ea6' },{ key: 'peach', label: 'Peach', base: '#ef9570' },{ key: 'brown', label: 'Brown', base: '#9d7458' },{ key: 'slate', label: 'Slate', base: '#6f7f95' },{ key: 'steel', label: 'Steel', base: '#688aa1' },
+        { key: 'navy', label: 'Navy', base: '#33528f' },{ key: 'forest', label: 'Forest', base: '#2f7a53' },{ key: 'olive', label: 'Olive', base: '#74853b' },{ key: 'gold', label: 'Gold', base: '#c9a040' },{ key: 'charcoal', label: 'Charcoal', base: '#4b5563' }
     ];
 
     const state = {
@@ -38,9 +37,14 @@
         dragPreview: null,
         syncingScroll: false,
         checklistDraft: [],
+        checklistAssignMode: '',
+        focusTaskId: '',
+        tracksUnlocked: false,
         dragDeleteHot: false,
         printView: false,
-        checklistLoading: false
+        checklistLoading: false,
+        ganttRenderQueued: false,
+        checklistProgressOpenIdx: -1
     };
 
     const els = {};
@@ -55,6 +59,23 @@
     function shiftIsoDate(iso, days) {
         const base = toDate(iso) || new Date();
         return new Date(base.getTime() + (days * DAY_MS)).toISOString().slice(0, 10);
+    }
+
+    function clampIsoRange(iso, minIso, maxIso) {
+        const v = String(iso || '').trim();
+        if (!v) return v;
+        if (minIso && v < minIso) return minIso;
+        if (maxIso && v > maxIso) return maxIso;
+        return v;
+    }
+
+    function queueRenderGantt() {
+        if (state.ganttRenderQueued) return;
+        state.ganttRenderQueued = true;
+        requestAnimationFrame(function () {
+            state.ganttRenderQueued = false;
+            renderGantt();
+        });
     }
 
     function ensureTaskDates(task) {
@@ -93,6 +114,13 @@
     function syncZoomModeButtons() {
         const map = { day: byId('tasksZoomDayBtn'), week: byId('tasksZoomWeekBtn'), month: byId('tasksZoomMonthBtn') };
         Object.keys(map).forEach(function (k) { if (map[k]) map[k].classList.toggle('active', state.zoom === k); });
+    }
+
+    function syncTrackLockUi() {
+        const row = byId('taskTrackRow');
+        const unlockBtn = byId('taskTracksUnlockBtn');
+        if (row) row.classList.toggle('locked', !state.tracksUnlocked);
+        if (unlockBtn) unlockBtn.textContent = state.tracksUnlocked ? 'Assignee timeline tracks unlocked' : 'Unlock Assignee timeline tracks';
     }
 
     function startOfDay(d) {
@@ -183,22 +211,35 @@
     }
 
     function parseAssignees(value) {
+        function clean(v) {
+            const s = String(v || '').trim();
+            if (!s) return '';
+            if (s.toLowerCase() === 'unassigned') return '';
+            return s;
+        }
         if (Array.isArray(value)) {
-            return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+            return value.map(clean).filter(Boolean);
         }
         const raw = String(value == null ? '' : value).trim();
         if (!raw) return [];
         if (raw.charAt(0) === '[') {
             try {
                 const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+                if (Array.isArray(parsed)) return parsed.map(clean).filter(Boolean);
             } catch (_) {}
         }
-        return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+        return raw.split(/[|,;\n]/).map(clean).filter(Boolean);
     }
 
     function serializeAssignees(list) {
         return JSON.stringify((Array.isArray(list) ? list : []).map(function (v) { return String(v || '').trim(); }).filter(Boolean));
+    }
+
+    function parseChecklistAssignees(value, fallbackAssignee) {
+        const parsed = parseAssignees(value);
+        if (parsed.length) return parsed;
+        const f = String(fallbackAssignee || '').trim();
+        return f ? [f] : [];
     }
 
     function normalizeTask(raw, idx) {
@@ -220,6 +261,7 @@
         const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(out.assignee);
         out.assignees = assigneeList;
         out.assignee = String((assigneeList[0] || out.assignee || '')).trim();
+        out.checklistItems = Array.isArray(out.checklistItems) ? out.checklistItems : [];
         out.children = [];
         ensureTaskDates(out);
         return out;
@@ -389,9 +431,6 @@
     }
 
     function assigneeAvatarContent(task, assigneeName) {
-        if (String((task && task.status) || '').toLowerCase() === 'done') {
-            return '<svg class="assignee-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.1 3.1L13 4.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
-        }
         return esc(initialsForAssignee(assigneeName));
     }
 
@@ -399,10 +438,15 @@
         const assignees = Array.isArray(task.assignees) && task.assignees.length
             ? task.assignees.slice()
             : [task.assignee || 'Unassigned'];
-        return '<div class="task-assignee-stack" role="group" aria-label="Task assignees">' + assignees.map(function (assigneeName, idx) {
+        const progressPct = Math.max(0, Math.min(100, Number(taskProgressForBar(task) || 0)));
+        const total = Math.max(1, assignees.length);
+        return '<div class="task-assignee-stack" style="--avatar-count:' + assignees.length + '" role="group" aria-label="Task assignees">' + assignees.map(function (assigneeName, idx) {
             const avatar = assigneeAvatarContent(task, assigneeName);
             const assigneeKey = String(assigneeName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || ('assignee-' + idx);
-            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + assignees.length + '" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
+            const fade = Math.max(0.16, 0.32 - (idx * 0.08));
+            const fill = Math.max(0.42, 0.78 - (idx * (0.2 / total)));
+            const shadow = Math.max(1, 3 - idx);
+            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + assignees.length + ';--avatar-progress:' + progressPct + '%;--avatar-fill-alpha:' + fill.toFixed(2) + ';--avatar-back-alpha:' + fade.toFixed(2) + ';--avatar-shadow:0 ' + shadow + 'px ' + (shadow + 2) + 'px rgba(15,32,40,' + (0.2 - (idx * 0.04)).toFixed(2) + ')" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
         }).join('') + '</div>';
     }
 
@@ -448,8 +492,10 @@
         byId('taskTitle').value = 'New child task';
         byId('taskStatus').value = 'Not Started';
         byId('taskPriority').value = parent.priority || 'Medium';
+        syncPriorityToggleUi();
         byId('taskColor').value = parent.colorKey || 'teal';
         byId('taskAssignee').value = parent.assignee || '';
+        byId('taskAssigner').value = parent.assigner || '';
         byId('taskStartDate').value = parent.startDate || toISODate(new Date());
         byId('taskDueDate').value = parent.dueDate || shiftIsoDate(byId('taskStartDate').value, 1);
         byId('taskLocation').value = parent.location || '';
@@ -500,7 +546,8 @@
             const depthClass = 'depth-' + Math.min(3, row.depth);
             const avatarClass = assigneeStatusClass(task);
             const assigneeStack = assigneeStackForTask(task, avatarClass);
-            return '<div class="tasks-row ' + depthClass + '" data-task-id="' + esc(task.taskId) + '">' +
+            const isFocused = String(state.focusTaskId || '') === String(task.taskId || '');
+            return '<div class="tasks-row ' + depthClass + (isFocused ? ' active' : '') + '" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
                 '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
                 assigneeStack +
@@ -568,8 +615,9 @@
 
     function buildTaskTracks(task) {
         const parsed = parseAssigneeTracks(task.assigneeTracks);
+        let baseTracks = [];
         if (parsed.length) {
-            return parsed.map(function (it, idx) {
+            baseTracks = parsed.map(function (it, idx) {
                 const who = String((it && it.assignee) || '').trim() || ('Track ' + (idx + 1));
                 return {
                     key: String((it && it.key) || (who + '-' + idx)),
@@ -578,13 +626,163 @@
                     dueDate: toISODate((it && it.dueDate) || task.dueDate)
                 };
             });
+        } else {
+            const list = Array.isArray(task.assignees) && task.assignees.length
+                ? task.assignees.slice()
+                : [task.assignee || 'Unassigned'];
+            baseTracks = list.map(function (name, idx) {
+                const who = String(name || '').trim() || ('Track ' + (idx + 1));
+                return { key: who + '-' + idx, assignee: who, startDate: task.startDate, dueDate: task.dueDate };
+            });
         }
-        const list = Array.isArray(task.assignees) && task.assignees.length
-            ? task.assignees.slice()
-            : [task.assignee || 'Unassigned'];
-        return list.map(function (name, idx) {
-            const who = String(name || '').trim() || ('Track ' + (idx + 1));
-            return { key: who + '-' + idx, assignee: who, startDate: task.startDate, dueDate: task.dueDate };
+
+        const extraTracks = [];
+        const checklistItems = Array.isArray(task.checklistItems) ? task.checklistItems : [];
+        checklistItems.forEach(function (item, itemIdx) {
+            if (item && item.done) return;
+            const start = toISODate((item && item.startDate) || task.startDate);
+            const due = toISODate((item && item.dueDate) || start || task.dueDate);
+            if (!start || !due) return;
+            const assigned = parseChecklistAssignees(item && item.assignees, task.assignee);
+            assigned.forEach(function (name, idx) {
+                extraTracks.push({ key: 'chk-' + itemIdx + '-' + idx, assignee: name, startDate: start, dueDate: due });
+            });
+        });
+
+        if (state.drag && String(state.drag.taskId) === String(task.taskId) && state.drag.segmentKey) {
+            const active = baseTracks.concat(extraTracks).find(function (track) { return String(track.key) === String(state.drag.segmentKey); });
+            if (active) {
+                active.startDate = task.startDate;
+                active.dueDate = task.dueDate;
+            }
+        }
+
+        return baseTracks.concat(extraTracks);
+    }
+
+    function normalizeTrackRecord(track, idx, fallbackStart, fallbackDue) {
+        const who = String((track && track.assignee) || '').trim() || ('Track ' + (idx + 1));
+        const start = toISODate((track && track.startDate) || fallbackStart);
+        const due = toISODate((track && track.dueDate) || fallbackDue || start);
+        const key = String((track && track.key) || (who + '-' + idx));
+        return { key: key, assignee: who, startDate: start, dueDate: due };
+    }
+
+    function serializeTracksForInput(tracks) {
+        return (Array.isArray(tracks) ? tracks : []).map(function (t) {
+            return [t.assignee, t.startDate, t.dueDate].join(' | ');
+        }).join('\n');
+    }
+
+    function parseTracksFromInput(raw, fallbackStart, fallbackDue) {
+        const text = String(raw || '').trim();
+        if (!text) return [];
+        const lines = text.split(/\n+/).map(function (line) { return String(line || '').trim(); }).filter(Boolean);
+        const out = [];
+        lines.forEach(function (line, idx) {
+            const parts = line.split('|').map(function (p) { return String(p || '').trim(); });
+            if (!parts[0]) return;
+            out.push(normalizeTrackRecord({
+                assignee: parts[0],
+                startDate: parts[1] || fallbackStart,
+                dueDate: parts[2] || parts[1] || fallbackDue || fallbackStart
+            }, idx, fallbackStart, fallbackDue));
+        });
+        return out;
+    }
+
+    function writeTracksToModalFromTask(task) {
+        const el = byId('taskAssigneeTracks');
+        if (!el) return;
+        const tracks = buildTaskTracks(task || {
+            assigneeTracks: '',
+            assignees: parseAssignees(byId('taskAssignee').value),
+            assignee: byId('taskAssignee').value,
+            startDate: byId('taskStartDate').value,
+            dueDate: byId('taskDueDate').value
+        });
+        el.value = serializeTracksForInput(tracks);
+    }
+
+    function modalTracksToPayload(payload, preferredAssignees) {
+        const preferred = Array.isArray(preferredAssignees) ? preferredAssignees.map(function (v) { return String(v || '').trim(); }).filter(Boolean) : [];
+        const tracksEl = byId('taskAssigneeTracks');
+        const tracks = parseTracksFromInput(tracksEl ? tracksEl.value : '', payload.startDate, payload.dueDate);
+        if (!tracks.length) {
+            payload.assigneeTracks = '';
+            if (preferred.length) {
+                payload.assignees = serializeAssignees(preferred);
+                payload.assignee = preferred[0] || payload.assignee;
+            }
+            return;
+        }
+        const normalized = tracks.map(function (track, idx) { return normalizeTrackRecord(track, idx, payload.startDate, payload.dueDate); });
+        payload.assigneeTracks = JSON.stringify(normalized);
+        const assigneesFromTracks = Array.from(new Set(normalized.map(function (t) { return t.assignee; }).filter(Boolean)));
+        const combined = Array.from(new Set(preferred.concat(assigneesFromTracks)));
+        if (combined.length) {
+            payload.assignees = serializeAssignees(combined);
+            payload.assignee = preferred[0] || combined[0] || payload.assignee;
+        }
+        syncTaskDateEnvelopeFromTracks(payload, normalized);
+    }
+
+    function syncChecklistAssigneesWithTask(assigneeList) {
+        const base = Array.isArray(assigneeList) ? assigneeList.filter(Boolean) : [];
+        let changed = false;
+        for (let i = 0; i < state.checklistDraft.length; i++) {
+            const item = state.checklistDraft[i];
+            if (!item) continue;
+            const existing = parseChecklistAssignees(item.assignees, '');
+            const merged = Array.from(new Set(existing.concat(base))).filter(Boolean);
+            if (merged.length && serializeAssignees(existing) !== serializeAssignees(merged)) {
+                item.assignees = serializeAssignees(merged);
+                changed = true;
+            }
+        }
+        if (changed) {
+            syncEditingTaskChecklistToState();
+            renderChecklistDraft();
+        }
+    }
+
+    function buildTracksByMode(mode) {
+        const assignees = parseAssignees(byId('taskAssignee').value);
+        const baseStart = toDate(byId('taskStartDate').value) || new Date();
+        const baseDue = toDate(byId('taskDueDate').value) || new Date(baseStart.getTime());
+        const days = Math.max(0, Math.floor((startOfDay(baseDue) - startOfDay(baseStart)) / DAY_MS));
+        if (!assignees.length) return [];
+        if (mode === 'equal') {
+            const tracks = [];
+            const slots = Math.max(1, assignees.length);
+            for (let i = 0; i < assignees.length; i++) {
+                const slotStart = Math.floor((days + 1) * (i / slots));
+                const slotEnd = Math.max(slotStart, Math.floor((days + 1) * ((i + 1) / slots)) - 1);
+                tracks.push(normalizeTrackRecord({
+                    assignee: assignees[i],
+                    startDate: toISODate(new Date(baseStart.getTime() + (slotStart * DAY_MS))),
+                    dueDate: toISODate(new Date(baseStart.getTime() + (slotEnd * DAY_MS)))
+                }, i, byId('taskStartDate').value, byId('taskDueDate').value));
+            }
+            return tracks;
+        }
+        if (mode === 'handoff') {
+            const tracks = [];
+            let cursor = new Date(baseStart.getTime());
+            const segmentDays = Math.max(1, Math.ceil((days + 1) / Math.max(1, assignees.length)));
+            for (let i = 0; i < assignees.length; i++) {
+                const segStart = new Date(cursor.getTime());
+                const segEnd = (i === assignees.length - 1)
+                    ? new Date(baseDue.getTime())
+                    : new Date(segStart.getTime() + ((segmentDays - 1) * DAY_MS));
+                tracks.push(normalizeTrackRecord({ assignee: assignees[i], startDate: toISODate(segStart), dueDate: toISODate(segEnd) }, i, byId('taskStartDate').value, byId('taskDueDate').value));
+                cursor = new Date(segEnd.getTime() + DAY_MS);
+                if (cursor > baseDue) cursor = new Date(baseDue.getTime());
+            }
+            return tracks;
+        }
+        return assignees.map(function (name, idx) {
+            return normalizeTrackRecord({ assignee: name, startDate: byId('taskStartDate').value, dueDate: byId('taskDueDate').value }, idx, byId('taskStartDate').value, byId('taskDueDate').value);
         });
     }
 
@@ -663,7 +861,8 @@
             }
         }
 
-        return { segments: segments, overlaps: overlaps, hasMultipleTracks: tracks.length > 1 };
+        const overlapAssignees = tracks.map(function (t) { return t.assignee; }).filter(Boolean).join(' + ');
+        return { segments: segments, overlaps: overlaps, hasMultipleTracks: tracks.length > 1, overlapAssignees: overlapAssignees };
     }
 
     function renderGantt() {
@@ -766,11 +965,15 @@
                 const barShadow = row.depth > 0 ? '0 2px 8px rgba(17, 153, 142, 0.12)' : '0 4px 12px rgba(17, 153, 142, 0.18)';
                 const progressPct = taskProgressForBar(t);
                 const timeline = buildTaskTimelineSegments(t, range, maxUnit);
-                if (!timeline.hasMultipleTracks && overlapStart <= overlapEnd) {
+                if (overlapStart <= overlapEnd) {
                     const left = overlapStart * colPx;
                     const widthUnits = Math.max(1, overlapEnd - overlapStart + 1);
                     const width = Math.max(18, (widthUnits * colPx) - 6);
+                    const cascade = timeline.hasMultipleTracks
+                        ? '<span class="gantt-bar-cascade back" style="background:' + ganttColor(t, row.depth) + ';"></span><span class="gantt-bar-cascade" style="background:' + ganttColor(t, row.depth) + ';"></span>'
+                        : '';
                     bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                        cascade +
                         '<span class="gantt-label">' + esc(t.title) + '</span>' +
                         '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
                         '<button class="gantt-child-btn" type="button" data-task-child="' + esc(t.taskId) + '" aria-label="Add child task">+</button>' +
@@ -779,25 +982,11 @@
                         '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                     '</div>';
                 } else if (timeline.hasMultipleTracks) {
-                    const trackHeight = Math.max(6, Math.floor(28 / Math.max(1, timeline.segments.length)) - 1);
-                    bar = timeline.segments.map(function (seg) {
-                        if (!seg.visible) return '';
-                        const left = seg.overlapStart * colPx;
-                        const widthUnits = Math.max(1, seg.overlapEnd - seg.overlapStart + 1);
-                        const width = Math.max(18, (widthUnits * colPx) - 6);
-                        const top = 6 + (seg.trackIndex * (trackHeight + 1));
-                        const label = seg.trackIndex === 0 ? esc(t.title) : esc(seg.assignee);
-                        return '<div class="gantt-bar gantt-bar-track ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;top:' + top + 'px;height:' + trackHeight + 'px;background:' + assigneeTrackColor(t, row.depth, seg.assignee) + ';box-shadow:' + barShadow + '">' +
-                            '<span class="gantt-label">' + label + '</span>' +
-                            '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="start"></span>' +
-                            '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="end"></span>' +
-                        '</div>';
-                    }).join('');
-                    bar += timeline.overlaps.map(function (ov) {
+                    bar = timeline.overlaps.map(function (ov) {
                         const left = ov.startUnit * colPx;
                         const widthUnits = Math.max(1, ov.endUnit - ov.startUnit + 1);
                         const width = Math.max(8, (widthUnits * colPx) - 6);
-                        return '<div class="gantt-bar-composite" style="left:' + left + 'px;width:' + width + 'px"></div>';
+                        return '<button class="gantt-bar-composite" type="button" data-composite-task-id="' + esc(t.taskId) + '" title="Overlap: ' + esc(timeline.overlapAssignees || 'multiple assignees') + '" style="left:' + left + 'px;width:' + width + 'px"></button>';
                     }).join('');
                 } else {
                     const stubWidth = Math.max(20, Math.round(colPx * 0.9));
@@ -809,7 +998,8 @@
                     }
                 }
             }
-            return '<div class="gantt-row" data-row-index="' + rowIdx + '" data-task-id="' + esc(t.taskId) + '" data-parent-id="' + esc(t.parentId || '') + '" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+            const focusClass = String(state.focusTaskId || '') === String(t.taskId || '') ? ' focus-task' : '';
+            return '<div class="gantt-row' + focusClass + '" data-row-index="' + rowIdx + '" data-task-id="' + esc(t.taskId) + '" data-parent-id="' + esc(t.parentId || '') + '" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
                 return '<div class="gantt-cell' + cellClassForDate(d) + '"></div>';
             }).join('') + overdueShade + bar + '</div>';
         }).join('');
@@ -830,6 +1020,62 @@
     }
 
 
+
+    function checklistProgressList() { return ['Not Started', 'In Progress', 'Blocked', 'Done']; }
+
+    function checklistOverallProgressStatus(items) {
+        const list = Array.isArray(items) ? items : [];
+        if (!list.length) return 'Not Started';
+        const statuses = list.map(function (it) { return String((it && it.progressStatus) || (it && it.done ? 'Done' : 'Not Started')); });
+        if (statuses.indexOf('Done') >= 0) return 'Done';
+        if (statuses.indexOf('Not Started') >= 0) return 'Not Started';
+        if (statuses.indexOf('In Progress') >= 0) return 'In Progress';
+        if (statuses.indexOf('Blocked') >= 0) return 'Blocked';
+        return 'Not Started';
+    }
+
+    function syncChecklistMasterDates() {
+        if (!Array.isArray(state.checklistDraft) || !state.checklistDraft.length) return;
+        const ms = byId('taskStartDate');
+        const me = byId('taskDueDate');
+        const note = byId('taskMasterRangeNote');
+        if (!ms || !me) return;
+        const start = ms.value || '';
+        const due = me.value || start || '';
+        let earliest = '';
+        let latest = '';
+        state.checklistDraft.forEach(function (item) {
+            if (!item) return;
+            if (start && (!item.startDate || item.startDate < start)) item.startDate = start;
+            if (due && item.startDate && item.startDate > due) item.startDate = due;
+            if (!item.dueDate || (start && item.dueDate < start)) item.dueDate = start || item.dueDate;
+            if (due && item.dueDate > due) item.dueDate = due;
+            if (!earliest || (item.startDate && item.startDate < earliest)) earliest = item.startDate;
+            if (!latest || (item.dueDate && item.dueDate > latest)) latest = item.dueDate;
+        });
+        if (note) note.textContent = (earliest && latest) ? ('Checklist range: ' + earliest + ' → ' + latest) : '';
+    }
+
+    function openChecklistProgressMenu(idx, anchor) {
+        const menu = byId('checklistProgressMenu');
+        if (!menu || !anchor) return;
+        state.checklistProgressOpenIdx = idx;
+        const current = String((state.checklistDraft[idx] && state.checklistDraft[idx].progressStatus) || 'Not Started');
+        menu.innerHTML = checklistProgressList().map(function (status) {
+            return '<button class="checklist-progress-btn" type="button" data-progress-status="' + esc(status) + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
+        }).join('');
+        const r = anchor.getBoundingClientRect();
+        menu.style.left = Math.round(r.left) + 'px';
+        menu.style.top = Math.round(r.bottom + 6) + 'px';
+        menu.classList.add('open');
+    }
+
+    function closeChecklistProgressMenu() {
+        const menu = byId('checklistProgressMenu');
+        if (menu) menu.classList.remove('open');
+        state.checklistProgressOpenIdx = -1;
+    }
+
     function renderChecklistDraft() {
         const wrap = byId('taskChecklistRows');
         const panel = byId('taskChecklistPanel');
@@ -839,12 +1085,28 @@
             wrap.innerHTML = '<div class="tasks-empty" style="padding:8px 6px;">Loading checklist…</div>';
             return;
         }
-        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, text: '' }];
+        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '', progressStatus: 'Not Started' }];
+        const selectedCount = state.checklistDraft.filter(function (it) { return !!(it && it.selected); }).length;
+        const title = panel ? panel.querySelector('.task-checklist-title') : null;
+        if (title) title.setAttribute('data-selected-count', String(selectedCount));
+        ['taskChecklistDelete','taskChecklistDone','taskChecklistHandoff','taskChecklistCollaborate'].forEach(function (id) {
+            const btn = byId(id);
+            if (btn) btn.disabled = selectedCount < 1;
+        });
         wrap.innerHTML = state.checklistDraft.map(function (item, idx) {
+            const badges = [];
+            const assigned = parseChecklistAssignees(item && item.assignees, '');
+            assigned.forEach(function (name) { badges.push('<span class="checklist-badge">' + esc(name) + '</span>'); });
+            const progressStatus = String((item && item.progressStatus) || (item && item.done ? 'Done' : 'Not Started'));
+            badges.push('<button type="button" class="checklist-badge progress" data-check-progress-idx="' + idx + '">' + esc(progressStatus) + '</button>');
+            if (item && item.handoffMode === 'handoff' && assigned.length > 1) badges.push('<span class="checklist-badge"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>' + esc(assigned[assigned.length - 1]) + '</span>');
+            if (item && item.done) badges.push('<span class="checklist-badge done">Done</span>');
             return '<div class="checklist-row">' +
-                '<input type="checkbox" data-check-idx="' + idx + '" ' + (item.done ? 'checked' : '') + ' />' +
-                '<input class="tasks-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
-                '<button type="button" class="task-checklist-remove" data-check-remove-idx="' + idx + '" aria-label="Remove checklist item">-</button>' +
+                '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item && item.selected ? 'checked' : '') + ' />' +
+                '<div class="checklist-item-main">' +
+                    '<input class="tasks-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
+                    '<div class="checklist-badges">' + badges.join('') + '</div>' +
+                '</div>' +
             '</div>';
         }).join('');
     }
@@ -858,10 +1120,127 @@
             const cb = rows[i].querySelector('input[type="checkbox"]');
             const tx = rows[i].querySelector('input[data-check-text-idx]');
             const text = String((tx && tx.value) || '').trim();
-            if (!text && !(cb && cb.checked)) continue;
-            next.push({ done: !!(cb && cb.checked), text: text });
+            const prev = state.checklistDraft[i] || {};
+            if (!text && !prev.done && !(cb && cb.checked)) continue;
+            next.push({
+                done: !!prev.done,
+                selected: !!(cb && cb.checked),
+                text: text,
+                assignees: prev.assignees || '',
+                startDate: prev.startDate || '',
+                dueDate: prev.dueDate || '',
+                handoffMode: prev.handoffMode || '',
+                progressStatus: prev.progressStatus || (prev.done ? 'Done' : 'Not Started')
+            });
         }
         state.checklistDraft = next;
+        syncEditingTaskChecklistToState();
+    }
+
+    function selectedChecklistIndexes() {
+        const out = [];
+        for (let i = 0; i < state.checklistDraft.length; i++) {
+            if (state.checklistDraft[i] && state.checklistDraft[i].selected) out.push(i);
+        }
+        return out;
+    }
+
+    function syncEditingTaskChecklistToState() {
+        if (!state.editingId) return;
+        const task = state.tasks.find(function (t) { return t.taskId === state.editingId; });
+        if (!task) return;
+        task.checklistItems = state.checklistDraft.map(function (item) {
+            return {
+                done: !!item.done,
+                text: item.text || '',
+                assignees: item.assignees || '',
+                startDate: item.startDate || '',
+                dueDate: item.dueDate || '',
+                handoffMode: item.handoffMode || '',
+                progressStatus: item.progressStatus || (item.done ? 'Done' : 'Not Started')
+            };
+        });
+    }
+
+    function applyChecklistSelectionAction(action) {
+        syncChecklistDraftFromUi();
+        const indexes = selectedChecklistIndexes();
+        if (!indexes.length) return;
+        if (action === 'delete') {
+            if (!window.confirm('Delete selected checklist item(s)?')) return;
+            state.checklistDraft = state.checklistDraft.filter(function (item) { return !item.selected; });
+        } else if (action === 'done') {
+            indexes.forEach(function (idx) {
+                state.checklistDraft[idx].done = true;
+                state.checklistDraft[idx].progressStatus = 'Done';
+                state.checklistDraft[idx].selected = false;
+            });
+        }
+        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '', progressStatus: 'Not Started' }];
+        syncEditingTaskChecklistToState();
+        syncChecklistMasterDates();
+        renderChecklistDraft();
+        queueRenderGantt();
+    }
+
+    function openChecklistAssignMenu(mode) {
+        syncChecklistDraftFromUi();
+        if (!selectedChecklistIndexes().length) return;
+        state.checklistAssignMode = mode;
+        const menu = byId('taskChecklistAssigneeMenu');
+        if (!menu) return;
+        byId('taskChecklistAssignName').value = byId('taskAssignee').value || '';
+        byId('taskChecklistAssignStart').value = byId('taskStartDate').value;
+        byId('taskChecklistAssignDue').value = byId('taskDueDate').value;
+        menu.classList.add('open');
+        byId('taskChecklistAssignName').focus();
+    }
+
+    function closeChecklistAssignMenu() {
+        const menu = byId('taskChecklistAssigneeMenu');
+        if (menu) menu.classList.remove('open');
+        state.checklistAssignMode = '';
+    }
+
+    function saveChecklistAssignMenu() {
+        syncChecklistDraftFromUi();
+        const selected = selectedChecklistIndexes();
+        if (!selected.length) { closeChecklistAssignMenu(); return; }
+        const assigneeName = String(byId('taskChecklistAssignName').value || '').trim();
+        const masterStart = String(byId('taskStartDate').value || '').trim();
+        const masterDue = String(byId('taskDueDate').value || '').trim() || masterStart;
+        const rawStart = String(byId('taskChecklistAssignStart').value || '').trim() || masterStart;
+        const rawDue = String(byId('taskChecklistAssignDue').value || '').trim() || rawStart || masterDue;
+        const startDate = clampIsoRange(rawStart, masterStart, masterDue);
+        const dueDate = clampIsoRange(rawDue, startDate || masterStart, masterDue);
+        selected.forEach(function (idx) {
+            const item = state.checklistDraft[idx];
+            const current = parseChecklistAssignees(item.assignees, '');
+            if (state.checklistAssignMode === 'collaborate') {
+                const merged = assigneeName ? Array.from(new Set(current.concat([assigneeName]))) : current;
+                item.assignees = serializeAssignees(merged);
+                item.handoffMode = 'collaborate';
+            } else {
+                const assigned = assigneeName ? Array.from(new Set((current.length ? [current[0]] : []).concat([assigneeName]))) : current;
+                item.assignees = serializeAssignees(assigned);
+                item.handoffMode = 'handoff';
+            }
+            item.startDate = startDate;
+            item.dueDate = dueDate;
+            item.selected = false;
+        });
+        const existingTaskAssignees = parseAssignees(byId('taskAssignee').value);
+        const checklistAssignees = [];
+        state.checklistDraft.forEach(function (item) {
+            parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
+        });
+        const mergedForField = Array.from(new Set(existingTaskAssignees.concat(checklistAssignees))).filter(Boolean);
+        if (mergedForField.length) byId('taskAssignee').value = mergedForField.join(', ');
+        syncEditingTaskChecklistToState();
+        closeChecklistAssignMenu();
+        syncChecklistMasterDates();
+        renderChecklistDraft();
+        queueRenderGantt();
     }
 
     async function loadChecklist(taskId) {
@@ -884,14 +1263,31 @@
             const url = webAppUrl + '?action=checklistRead&sheetId=' + encodeURIComponent(sheetId) + '&taskId=' + encodeURIComponent(taskId);
             const res = await jsonp(url, 12000);
             if (res && res.ok && Array.isArray(res.items)) {
-                state.checklistDraft = res.items.map(function (it) { return { done: String(it.done) === 'true' || it.done === true, text: String(it.text || '') }; });
+                state.checklistDraft = res.items.map(function (it) {
+                    return {
+                        done: String(it.done) === 'true' || it.done === true,
+                        selected: false,
+                        text: String(it.text || ''),
+                        assignees: String(it.assignees || ''),
+                        startDate: String(it.startDate || ''),
+                        dueDate: String(it.dueDate || ''),
+                        handoffMode: String(it.handoffMode || ''),
+                        progressStatus: String(it.progressStatus || (String(it.done) === 'true' || it.done === true ? 'Done' : 'Not Started'))
+                    };
+                });
+                const task = state.tasks.find(function (t) { return t.taskId === taskId; });
+                if (task) task.checklistItems = state.checklistDraft.slice();
             }
         } catch (_) {}
         state.checklistLoading = false;
+        syncChecklistMasterDates();
         renderChecklistDraft();
     }
 
     function openModal(taskId) {
+        closeChecklistAssignMenu();
+        state.tracksUnlocked = false;
+        syncTrackLockUi();
         const task = state.tasks.find(function (t) { return t.taskId === taskId; });
         state.editingId = task ? task.taskId : null;
         byId('taskModalTitle').textContent = task ? task.title : 'New Task';
@@ -899,9 +1295,12 @@
         byId('taskTitle').value = task ? task.title : '';
         byId('taskDescription').value = task ? task.description : '';
         byId('taskAssignee').value = task ? task.assignee : '';
+        byId('taskAssigner').value = task ? task.assigner : '';
         byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
         byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
-        byId('taskPercent').value = task ? task.percentComplete : 0;
+
+const pctEl = byId('taskPercent');
+        if (pctEl) pctEl.value = task ? task.percentComplete : 0;
         byId('taskItemCode').value = task ? task.itemCode : '';
         byId('taskItemName').value = task ? task.itemName : '';
         autoSizeItemCodeInput((task && (task.itemName || task.description)) || byId('taskItemCode').value);
@@ -910,7 +1309,18 @@
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
+        syncPriorityToggleUi();
         byId('taskColor').value = task ? task.colorKey : 'teal';
+        syncTaskColorPicker();
+        syncPriorityToggleUi();
+        const modalHeader = byId('taskModalTitle');
+        if (modalHeader) {
+            const headerColor = getColorDef(task ? task.colorKey : byId('taskColor').value).base;
+            modalHeader.style.background = 'linear-gradient(135deg, ' + headerColor + ', ' + lighten(headerColor, 0.28) + ')';
+        }
+        writeTracksToModalFromTask(task || {
+            assigneeTracks: '', assignee: byId('taskAssignee').value, assignees: parseAssignees(byId('taskAssignee').value), startDate: byId('taskStartDate').value, dueDate: byId('taskDueDate').value
+        });
 
         byId('taskParentId').innerHTML = ['<option value="">No parent (group)</option>'].concat(
             state.tasks.filter(function (t) { return !task || t.taskId !== task.taskId; }).map(function (t) {
@@ -928,7 +1338,8 @@
             if (toDate(byId('taskDueDate').value) < toDate(parent.startDate)) byId('taskDueDate').value = parent.startDate;
         };
 
-        loadChecklist(task ? task.taskId : null);
+loadChecklist(task ? task.taskId : null);
+        syncChecklistMasterDates();
     }
 
 
@@ -944,6 +1355,7 @@
 
     function closeModal() {
         byId('taskModal').classList.remove('open');
+        closeChecklistAssignMenu();
     }
 
     async function saveTask() {
@@ -961,10 +1373,11 @@
             priority: byId('taskPriority').value,
             colorKey: byId('taskColor').value,
             assignee: byId('taskAssignee').value.trim(),
+            assigner: byId('taskAssigner').value.trim(),
             assignees: '[]',
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
-            percentComplete: clamp(Number(byId('taskPercent').value || 0), 0, 100),
+            percentComplete: clamp(Number((byId('taskPercent') && byId('taskPercent').value) || 0), 0, 100),
             itemCode: byId('taskItemCode').value.trim(),
             itemName: byId('taskItemName').value.trim(),
             location: byId('taskLocation').value.trim(),
@@ -975,9 +1388,18 @@
             updatedAt: now,
             createdBy: 'dashboard'
         };
-        const assigneeList = parseAssignees(payload.assignee);
+        syncChecklistDraftFromUi();
+        const checklistAssignees = [];
+        state.checklistDraft.forEach(function (item) {
+            parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
+        });
+        const assigneeList = Array.from(new Set(parseAssignees(payload.assignee).concat(checklistAssignees))).filter(Boolean);
+        if (assigneeList.length) byId('taskAssignee').value = assigneeList.join(', ');
         payload.assignees = serializeAssignees(assigneeList);
         payload.assignee = assigneeList[0] || '';
+        modalTracksToPayload(payload, assigneeList);
+syncChecklistAssigneesWithTask(assigneeList);
+        payload.status = checklistOverallProgressStatus(state.checklistDraft);
 
         if (parentTask) {
             payload.startDate = parentTask.startDate;
@@ -995,7 +1417,20 @@
             await writeTask('createTask', payload);
         }
 
-        await writeTask('saveChecklist', { taskId: payload.taskId, items: state.checklistDraft });
+        const checklistPayload = state.checklistDraft.map(function (item) {
+            return {
+                done: !!item.done,
+                text: item.text || '',
+                assignees: item.assignees || '',
+                startDate: item.startDate || '',
+                dueDate: item.dueDate || '',
+                handoffMode: item.handoffMode || '',
+                progressStatus: item.progressStatus || (item.done ? 'Done' : 'Not Started')
+            };
+        });
+        await writeTask('saveChecklist', { taskId: payload.taskId, items: checklistPayload });
+        const savedTask = state.tasks.find(function (t) { return t.taskId === payload.taskId; });
+        if (savedTask) savedTask.checklistItems = checklistPayload;
         closeModal();
         applyFilters();
     }
@@ -1355,7 +1790,7 @@
             task.startDate = newStart;
             task.dueDate = newDue;
             drag.moved = true;
-            renderGantt();
+            queueRenderGantt();
         }
     }
 
@@ -1500,19 +1935,59 @@
         byId('taskChecklistAdd').addEventListener('click', function () {
             if (state.checklistLoading) return;
             syncChecklistDraftFromUi();
-            state.checklistDraft.push({ done: false, text: '' });
+            state.checklistDraft.push({ done: false, selected: false, text: '', progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
             renderChecklistDraft();
         });
-        byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) syncChecklistDraftFromUi(); });
-        byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) syncChecklistDraftFromUi(); });
+        byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });
+        byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });
         byId('taskChecklistRows').addEventListener('click', function (e) {
-            const removeBtn = e.target.closest('[data-check-remove-idx]');
-            if (!removeBtn || state.checklistLoading) return;
+            const progressBtn = e.target.closest('[data-check-progress-idx]');
+            if (progressBtn) {
+                const idx = Number(progressBtn.getAttribute('data-check-progress-idx'));
+                if (Number.isFinite(idx)) openChecklistProgressMenu(idx, progressBtn);
+                return;
+            }
+            const selectCb = e.target.closest('[data-check-select-idx]');
+            if (!selectCb || state.checklistLoading) return;
             syncChecklistDraftFromUi();
-            const idx = Number(removeBtn.getAttribute('data-check-remove-idx'));
-            if (!isNaN(idx) && idx >= 0 && idx < state.checklistDraft.length) state.checklistDraft.splice(idx, 1);
             renderChecklistDraft();
         });
+        byId('taskChecklistDelete').addEventListener('click', function () { if (!state.checklistLoading) applyChecklistSelectionAction('delete'); });
+        byId('taskChecklistDone').addEventListener('click', function () { if (!state.checklistLoading) applyChecklistSelectionAction('done'); });
+        byId('taskChecklistHandoff').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('handoff'); });
+        byId('taskChecklistCollaborate').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('collaborate'); });
+        byId('taskChecklistAssignSave').addEventListener('click', function () { if (!state.checklistLoading) saveChecklistAssignMenu(); });
+        byId('taskChecklistAssignCancel').addEventListener('click', closeChecklistAssignMenu);
+        const pr = byId('taskPriorityToggleRow');
+        if (pr) {
+            pr.addEventListener('click', function (e) {
+                const btn = e.target.closest('[data-priority]');
+                if (!btn) return;
+                byId('taskPriority').value = btn.getAttribute('data-priority') || 'Medium';
+                syncPriorityToggleUi();
+            });
+        }
+
+        document.addEventListener('click', function (e) {
+            const progMenu = byId('checklistProgressMenu');
+            if (progMenu && progMenu.classList.contains('open')) {
+                const btn = e.target.closest('[data-progress-status]');
+                if (btn && state.checklistProgressOpenIdx >= 0 && state.checklistDraft[state.checklistProgressOpenIdx]) {
+                    const next = String(btn.getAttribute('data-progress-status') || 'Not Started');
+                    const item = state.checklistDraft[state.checklistProgressOpenIdx];
+                    item.progressStatus = next;
+                    item.done = next === 'Done';
+                    closeChecklistProgressMenu();
+                    syncChecklistMasterDates();
+                    renderChecklistDraft();
+                    return;
+                }
+                if (!e.target.closest('#checklistProgressMenu,[data-check-progress-idx]')) closeChecklistProgressMenu();
+            }
+        });
+
+        byId('taskStartDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
+        byId('taskDueDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
 
         els.listBody.addEventListener('click', function (e) {
             const assigneeOpen = e.target.closest('[data-assignee-open]');
@@ -1530,6 +2005,9 @@
             const row = e.target.closest('.tasks-row');
             if (!row) return;
             const taskId = row.getAttribute('data-task-id');
+            state.focusTaskId = taskId || '';
+            renderList();
+            queueRenderGantt();
             const task = state.tasks.find(function (t) { return t.taskId === taskId; });
             if (task && task.children && task.children.length) {
                 state.expanded[taskId] = state.expanded[taskId] === false;
@@ -1551,6 +2029,32 @@
             if (childBtn) { openNewChildTaskFrom(childBtn.getAttribute('data-task-child')); return; }
             const menuBtn = e.target.closest('[data-task-menu]');
             if (menuBtn) openModal(menuBtn.getAttribute('data-task-menu'));
+            const compositeBtn = e.target.closest('[data-composite-task-id]');
+            if (compositeBtn) {
+                openModal(compositeBtn.getAttribute('data-composite-task-id'));
+                setTimeout(function () {
+                    const el = byId('taskAssigneeTracks');
+                    if (el) { el.focus(); el.classList.add('assignee-focus'); setTimeout(function () { el.classList.remove('assignee-focus'); }, 1200); }
+                }, 50);
+                return;
+            }
+        });
+
+        byId('taskTrackSyncBtn').addEventListener('click', function () {
+            byId('taskAssigneeTracks').value = serializeTracksForInput(buildTracksByMode('sync'));
+        });
+        byId('taskTrackSplitBtn').addEventListener('click', function () {
+            byId('taskAssigneeTracks').value = serializeTracksForInput(buildTracksByMode('equal'));
+        });
+        byId('taskTrackHandoffBtn').addEventListener('click', function () {
+            byId('taskAssigneeTracks').value = serializeTracksForInput(buildTracksByMode('handoff'));
+        });
+        byId('taskTracksUnlockBtn').addEventListener('click', function () {
+            if (state.tracksUnlocked) return;
+            const pw = window.prompt('Admin password required to edit Assignee timeline tracks:');
+            if (String(pw || '') !== 'admin') return;
+            state.tracksUnlocked = true;
+            syncTrackLockUi();
         });
 
         els.splitter.addEventListener('pointerdown', function (e) {
@@ -1748,16 +2252,184 @@
         });
     }
 
+
+    function getLocationRows() {
+        const map = (window.SUBLOCATION_MAP || (window.parent && window.parent.SUBLOCATION_MAP) || {});
+        return Object.keys(map || {}).map(function (key) {
+            const row = map[key] || {};
+            return { sublocation: String(key || ''), location: String(row.mainLocation || ''), department: String(row.department || '') };
+        });
+    }
+
+    function bindTaskLocationLookup() {
+        const locationInput = byId('taskLocation');
+        const subInput = byId('taskSublocation');
+        const locationDd = byId('taskLocationLookup');
+        const subDd = byId('taskSublocationLookup');
+        if (!locationInput || !subInput || !locationDd || !subDd) return;
+        const rows = getLocationRows();
+        function render(dd, items, mode) {
+            if (!items.length) { dd.style.display = 'none'; dd.innerHTML = ''; return; }
+            dd.innerHTML = items.map(function (r, idx) {
+                const primary = mode === 'location' ? r.location : r.sublocation;
+                const secondary = mode === 'location' ? r.sublocation : r.location;
+                return '<div class="dropdown-option" data-loc-idx="' + idx + '"><span class="lookup-option-code">' + esc(primary) + '</span><span class="lookup-option-name">' + esc(secondary) + '</span></div>';
+            }).join('');
+            dd.style.display = 'block';
+        }
+        function find(term, mode) {
+            const q = String(term || '').trim().toLowerCase();
+            if (!q) return [];
+            const out = [];
+            for (let i=0;i<rows.length;i++) {
+                const r = rows[i];
+                const hay = mode === 'location' ? (r.location + ' ' + r.sublocation + ' ' + r.department).toLowerCase() : (r.sublocation + ' ' + r.location + ' ' + r.department).toLowerCase();
+                if (hay.indexOf(q) === -1) continue;
+                out.push(r);
+                if (out.length >= 12) break;
+            }
+            return out;
+        }
+        locationInput.addEventListener('input', function () { render(locationDd, find(locationInput.value, 'location'), 'location'); });
+        subInput.addEventListener('input', function () { render(subDd, find(subInput.value, 'sub'), 'sub'); });
+        locationDd.addEventListener('mousedown', function (e) {
+            const opt = e.target.closest('[data-loc-idx]'); if (!opt) return; e.preventDefault();
+            const pick = find(locationInput.value, 'location')[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
+            locationInput.value = pick.location; subInput.value = pick.sublocation; locationDd.style.display='none';
+        });
+        subDd.addEventListener('mousedown', function (e) {
+            const opt = e.target.closest('[data-loc-idx]'); if (!opt) return; e.preventDefault();
+            const pick = find(subInput.value, 'sub')[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
+            locationInput.value = pick.location; subInput.value = pick.sublocation; subDd.style.display='none';
+        });
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('.task-link-lookup')) { locationDd.style.display='none'; subDd.style.display='none'; }
+        });
+    }
+
+
+    function syncPriorityToggleUi() {
+        const row = byId('taskPriorityToggleRow');
+        const sel = byId('taskPriority');
+        if (!row || !sel) return;
+        const current = String(sel.value || 'Medium');
+        row.querySelectorAll('[data-priority]').forEach(function (btn) {
+            btn.classList.toggle('active', String(btn.getAttribute('data-priority')) === current);
+        });
+    }
+
+    function syncTaskColorPicker() {
+        const color = byId('taskColor');
+        const badge = byId('taskColorBadge');
+        const grid = byId('taskColorGrid');
+        if (!color || !badge || !grid) return;
+        const active = String(color.value || 'teal');
+        const def = getColorDef(active);
+        badge.style.background = def.base;
+        grid.innerHTML = TASK_BADGE_COLORS.map(function (c) {
+            const cls = c.key === active ? 'task-color-chip active' : 'task-color-chip';
+            return '<button type="button" class="' + cls + '" style="background:' + esc(c.base) + '" data-color-key="' + esc(c.key) + '" aria-label="' + esc(c.label) + '"></button>';
+        }).join('');
+    }
+
+
+    function bindTaskDatePopovers() {
+        const pairs = [
+            { field: byId('taskStartDate'), pop: byId('taskStartDatePopover'), host: byId('taskStartCalendar') },
+            { field: byId('taskDueDate'), pop: byId('taskDueDatePopover'), host: byId('taskDueCalendar') }
+        ];
+        const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const views = { taskStartDate: null, taskDueDate: null };
+
+        function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
+        function toIso(y, m, d) { return new Date(y, m, d).toISOString().slice(0, 10); }
+
+        function renderCal(pair) {
+            if (!pair || !pair.host || !pair.field) return;
+            const selected = String(pair.field.value || toISODate(new Date()));
+            const base = toDate(views[pair.field.id] || selected || new Date()) || new Date();
+            const year = base.getFullYear();
+            const month = base.getMonth();
+            const firstDow = new Date(year, month, 1).getDay();
+            const dim = daysInMonth(year, month);
+            const cells = [];
+            ['S','M','T','W','T','F','S'].forEach(function (d) { cells.push('<div class="task-cal-dow">' + d + '</div>'); });
+            for (let i = 0; i < firstDow; i++) cells.push('<button type="button" class="task-cal-day muted" disabled></button>');
+            for (let d = 1; d <= dim; d++) {
+                const iso = toIso(year, month, d);
+                const cls = iso === selected ? 'task-cal-day active' : 'task-cal-day';
+                cells.push('<button type="button" class="' + cls + '" data-cal-date="' + iso + '">' + d + '</button>');
+            }
+            pair.host.innerHTML = '<div class="task-cal-pop-head"><button type="button" data-cal-nav="prev">‹</button><span class="task-cal-pop-title">' + monthNames[month] + ' ' + year + '</span><button type="button" data-cal-nav="next">›</button></div><div class="task-cal-grid">' + cells.join('') + '</div>';
+        }
+
+        function closeAll() { pairs.forEach(function (p) { if (p && p.pop) p.pop.classList.remove('open'); }); }
+
+        pairs.forEach(function (pair) {
+            if (!pair.field || !pair.pop || !pair.host) return;
+            pair.field.addEventListener('focus', function () {
+                closeAll();
+                views[pair.field.id] = pair.field.value || toISODate(new Date());
+                renderCal(pair);
+                pair.pop.classList.add('open');
+            });
+            pair.field.addEventListener('click', function () {
+                closeAll();
+                views[pair.field.id] = pair.field.value || toISODate(new Date());
+                renderCal(pair);
+                pair.pop.classList.add('open');
+            });
+            pair.host.addEventListener('click', function (e) {
+                const nav = e.target.closest('[data-cal-nav]');
+                if (nav) {
+                    const cur = toDate(views[pair.field.id] || pair.field.value || new Date()) || new Date();
+                    const step = nav.getAttribute('data-cal-nav') === 'prev' ? -1 : 1;
+                    views[pair.field.id] = new Date(cur.getFullYear(), cur.getMonth() + step, 1).toISOString().slice(0, 10);
+                    renderCal(pair);
+                    return;
+                }
+                const day = e.target.closest('[data-cal-date]');
+                if (!day) return;
+                pair.field.value = String(day.getAttribute('data-cal-date') || '');
+                syncChecklistMasterDates();
+                renderChecklistDraft();
+                pair.pop.classList.remove('open');
+            });
+        });
+
+        document.addEventListener('click', function (e) {
+            if (e.target.closest('.task-date-field')) return;
+            closeAll();
+        });
+    }
+
     async function init() {
+
         cacheEls();
         bindEvents();
         bindTaskItemLookup();
+        bindTaskLocationLookup();
+        bindTaskDatePopovers();
         bootstrapInventoryHint();
         syncFilterPanelUi();
         syncZoomOutUi();
         syncZoomModeButtons();
         syncShellLayout();
         updateSortUi();
+        syncTaskColorPicker();
+        const colorBadge = byId('taskColorBadge');
+        const colorGrid = byId('taskColorGrid');
+        if (colorBadge && colorGrid) {
+            colorBadge.addEventListener('click', function () { colorGrid.classList.toggle('open'); });
+            colorGrid.addEventListener('click', function (e) {
+                const chip = e.target.closest('[data-color-key]');
+                if (!chip) return;
+                byId('taskColor').value = chip.getAttribute('data-color-key') || 'teal';
+                syncTaskColorPicker();
+                colorGrid.classList.remove('open');
+            });
+            document.addEventListener('click', function (e) { if (!e.target.closest('.task-color-picker')) colorGrid.classList.remove('open'); });
+        }
         await loadTasks();
     }
 
