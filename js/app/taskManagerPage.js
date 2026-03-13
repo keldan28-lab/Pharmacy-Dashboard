@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -588,6 +588,107 @@
         });
     }
 
+    function normalizeTrackRecord(track, idx, fallbackStart, fallbackDue) {
+        const who = String((track && track.assignee) || '').trim() || ('Track ' + (idx + 1));
+        const start = toISODate((track && track.startDate) || fallbackStart);
+        const due = toISODate((track && track.dueDate) || fallbackDue || start);
+        const key = String((track && track.key) || (who + '-' + idx));
+        return { key: key, assignee: who, startDate: start, dueDate: due };
+    }
+
+    function serializeTracksForInput(tracks) {
+        return (Array.isArray(tracks) ? tracks : []).map(function (t) {
+            return [t.assignee, t.startDate, t.dueDate].join(' | ');
+        }).join('\n');
+    }
+
+    function parseTracksFromInput(raw, fallbackStart, fallbackDue) {
+        const text = String(raw || '').trim();
+        if (!text) return [];
+        const lines = text.split(/\n+/).map(function (line) { return String(line || '').trim(); }).filter(Boolean);
+        const out = [];
+        lines.forEach(function (line, idx) {
+            const parts = line.split('|').map(function (p) { return String(p || '').trim(); });
+            if (!parts[0]) return;
+            out.push(normalizeTrackRecord({
+                assignee: parts[0],
+                startDate: parts[1] || fallbackStart,
+                dueDate: parts[2] || parts[1] || fallbackDue || fallbackStart
+            }, idx, fallbackStart, fallbackDue));
+        });
+        return out;
+    }
+
+    function writeTracksToModalFromTask(task) {
+        const el = byId('taskAssigneeTracks');
+        if (!el) return;
+        const tracks = buildTaskTracks(task || {
+            assigneeTracks: '',
+            assignees: parseAssignees(byId('taskAssignee').value),
+            assignee: byId('taskAssignee').value,
+            startDate: byId('taskStartDate').value,
+            dueDate: byId('taskDueDate').value
+        });
+        el.value = serializeTracksForInput(tracks);
+    }
+
+    function modalTracksToPayload(payload) {
+        const tracksEl = byId('taskAssigneeTracks');
+        const tracks = parseTracksFromInput(tracksEl ? tracksEl.value : '', payload.startDate, payload.dueDate);
+        if (!tracks.length) {
+            payload.assigneeTracks = '';
+            return;
+        }
+        const normalized = tracks.map(function (track, idx) { return normalizeTrackRecord(track, idx, payload.startDate, payload.dueDate); });
+        payload.assigneeTracks = JSON.stringify(normalized);
+        const assigneesFromTracks = Array.from(new Set(normalized.map(function (t) { return t.assignee; }).filter(Boolean)));
+        if (assigneesFromTracks.length) {
+            payload.assignees = serializeAssignees(assigneesFromTracks);
+            payload.assignee = assigneesFromTracks[0] || payload.assignee;
+        }
+        syncTaskDateEnvelopeFromTracks(payload, normalized);
+    }
+
+    function buildTracksByMode(mode) {
+        const assignees = parseAssignees(byId('taskAssignee').value);
+        const baseStart = toDate(byId('taskStartDate').value) || new Date();
+        const baseDue = toDate(byId('taskDueDate').value) || new Date(baseStart.getTime());
+        const days = Math.max(0, Math.floor((startOfDay(baseDue) - startOfDay(baseStart)) / DAY_MS));
+        if (!assignees.length) return [];
+        if (mode === 'equal') {
+            const tracks = [];
+            const slots = Math.max(1, assignees.length);
+            for (let i = 0; i < assignees.length; i++) {
+                const slotStart = Math.floor((days + 1) * (i / slots));
+                const slotEnd = Math.max(slotStart, Math.floor((days + 1) * ((i + 1) / slots)) - 1);
+                tracks.push(normalizeTrackRecord({
+                    assignee: assignees[i],
+                    startDate: toISODate(new Date(baseStart.getTime() + (slotStart * DAY_MS))),
+                    dueDate: toISODate(new Date(baseStart.getTime() + (slotEnd * DAY_MS)))
+                }, i, byId('taskStartDate').value, byId('taskDueDate').value));
+            }
+            return tracks;
+        }
+        if (mode === 'handoff') {
+            const tracks = [];
+            let cursor = new Date(baseStart.getTime());
+            const segmentDays = Math.max(1, Math.ceil((days + 1) / Math.max(1, assignees.length)));
+            for (let i = 0; i < assignees.length; i++) {
+                const segStart = new Date(cursor.getTime());
+                const segEnd = (i === assignees.length - 1)
+                    ? new Date(baseDue.getTime())
+                    : new Date(segStart.getTime() + ((segmentDays - 1) * DAY_MS));
+                tracks.push(normalizeTrackRecord({ assignee: assignees[i], startDate: toISODate(segStart), dueDate: toISODate(segEnd) }, i, byId('taskStartDate').value, byId('taskDueDate').value));
+                cursor = new Date(segEnd.getTime() + DAY_MS);
+                if (cursor > baseDue) cursor = new Date(baseDue.getTime());
+            }
+            return tracks;
+        }
+        return assignees.map(function (name, idx) {
+            return normalizeTrackRecord({ assignee: name, startDate: byId('taskStartDate').value, dueDate: byId('taskDueDate').value }, idx, byId('taskStartDate').value, byId('taskDueDate').value);
+        });
+    }
+
     function syncTaskDateEnvelopeFromTracks(task, tracks) {
         if (!tracks || !tracks.length) return;
         let minStart = null;
@@ -663,7 +764,8 @@
             }
         }
 
-        return { segments: segments, overlaps: overlaps, hasMultipleTracks: tracks.length > 1 };
+        const overlapAssignees = tracks.map(function (t) { return t.assignee; }).filter(Boolean).join(' + ');
+        return { segments: segments, overlaps: overlaps, hasMultipleTracks: tracks.length > 1, overlapAssignees: overlapAssignees };
     }
 
     function renderGantt() {
@@ -797,7 +899,7 @@
                         const left = ov.startUnit * colPx;
                         const widthUnits = Math.max(1, ov.endUnit - ov.startUnit + 1);
                         const width = Math.max(8, (widthUnits * colPx) - 6);
-                        return '<div class="gantt-bar-composite" style="left:' + left + 'px;width:' + width + 'px"></div>';
+                        return '<button class="gantt-bar-composite" type="button" data-composite-task-id="' + esc(t.taskId) + '" title="Overlap: ' + esc(timeline.overlapAssignees || 'multiple assignees') + '" style="left:' + left + 'px;width:' + width + 'px"></button>';
                     }).join('');
                 } else {
                     const stubWidth = Math.max(20, Math.round(colPx * 0.9));
@@ -911,6 +1013,9 @@
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
         byId('taskColor').value = task ? task.colorKey : 'teal';
+        writeTracksToModalFromTask(task || {
+            assigneeTracks: '', assignee: byId('taskAssignee').value, assignees: parseAssignees(byId('taskAssignee').value), startDate: byId('taskStartDate').value, dueDate: byId('taskDueDate').value
+        });
 
         byId('taskParentId').innerHTML = ['<option value="">No parent (group)</option>'].concat(
             state.tasks.filter(function (t) { return !task || t.taskId !== task.taskId; }).map(function (t) {
@@ -978,6 +1083,7 @@
         const assigneeList = parseAssignees(payload.assignee);
         payload.assignees = serializeAssignees(assigneeList);
         payload.assignee = assigneeList[0] || '';
+        modalTracksToPayload(payload);
 
         if (parentTask) {
             payload.startDate = parentTask.startDate;
@@ -1551,6 +1657,25 @@
             if (childBtn) { openNewChildTaskFrom(childBtn.getAttribute('data-task-child')); return; }
             const menuBtn = e.target.closest('[data-task-menu]');
             if (menuBtn) openModal(menuBtn.getAttribute('data-task-menu'));
+            const compositeBtn = e.target.closest('[data-composite-task-id]');
+            if (compositeBtn) {
+                openModal(compositeBtn.getAttribute('data-composite-task-id'));
+                setTimeout(function () {
+                    const el = byId('taskAssigneeTracks');
+                    if (el) { el.focus(); el.classList.add('assignee-focus'); setTimeout(function () { el.classList.remove('assignee-focus'); }, 1200); }
+                }, 50);
+                return;
+            }
+        });
+
+        byId('taskTrackSyncBtn').addEventListener('click', function () {
+            byId('taskAssigneeTracks').value = serializeTracksForInput(buildTracksByMode('sync'));
+        });
+        byId('taskTrackSplitBtn').addEventListener('click', function () {
+            byId('taskAssigneeTracks').value = serializeTracksForInput(buildTracksByMode('equal'));
+        });
+        byId('taskTrackHandoffBtn').addEventListener('click', function () {
+            byId('taskAssigneeTracks').value = serializeTracksForInput(buildTracksByMode('handoff'));
         });
 
         els.splitter.addEventListener('pointerdown', function (e) {

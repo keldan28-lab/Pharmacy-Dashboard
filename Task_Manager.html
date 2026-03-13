@@ -441,11 +441,13 @@
             top: 5px;
             height: 34px;
             border-radius: 4px;
-            pointer-events: none;
+            border: 0;
+            cursor: pointer;
             background: repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 5px, rgba(255,255,255,0.22) 5px 10px);
             box-shadow: inset 0 0 0 1px rgba(255,255,255,0.28);
             z-index: 4;
         }
+        .gantt-bar-composite:hover { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.42), 0 0 0 2px rgba(42,184,173,0.2); }
         .gantt-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
         .gantt-menu-btn { position: absolute; right: 4px; top: 4px; width: 16px; height: 16px; border: 0; border-radius: 3px; background: rgba(0,0,0,0.18); color: rgba(255,255,255,0.92); font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity 120ms ease; }
         .gantt-bar:hover .gantt-menu-btn, .gantt-bar:hover .gantt-child-btn { opacity: 1; }
@@ -511,6 +513,10 @@
         .task-form-grid details { grid-column: 1 / -1; border: 1px solid var(--card-border); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.02); }
         .task-form-grid summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); font-weight: 700; }
         .task-optional-grid { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(170px, 1fr)); gap: 8px; }
+        .task-track-row { margin-top: 8px; display: grid; gap: 8px; }
+        .task-track-help { font-size: 11px; color: var(--text-secondary); }
+        .task-track-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+        .task-track-buttons .tasks-button { min-height: 30px; padding: 4px 10px; font-size: 11px; }
         .task-itemcode-lookup { grid-column: 1 / -1; position: relative; }
         .task-itemcode-lookup .tasks-input { width: 100%; }
         .task-itemcode-lookup .dropdown-options {
@@ -647,6 +653,15 @@
                             <input id="taskItemName" class="tasks-input" placeholder="Item Name" />
                             <input id="taskLocation" class="tasks-input" placeholder="Location" />
                             <input id="taskSublocation" class="tasks-input" placeholder="Sublocation" />
+                        </div>
+                        <div class="task-track-row">
+                            <div class="task-track-help">Assignee timeline tracks (optional). One track per line: <code>Assignee | YYYY-MM-DD | YYYY-MM-DD</code></div>
+                            <textarea id="taskAssigneeTracks" class="tasks-input" placeholder="Ops | 2026-03-01 | 2026-03-05&#10;Tech 1 | 2026-03-03 | 2026-03-08"></textarea>
+                            <div class="task-track-buttons">
+                                <button id="taskTrackSyncBtn" class="tasks-button" type="button">Sync from assignees</button>
+                                <button id="taskTrackSplitBtn" class="tasks-button" type="button">Split equally</button>
+                                <button id="taskTrackHandoffBtn" class="tasks-button" type="button">Sequential handoff</button>
+                            </div>
                         </div>
                     </details>
                 </div>
