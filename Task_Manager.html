@@ -11,7 +11,7 @@
             min-height: 100vh;
             height: 100vh;
             margin: 0;
-            padding: clamp(10px, 2vw, 20px);
+            padding: 0;
             overflow: hidden;
         }
         .tasks-container {
@@ -39,7 +39,7 @@
             gap: 12px;
         }
         .tasks-content {
-            padding: clamp(14px, 2.2vw, 22px);
+            padding: 0;
             overflow-y: auto;
             overflow-x: hidden;
             flex: 1;
@@ -201,7 +201,7 @@
 
         .tasks-list-header {
             padding: 8px 10px;
-            margin-top: 10px;
+            margin-top: 0;
             border-bottom: 1px solid rgba(160,160,160,0.2);
             font-size: 11px;
             letter-spacing: 0.04em;
@@ -237,9 +237,7 @@
         }
         .tasks-list-col { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .tasks-list-col.assignee { text-align: center; }
-        .tasks-list-gap {
-            height: 4px;
-        }
+        .tasks-list-gap { height: 0; display:none; }
         .tasks-list-body { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; margin-top: 0; display: flex; flex-direction: column; gap: 0; }
 
         .tasks-list-body::-webkit-scrollbar { width: 10px; }
@@ -553,9 +551,6 @@
         </div>
         </div>
         <div class="analytics-content tasks-content">
-    <div class="tasks-page">
-    </div>
-
         <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
                 <div class="tasks-list-header"><span class="tasks-list-col"><button id="tasksExpandAllMini" class="tasks-sort-btn" type="button" title="Expand/Collapse">▾</button></span><span class="tasks-list-col name">Name <button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button><span id="tasksSortMode" class="tasks-sort-mode">Manual</span></span><span class="tasks-list-col assignee">Assignee</span></div>
