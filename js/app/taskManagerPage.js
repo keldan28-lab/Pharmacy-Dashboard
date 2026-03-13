@@ -61,6 +61,14 @@
         return new Date(base.getTime() + (days * DAY_MS)).toISOString().slice(0, 10);
     }
 
+    function clampIsoRange(iso, minIso, maxIso) {
+        const v = String(iso || '').trim();
+        if (!v) return v;
+        if (minIso && v < minIso) return minIso;
+        if (maxIso && v > maxIso) return maxIso;
+        return v;
+    }
+
     function queueRenderGantt() {
         if (state.ganttRenderQueued) return;
         state.ganttRenderQueued = true;
@@ -484,6 +492,7 @@
         byId('taskTitle').value = 'New child task';
         byId('taskStatus').value = 'Not Started';
         byId('taskPriority').value = parent.priority || 'Medium';
+        syncPriorityToggleUi();
         byId('taskColor').value = parent.colorKey || 'teal';
         byId('taskAssignee').value = parent.assignee || '';
         byId('taskAssigner').value = parent.assigner || '';
@@ -1198,8 +1207,12 @@
         const selected = selectedChecklistIndexes();
         if (!selected.length) { closeChecklistAssignMenu(); return; }
         const assigneeName = String(byId('taskChecklistAssignName').value || '').trim();
-        const startDate = String(byId('taskChecklistAssignStart').value || '').trim() || byId('taskStartDate').value;
-        const dueDate = String(byId('taskChecklistAssignDue').value || '').trim() || startDate || byId('taskDueDate').value;
+        const masterStart = String(byId('taskStartDate').value || '').trim();
+        const masterDue = String(byId('taskDueDate').value || '').trim() || masterStart;
+        const rawStart = String(byId('taskChecklistAssignStart').value || '').trim() || masterStart;
+        const rawDue = String(byId('taskChecklistAssignDue').value || '').trim() || rawStart || masterDue;
+        const startDate = clampIsoRange(rawStart, masterStart, masterDue);
+        const dueDate = clampIsoRange(rawDue, startDate || masterStart, masterDue);
         selected.forEach(function (idx) {
             const item = state.checklistDraft[idx];
             const current = parseChecklistAssignees(item.assignees, '');
@@ -1285,8 +1298,7 @@
         byId('taskAssigner').value = task ? task.assigner : '';
         byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
         byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
-        if (byId('taskStartDatePicker')) byId('taskStartDatePicker').value = byId('taskStartDate').value;
-        if (byId('taskDueDatePicker')) byId('taskDueDatePicker').value = byId('taskDueDate').value;
+
 const pctEl = byId('taskPercent');
         if (pctEl) pctEl.value = task ? task.percentComplete : 0;
         byId('taskItemCode').value = task ? task.itemCode : '';
@@ -1297,8 +1309,10 @@ const pctEl = byId('taskPercent');
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
+        syncPriorityToggleUi();
         byId('taskColor').value = task ? task.colorKey : 'teal';
         syncTaskColorPicker();
+        syncPriorityToggleUi();
         const modalHeader = byId('taskModalTitle');
         if (modalHeader) {
             const headerColor = getColorDef(task ? task.colorKey : byId('taskColor').value).base;
@@ -1944,6 +1958,15 @@ syncChecklistAssigneesWithTask(assigneeList);
         byId('taskChecklistCollaborate').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('collaborate'); });
         byId('taskChecklistAssignSave').addEventListener('click', function () { if (!state.checklistLoading) saveChecklistAssignMenu(); });
         byId('taskChecklistAssignCancel').addEventListener('click', closeChecklistAssignMenu);
+        const pr = byId('taskPriorityToggleRow');
+        if (pr) {
+            pr.addEventListener('click', function (e) {
+                const btn = e.target.closest('[data-priority]');
+                if (!btn) return;
+                byId('taskPriority').value = btn.getAttribute('data-priority') || 'Medium';
+                syncPriorityToggleUi();
+            });
+        }
 
         document.addEventListener('click', function (e) {
             const progMenu = byId('checklistProgressMenu');
@@ -2284,6 +2307,17 @@ syncChecklistAssigneesWithTask(assigneeList);
         });
     }
 
+
+    function syncPriorityToggleUi() {
+        const row = byId('taskPriorityToggleRow');
+        const sel = byId('taskPriority');
+        if (!row || !sel) return;
+        const current = String(sel.value || 'Medium');
+        row.querySelectorAll('[data-priority]').forEach(function (btn) {
+            btn.classList.toggle('active', String(btn.getAttribute('data-priority')) === current);
+        });
+    }
+
     function syncTaskColorPicker() {
         const color = byId('taskColor');
         const badge = byId('taskColorBadge');
@@ -2301,36 +2335,68 @@ syncChecklistAssigneesWithTask(assigneeList);
 
     function bindTaskDatePopovers() {
         const pairs = [
-            { field: byId('taskStartDate'), picker: byId('taskStartDatePicker'), pop: byId('taskStartDatePopover') },
-            { field: byId('taskDueDate'), picker: byId('taskDueDatePicker'), pop: byId('taskDueDatePopover') }
+            { field: byId('taskStartDate'), pop: byId('taskStartDatePopover'), host: byId('taskStartCalendar') },
+            { field: byId('taskDueDate'), pop: byId('taskDueDatePopover'), host: byId('taskDueCalendar') }
         ];
-        function closeAll() {
-            pairs.forEach(function (p) { if (p && p.pop) p.pop.classList.remove('open'); });
+        const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const views = { taskStartDate: null, taskDueDate: null };
+
+        function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
+        function toIso(y, m, d) { return new Date(y, m, d).toISOString().slice(0, 10); }
+
+        function renderCal(pair) {
+            if (!pair || !pair.host || !pair.field) return;
+            const selected = String(pair.field.value || toISODate(new Date()));
+            const base = toDate(views[pair.field.id] || selected || new Date()) || new Date();
+            const year = base.getFullYear();
+            const month = base.getMonth();
+            const firstDow = new Date(year, month, 1).getDay();
+            const dim = daysInMonth(year, month);
+            const cells = [];
+            ['S','M','T','W','T','F','S'].forEach(function (d) { cells.push('<div class="task-cal-dow">' + d + '</div>'); });
+            for (let i = 0; i < firstDow; i++) cells.push('<button type="button" class="task-cal-day muted" disabled></button>');
+            for (let d = 1; d <= dim; d++) {
+                const iso = toIso(year, month, d);
+                const cls = iso === selected ? 'task-cal-day active' : 'task-cal-day';
+                cells.push('<button type="button" class="' + cls + '" data-cal-date="' + iso + '">' + d + '</button>');
+            }
+            pair.host.innerHTML = '<div class="task-cal-pop-head"><button type="button" data-cal-nav="prev">‹</button><span class="task-cal-pop-title">' + monthNames[month] + ' ' + year + '</span><button type="button" data-cal-nav="next">›</button></div><div class="task-cal-grid">' + cells.join('') + '</div>';
         }
+
+        function closeAll() { pairs.forEach(function (p) { if (p && p.pop) p.pop.classList.remove('open'); }); }
+
         pairs.forEach(function (pair) {
-            if (!pair.field || !pair.picker || !pair.pop) return;
+            if (!pair.field || !pair.pop || !pair.host) return;
             pair.field.addEventListener('focus', function () {
                 closeAll();
-                pair.picker.value = pair.field.value || '';
+                views[pair.field.id] = pair.field.value || toISODate(new Date());
+                renderCal(pair);
                 pair.pop.classList.add('open');
             });
             pair.field.addEventListener('click', function () {
                 closeAll();
-                pair.picker.value = pair.field.value || '';
+                views[pair.field.id] = pair.field.value || toISODate(new Date());
+                renderCal(pair);
                 pair.pop.classList.add('open');
             });
-            pair.picker.addEventListener('input', function () {
-                pair.field.value = pair.picker.value || '';
-                if (pair.field.id === 'taskStartDate' || pair.field.id === 'taskDueDate') {
-                    syncChecklistMasterDates();
-                    renderChecklistDraft();
+            pair.host.addEventListener('click', function (e) {
+                const nav = e.target.closest('[data-cal-nav]');
+                if (nav) {
+                    const cur = toDate(views[pair.field.id] || pair.field.value || new Date()) || new Date();
+                    const step = nav.getAttribute('data-cal-nav') === 'prev' ? -1 : 1;
+                    views[pair.field.id] = new Date(cur.getFullYear(), cur.getMonth() + step, 1).toISOString().slice(0, 10);
+                    renderCal(pair);
+                    return;
                 }
-            });
-            pair.picker.addEventListener('change', function () {
-                pair.field.value = pair.picker.value || '';
+                const day = e.target.closest('[data-cal-date]');
+                if (!day) return;
+                pair.field.value = String(day.getAttribute('data-cal-date') || '');
+                syncChecklistMasterDates();
+                renderChecklistDraft();
                 pair.pop.classList.remove('open');
             });
         });
+
         document.addEventListener('click', function (e) {
             if (e.target.closest('.task-date-field')) return;
             closeAll();
@@ -2338,6 +2404,7 @@ syncChecklistAssigneesWithTask(assigneeList);
     }
 
     async function init() {
+
         cacheEls();
         bindEvents();
         bindTaskItemLookup();
