@@ -372,8 +372,8 @@
             return '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>';
         }).join('');
     }
-    function initialsForAssignee(task) {
-        const parts = String(task.assignee || '').trim().split(/\s+/).filter(Boolean);
+    function initialsForAssignee(assigneeName) {
+        const parts = String(assigneeName || '').trim().split(/\s+/).filter(Boolean);
         if (!parts.length) return '—';
         const a = parts[0] ? parts[0][0] : '';
         const b = parts.length > 1 ? parts[parts.length - 1][0] : '';
@@ -388,11 +388,22 @@
         return 'status-not-started';
     }
 
-    function assigneeAvatarContent(task) {
+    function assigneeAvatarContent(task, assigneeName) {
         if (String((task && task.status) || '').toLowerCase() === 'done') {
             return '<svg class="assignee-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.1 3.1L13 4.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
         }
-        return esc(initialsForAssignee(task));
+        return esc(initialsForAssignee(assigneeName));
+    }
+
+    function assigneeStackForTask(task, avatarClass) {
+        const assignees = Array.isArray(task.assignees) && task.assignees.length
+            ? task.assignees.slice()
+            : [task.assignee || 'Unassigned'];
+        return '<div class="task-assignee-stack" role="group" aria-label="Task assignees">' + assignees.map(function (assigneeName, idx) {
+            const avatar = assigneeAvatarContent(task, assigneeName);
+            const assigneeKey = String(assigneeName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || ('assignee-' + idx);
+            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + assignees.length + '" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
+        }).join('') + '</div>';
     }
 
     function childSpanCountFromFlatIndex(flatIdx) {
@@ -486,13 +497,13 @@
             const indent = row.depth * 14;
             const badge = getColorDef(task.colorKey).base;
             const connector = row.depth > 0 ? '<span class="task-connector anim" style="color:' + esc(badge) + '" aria-hidden="true"></span>' : '';
-            const avatar = assigneeAvatarContent(task);
             const depthClass = 'depth-' + Math.min(3, row.depth);
             const avatarClass = assigneeStatusClass(task);
+            const assigneeStack = assigneeStackForTask(task, avatarClass);
             return '<div class="tasks-row ' + depthClass + '" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
                 '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
-                '<button class="task-assignee-avatar ' + avatarClass + '" type="button" data-assignee-open="' + esc(task.taskId) + '" title="' + esc(task.assignee || 'Unassigned') + '">' + avatar + '</button>' +
+                assigneeStack +
             '</div>';
         }).join('');
     }
