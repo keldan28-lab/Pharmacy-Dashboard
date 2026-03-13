@@ -474,7 +474,30 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+}
+
+function parseAssignees_(value) {
+  if (Array.isArray(value)) {
+    return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+  }
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return [];
+  if (raw.charAt(0) === '[') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+    } catch (_) {}
+  }
+  return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+}
+
+function normalizeAssigneeFields_(obj) {
+  const hasAssignees = obj && obj.assignees != null && String(obj.assignees).trim() !== '';
+  const list = hasAssignees ? parseAssignees_(obj.assignees) : parseAssignees_(obj.assignee);
+  obj.assignees = JSON.stringify(list);
+  obj.assignee = list.length ? list[0] : '';
+  return obj;
 }
 
 function ensureTaskSheet_(sheetId, tabName) {
@@ -505,7 +528,7 @@ function tasksRead_(sheetId, tabName) {
   const tasks = values.map(function (row) {
     const obj = {};
     for (let i = 0; i < header.length; i++) obj[header[i]] = row[i];
-    return obj;
+    return normalizeAssigneeFields_(obj);
   });
   return { ok: true, tasks: tasks, tabName, schema: header };
 }
@@ -537,13 +560,14 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   const existing = foundOffset >= 0 ? values[foundOffset] : header.map(function () { return ''; });
   const row = existing.slice();
   const now = new Date().toISOString();
+  const normalizedPayload = normalizeAssigneeFields_(Object.assign({}, payload));
 
   header.forEach(function (k) {
-    if (payload[k] != null && payload[k] !== '') row[idx[k]] = payload[k];
+    if (normalizedPayload[k] != null && normalizedPayload[k] !== '') row[idx[k]] = normalizedPayload[k];
   });
   row[idx.taskId] = taskId;
   if (!row[idx.createdAt]) row[idx.createdAt] = now;
-  row[idx.updatedAt] = payload.updatedAt || now;
+  row[idx.updatedAt] = normalizedPayload.updatedAt || now;
   if (taskAction === 'archiveTask') row[idx.archived] = 'true';
 
   if (foundOffset >= 0) {
