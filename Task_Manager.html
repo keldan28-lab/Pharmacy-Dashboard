@@ -290,6 +290,7 @@
             background: rgba(255,255,255,0.01);
         }
         .tasks-row:hover { background: rgba(255,255,255,0.06); }
+        .tasks-row.active { background: rgba(42,184,173,0.16); box-shadow: inset 2px 0 0 rgba(42,184,173,0.8); }
         .tree-toggle { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
         .tree-toggle:hover { background: rgba(255,255,255,0.08); }
         .task-title-wrap { min-width: 0; position: relative; }
@@ -298,13 +299,10 @@
         .tasks-row.depth-1 .task-title { font-weight: 620; }
         .tasks-row.depth-2 .task-title { font-weight: 520; }
         .tasks-row.depth-3 .task-title { font-weight: 460; }
-        .task-assignee-stack { --avatar-size: 28px; --avatar-overlap: 10px; display: inline-flex; justify-content: flex-end; align-items: center; width: 100%; min-height: var(--avatar-size); position: relative; }
-        .task-assignee-avatar { width: var(--avatar-size); height: var(--avatar-size); border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--text-secondary); background: rgba(126, 154, 188, 0.16); margin: 0; border: 1px solid rgba(126, 154, 188, 0.28); cursor: pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 180ms ease; position: relative; z-index: calc(var(--avatar-count, 1) - var(--avatar-index, 0)); }
-        .task-assignee-avatar + .task-assignee-avatar { margin-left: calc(var(--avatar-overlap) * -1); }
+        .task-assignee-stack { --avatar-size: 28px; --avatar-cascade-left: 8px; --avatar-cascade-down: 3px; --avatar-fan-gap: 3px; display: inline-flex; justify-content: flex-end; align-items: center; width: 100%; min-height: calc(var(--avatar-size) + ((var(--avatar-count, 1) - 1) * var(--avatar-cascade-down))); position: relative; }
+        .task-assignee-avatar { width: var(--avatar-size); height: var(--avatar-size); border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: transparent; background: linear-gradient(to top, rgba(9,97,143,0.8) var(--avatar-progress, 0%), rgba(126, 154, 188, 0.16) var(--avatar-progress, 0%)); margin: 0; border: 1px solid rgba(126, 154, 188, 0.28); cursor: pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease, top 180ms ease, right 180ms ease; position: absolute; right: calc(var(--avatar-index, 0) * var(--avatar-cascade-left)); top: calc(var(--avatar-index, 0) * var(--avatar-cascade-down)); z-index: calc(var(--avatar-count, 1) - var(--avatar-index, 0)); }
         .task-assignee-stack:hover .task-assignee-avatar,
-        .task-assignee-stack:focus-within .task-assignee-avatar { transform: translateX(calc(var(--avatar-index, 0) * (var(--avatar-overlap) * -1))); }
-        .task-assignee-stack:hover .task-assignee-avatar,
-        .task-assignee-stack:focus-within .task-assignee-avatar { z-index: calc((var(--avatar-count, 1) * 2) + var(--avatar-index, 0)); }
+        .task-assignee-stack:focus-within .task-assignee-avatar { right: calc(var(--avatar-index, 0) * (var(--avatar-size) + var(--avatar-fan-gap))); top: 0; color: #e8f6ff; z-index: calc((var(--avatar-count, 1) * 2) + var(--avatar-index, 0)); }
         .task-assignee-avatar.status-not-started { background: rgba(126, 154, 188, 0.16); border-color: rgba(126, 154, 188, 0.28); color: var(--text-secondary); }
         .task-assignee-avatar.status-in-progress { background: rgba(17, 153, 142, 0.22); border-color: rgba(17, 153, 142, 0.6); color: #dffffa; }
         .task-assignee-avatar.status-blocked { background: rgba(255, 84, 84, 0.2); border-color: rgba(255, 84, 84, 0.62); color: #ffecec; }
@@ -415,6 +413,7 @@
         .gantt-row { position: relative; min-height: 44px; border-bottom: 1px solid rgba(160,160,160,0.14); transition: transform 140ms ease; }
         .gantt-row.drag-disabled { opacity: 0.35; }
         .gantt-row.drag-target { background: rgba(56, 200, 160, 0.12); }
+        .gantt-row.focus-task { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(25,119,117,0.22); background: rgba(42,184,173,0.08); z-index: 3; }
         .gantt-overdue { position: absolute; top: 0; bottom: 0; background: rgba(255,126,113,0.28); border-right: 1px solid rgba(255,126,113,0.45); pointer-events: none; }
         .gantt-bar {
             position: absolute;
