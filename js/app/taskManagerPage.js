@@ -543,6 +543,118 @@
         return 'linear-gradient(135deg, ' + start + ', ' + end + ')';
     }
 
+    function parseAssigneeTracks(value) {
+        if (Array.isArray(value)) return value;
+        const raw = String(value == null ? '' : value).trim();
+        if (!raw || raw.charAt(0) !== '[') return [];
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+            return [];
+        }
+    }
+
+    function buildTaskTracks(task) {
+        const parsed = parseAssigneeTracks(task.assigneeTracks);
+        if (parsed.length) {
+            return parsed.map(function (it, idx) {
+                const who = String((it && it.assignee) || '').trim() || ('Track ' + (idx + 1));
+                return {
+                    key: String((it && it.key) || (who + '-' + idx)),
+                    assignee: who,
+                    startDate: toISODate((it && it.startDate) || task.startDate),
+                    dueDate: toISODate((it && it.dueDate) || task.dueDate)
+                };
+            });
+        }
+        const list = Array.isArray(task.assignees) && task.assignees.length
+            ? task.assignees.slice()
+            : [task.assignee || 'Unassigned'];
+        return list.map(function (name, idx) {
+            const who = String(name || '').trim() || ('Track ' + (idx + 1));
+            return { key: who + '-' + idx, assignee: who, startDate: task.startDate, dueDate: task.dueDate };
+        });
+    }
+
+    function syncTaskDateEnvelopeFromTracks(task, tracks) {
+        if (!tracks || !tracks.length) return;
+        let minStart = null;
+        let maxDue = null;
+        for (let i = 0; i < tracks.length; i++) {
+            const s = toDate(tracks[i].startDate);
+            const d = toDate(tracks[i].dueDate);
+            if (!s || !d) continue;
+            if (!minStart || s < minStart) minStart = s;
+            if (!maxDue || d > maxDue) maxDue = d;
+        }
+        if (minStart && maxDue) {
+            task.startDate = toISODate(minStart);
+            task.dueDate = toISODate(maxDue);
+        }
+    }
+
+    function assigneeTrackColor(task, depth, assignee) {
+        const palette = ['#2ab8ad', '#4f8ef7', '#8b6cf0', '#f39a45', '#38c172', '#e66f97'];
+        const seed = String(assignee || 'track');
+        let h = 0;
+        for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+        const base = palette[Math.abs(h) % palette.length] || getColorDef(task.colorKey).base;
+        const start = depth > 0 ? lighten(base, 0.12) : base;
+        const end = depth > 0 ? lighten(base, 0.28) : lighten(base, 0.1);
+        return 'linear-gradient(135deg, ' + start + ', ' + end + ')';
+    }
+
+    function buildTaskTimelineSegments(task, range, maxUnit) {
+        const rangeStartUnit = state.zoom === 'month'
+            ? ((range.start.getFullYear() * 12) + range.start.getMonth())
+            : 0;
+        const toUnit = function (date) {
+            if (state.zoom === 'month') return ((date.getFullYear() * 12) + date.getMonth()) - rangeStartUnit;
+            return Math.floor((date - range.start) / DAY_MS);
+        };
+        const tracks = buildTaskTracks(task);
+        const segments = tracks.map(function (track, idx) {
+            const sDate = toDate(track.startDate);
+            const dDate = toDate(track.dueDate);
+            const startUnit = sDate ? toUnit(sDate) : 0;
+            const endUnit = dDate ? toUnit(dDate) : startUnit;
+            const overlapStart = Math.max(0, startUnit);
+            const overlapEnd = Math.min(maxUnit, endUnit);
+            return {
+                key: track.key,
+                assignee: track.assignee,
+                trackIndex: idx,
+                totalTracks: tracks.length,
+                startDate: track.startDate,
+                dueDate: track.dueDate,
+                startUnit: startUnit,
+                endUnit: endUnit,
+                overlapStart: overlapStart,
+                overlapEnd: overlapEnd,
+                visible: overlapStart <= overlapEnd
+            };
+        });
+
+        const coverage = new Array(maxUnit + 1).fill(0);
+        for (let s = 0; s < segments.length; s++) {
+            if (!segments[s].visible) continue;
+            for (let u = segments[s].overlapStart; u <= segments[s].overlapEnd; u++) coverage[u] += 1;
+        }
+        const overlaps = [];
+        let runStart = -1;
+        for (let u = 0; u <= maxUnit; u++) {
+            if (coverage[u] > 1 && runStart < 0) runStart = u;
+            if ((coverage[u] <= 1 || u === maxUnit) && runStart >= 0) {
+                const runEnd = (coverage[u] <= 1) ? (u - 1) : u;
+                if (runEnd >= runStart) overlaps.push({ startUnit: runStart, endUnit: runEnd });
+                runStart = -1;
+            }
+        }
+
+        return { segments: segments, overlaps: overlaps, hasMultipleTracks: tracks.length > 1 };
+    }
+
     function renderGantt() {
         const rows = state.flatRows;
         if (!rows.length) {
@@ -642,7 +754,8 @@
                 }
                 const barShadow = row.depth > 0 ? '0 2px 8px rgba(17, 153, 142, 0.12)' : '0 4px 12px rgba(17, 153, 142, 0.18)';
                 const progressPct = taskProgressForBar(t);
-                if (overlapStart <= overlapEnd) {
+                const timeline = buildTaskTimelineSegments(t, range, maxUnit);
+                if (!timeline.hasMultipleTracks && overlapStart <= overlapEnd) {
                     const left = overlapStart * colPx;
                     const widthUnits = Math.max(1, overlapEnd - overlapStart + 1);
                     const width = Math.max(18, (widthUnits * colPx) - 6);
@@ -654,6 +767,27 @@
                         '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
                         '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                     '</div>';
+                } else if (timeline.hasMultipleTracks) {
+                    const trackHeight = Math.max(6, Math.floor(28 / Math.max(1, timeline.segments.length)) - 1);
+                    bar = timeline.segments.map(function (seg) {
+                        if (!seg.visible) return '';
+                        const left = seg.overlapStart * colPx;
+                        const widthUnits = Math.max(1, seg.overlapEnd - seg.overlapStart + 1);
+                        const width = Math.max(18, (widthUnits * colPx) - 6);
+                        const top = 6 + (seg.trackIndex * (trackHeight + 1));
+                        const label = seg.trackIndex === 0 ? esc(t.title) : esc(seg.assignee);
+                        return '<div class="gantt-bar gantt-bar-track ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;top:' + top + 'px;height:' + trackHeight + 'px;background:' + assigneeTrackColor(t, row.depth, seg.assignee) + ';box-shadow:' + barShadow + '">' +
+                            '<span class="gantt-label">' + label + '</span>' +
+                            '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="start"></span>' +
+                            '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="end"></span>' +
+                        '</div>';
+                    }).join('');
+                    bar += timeline.overlaps.map(function (ov) {
+                        const left = ov.startUnit * colPx;
+                        const widthUnits = Math.max(1, ov.endUnit - ov.startUnit + 1);
+                        const width = Math.max(8, (widthUnits * colPx) - 6);
+                        return '<div class="gantt-bar-composite" style="left:' + left + 'px;width:' + width + 'px"></div>';
+                    }).join('');
                 } else {
                     const stubWidth = Math.max(20, Math.round(colPx * 0.9));
                     if (endUnit < 0) {
@@ -1027,17 +1161,29 @@
         updateDropPreviewTransforms(drag);
     }
 
-    function startDrag(taskId, dragType, clientX, clientY) {
+    function startDrag(taskId, dragType, clientX, clientY, segmentKey) {
         const task = state.tasks.find(function (t) { return t.taskId === taskId; });
         if (!task) return;
         ensureTaskDates(task);
+
+        let dragStart = task.startDate;
+        let dragDue = task.dueDate;
+        if (segmentKey) {
+            const tracks = buildTaskTracks(task);
+            const seg = tracks.find(function (it) { return String(it.key) === String(segmentKey); });
+            if (seg) {
+                dragStart = seg.startDate;
+                dragDue = seg.dueDate;
+                task.assigneeTracks = JSON.stringify(tracks);
+            }
+        }
 
         state.drag = {
             taskId: task.taskId,
             dragType: dragType,
             startX: clientX,
-            startDate: task.startDate,
-            dueDate: task.dueDate,
+            startDate: dragStart,
+            dueDate: dragDue,
             stepDays: 1,
             moved: false,
             lastDeltaDays: 0,
@@ -1050,7 +1196,8 @@
             dragElStartLeft: 0,
             draggedRowStartIndex: state.flatRows.findIndex(function (r) { return r.task.taskId === task.taskId; }),
             draggedRowIndexes: [],
-            deleteHot: false
+            deleteHot: false,
+            segmentKey: segmentKey || ''
         };
         const dz = byId('tasksDeleteZone');
         if (dz) dz.classList.add('show');
@@ -1105,6 +1252,26 @@
             }
         }
         if (drag.moved) {
+            if (drag.segmentKey) {
+                const tracks = buildTaskTracks(task);
+                const seg = tracks.find(function (it) { return String(it.key) === String(drag.segmentKey); });
+                if (seg) {
+                    seg.startDate = task.startDate;
+                    seg.dueDate = task.dueDate;
+                }
+                syncTaskDateEnvelopeFromTracks(task, tracks);
+                task.assigneeTracks = JSON.stringify(tracks);
+                task.updatedAt = isoNow();
+                await writeTask('updateTask', {
+                    taskId: task.taskId,
+                    startDate: task.startDate,
+                    dueDate: task.dueDate,
+                    assigneeTracks: task.assigneeTracks,
+                    updatedAt: task.updatedAt
+                });
+                applyFilters();
+                return;
+            }
             await updateTaskDatesFromDrag(task, task.startDate, task.dueDate);
             applyFilters();
         }
@@ -1126,7 +1293,7 @@
             if (hot) drag.moved = true;
             dz.classList.toggle('hot', hot);
         }
-        if (drag.dragType === 'move' && Math.abs(yDelta) > 12 && Math.abs(yDelta) > Math.abs(xDelta)) {
+        if (!drag.segmentKey && drag.dragType === 'move' && Math.abs(yDelta) > 12 && Math.abs(yDelta) > Math.abs(xDelta)) {
             if (!drag.dragEl) {
                 drag.dragEl = els.ganttWrap.querySelector('.gantt-bar[data-task-id="' + task.taskId + '"]');
                 if (drag.dragEl) {
@@ -1386,9 +1553,10 @@
             if (!hit) return;
             const taskId = hit.getAttribute('data-task-id');
             const dragType = hit.getAttribute('data-drag-type') || 'move';
+            const segmentKey = hit.getAttribute('data-segment-key') || '';
             if (!taskId) return;
             e.preventDefault();
-            startDrag(taskId, dragType, e.clientX, e.clientY);
+            startDrag(taskId, dragType, e.clientX, e.clientY, segmentKey);
         });
 
         window.addEventListener('pointermove', function (e) {
