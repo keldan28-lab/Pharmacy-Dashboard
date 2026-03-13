@@ -44,6 +44,8 @@
             overflow-x: hidden;
             flex: 1;
             height: 100%;
+            display: flex;
+            flex-direction: column;
         }
         .tasks-page {
             height: 100%;
@@ -149,6 +151,7 @@
 
         .tasks-shell {
             --left-pane-width: 360px;
+            margin: 0;
             flex: 1;
             min-height: 0;
             display: grid;
@@ -201,7 +204,7 @@
 
         .tasks-list-header {
             padding: 8px 10px;
-            margin-top: 0;
+            margin-top: 1px;
             border-bottom: 1px solid rgba(160,160,160,0.2);
             font-size: 11px;
             letter-spacing: 0.04em;
@@ -229,6 +232,33 @@
             margin-left: 6px;
         }
         .tasks-sort-btn:hover { background: rgba(255,255,255,0.12); }
+
+        #tasksExpandAllMini {
+            margin-left: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 999px;
+            background: rgba(17,153,142,0.14);
+            border: 1px solid rgba(17,153,142,0.45);
+            color: #11998e;
+        }
+        #tasksExpandAllMini svg {
+            width: 12px;
+            height: 12px;
+            display: block;
+            fill: currentColor;
+            transform-origin: 50% 50%;
+            animation: tasksArrowPulse 1.6s ease-in-out infinite;
+        }
+        @keyframes tasksArrowPulse {
+            0%, 100% { transform: translateY(-0.5px); opacity: 0.95; }
+            50% { transform: translateY(1px); opacity: 1; }
+        }
+        body.dark-mode #tasksExpandAllMini {
+            background: rgba(32,200,181,0.16);
+            border-color: rgba(66,233,160,0.48);
+            color: #42e9a0;
+        }
         .tasks-sort-mode {
             opacity: 0.8;
             font-size: 10px;
@@ -553,7 +583,7 @@
         <div class="analytics-content tasks-content">
         <div id="tasksShell" class="tasks-shell">
             <div class="tasks-card">
-                <div class="tasks-list-header"><span class="tasks-list-col"><button id="tasksExpandAllMini" class="tasks-sort-btn" type="button" title="Expand/Collapse">▾</button></span><span class="tasks-list-col name">Name <button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button><span id="tasksSortMode" class="tasks-sort-mode">Manual</span></span><span class="tasks-list-col assignee">Assignee</span></div>
+                <div class="tasks-list-header"><span class="tasks-list-col"><button id="tasksExpandAllMini" class="tasks-sort-btn" type="button" title="Expand/Collapse" aria-label="Expand/Collapse all"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z"></path></svg></button></span><span class="tasks-list-col name">Name <button id="tasksSortBtn" class="tasks-sort-btn" type="button" title="Sort: Manual">⇅</button><span id="tasksSortMode" class="tasks-sort-mode">Manual</span></span><span class="tasks-list-col assignee">Assignee</span></div>
                 <div id="tasksListGap" class="tasks-list-gap" aria-hidden="true"></div>
                 <div id="tasksListBody" class="tasks-list-body"></div>
             </div>
