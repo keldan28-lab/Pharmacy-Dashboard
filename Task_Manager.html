@@ -428,6 +428,18 @@
         }
         .gantt-bar:active { cursor: grabbing; }
         .gantt-bar:hover { filter: brightness(1.03); box-shadow: 0 4px 12px rgba(17, 153, 142, 0.24); }
+        .gantt-bar-track { justify-content: flex-start; padding: 0 6px; }
+        .gantt-bar-track .gantt-label { font-size: 10px; opacity: 0.95; }
+        .gantt-bar-composite {
+            position: absolute;
+            top: 5px;
+            height: 34px;
+            border-radius: 4px;
+            pointer-events: none;
+            background: repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 5px, rgba(255,255,255,0.22) 5px 10px);
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.28);
+            z-index: 4;
+        }
         .gantt-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
         .gantt-menu-btn { position: absolute; right: 4px; top: 4px; width: 16px; height: 16px; border: 0; border-radius: 3px; background: rgba(0,0,0,0.18); color: rgba(255,255,255,0.92); font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity 120ms ease; }
         .gantt-bar:hover .gantt-menu-btn, .gantt-bar:hover .gantt-child-btn { opacity: 1; }
