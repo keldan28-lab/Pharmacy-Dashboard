@@ -474,7 +474,61 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey','timelineTracks'];
+}
+
+function normalizeTimelineTrack_(track) {
+  var src = track || {};
+  return {
+    assignee: String(src.assignee || '').trim(),
+    startDate: String(src.startDate || '').trim(),
+    dueDate: String(src.dueDate || '').trim(),
+    colorKey: src.colorKey == null ? '' : String(src.colorKey || '').trim(),
+    status: src.status == null ? '' : String(src.status || '').trim()
+  };
+}
+
+function normalizeTimelineTracks_(value) {
+  if (value == null || value === '') return { provided: false, tracks: [] };
+  var arr = value;
+  if (!Array.isArray(arr)) {
+    var raw = String(value).trim();
+    if (!raw) return { provided: false, tracks: [] };
+    try {
+      arr = JSON.parse(raw);
+    } catch (err) {
+      throw new Error('Invalid timelineTracks JSON');
+    }
+  }
+  if (!Array.isArray(arr)) throw new Error('timelineTracks must be an array');
+  var tracks = arr.map(function (entry) {
+    var out = normalizeTimelineTrack_(entry);
+    if (!out.assignee || !out.startDate || !out.dueDate) throw new Error('timelineTracks entries require assignee, startDate, dueDate');
+    return out;
+  });
+  return { provided: true, tracks: tracks };
+}
+
+function timelineTracksFallback_(rowObj) {
+  return [normalizeTimelineTrack_({
+    assignee: rowObj.assignee,
+    startDate: rowObj.startDate,
+    dueDate: rowObj.dueDate,
+    colorKey: rowObj.colorKey,
+    status: rowObj.status
+  })];
+}
+
+function normalizeTimelineTracksForRead_(obj) {
+  try {
+    var parsed = normalizeTimelineTracks_(obj.timelineTracks);
+    if (parsed.provided) {
+      obj.timelineTracks = JSON.stringify(parsed.tracks);
+      return obj;
+    }
+  } catch (err) {}
+  obj.timelineTracks = JSON.stringify(timelineTracksFallback_(obj));
+  return obj;
 }
 
 function parseAssignees_(value) {
@@ -528,7 +582,8 @@ function tasksRead_(sheetId, tabName) {
   const tasks = values.map(function (row) {
     const obj = {};
     for (let i = 0; i < header.length; i++) obj[header[i]] = row[i];
-    return normalizeAssigneeFields_(obj);
+    normalizeAssigneeFields_(obj);
+    return normalizeTimelineTracksForRead_(obj);
   });
   return { ok: true, tasks: tasks, tabName, schema: header };
 }
@@ -561,6 +616,10 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   const row = existing.slice();
   const now = new Date().toISOString();
   var normalizedPayload = normalizeAssigneeFields_(Object.assign({}, payload));
+  if (Object.prototype.hasOwnProperty.call(normalizedPayload, 'timelineTracks')) {
+    var timelineParsed = normalizeTimelineTracks_(normalizedPayload.timelineTracks);
+    normalizedPayload.timelineTracks = JSON.stringify(timelineParsed.tracks);
+  }
 
   header.forEach(function (k) {
     if (normalizedPayload[k] != null && normalizedPayload[k] !== '') row[idx[k]] = normalizedPayload[k];

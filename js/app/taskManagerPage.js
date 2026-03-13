@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey','timelineTracks'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -201,6 +201,44 @@
         return JSON.stringify((Array.isArray(list) ? list : []).map(function (v) { return String(v || '').trim(); }).filter(Boolean));
     }
 
+    function normalizeTimelineTrack(track) {
+        const src = track || {};
+        return {
+            assignee: String(src.assignee || '').trim(),
+            startDate: toISODate(src.startDate),
+            dueDate: toISODate(src.dueDate),
+            colorKey: src.colorKey == null ? '' : String(src.colorKey || '').trim(),
+            status: src.status == null ? '' : String(src.status || '').trim()
+        };
+    }
+
+    function buildLegacyTimelineTrack(taskLike) {
+        return normalizeTimelineTrack({
+            assignee: taskLike.assignee,
+            startDate: taskLike.startDate,
+            dueDate: taskLike.dueDate,
+            colorKey: taskLike.colorKey,
+            status: taskLike.status
+        });
+    }
+
+    function parseTimelineTracks(value, fallbackTaskLike) {
+        if (Array.isArray(value)) {
+            const mapped = value.map(normalizeTimelineTrack).filter(function (t) { return t.assignee && t.startDate && t.dueDate; });
+            return mapped.length ? mapped : [buildLegacyTimelineTrack(fallbackTaskLike)];
+        }
+        const raw = String(value == null ? '' : value).trim();
+        if (!raw) return [buildLegacyTimelineTrack(fallbackTaskLike)];
+        try {
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return [buildLegacyTimelineTrack(fallbackTaskLike)];
+            const mapped = parsed.map(normalizeTimelineTrack).filter(function (t) { return t.assignee && t.startDate && t.dueDate; });
+            return mapped.length ? mapped : [buildLegacyTimelineTrack(fallbackTaskLike)];
+        } catch (_) {
+            return [buildLegacyTimelineTrack(fallbackTaskLike)];
+        }
+    }
+
     function normalizeTask(raw, idx) {
         const out = {};
         TASK_COLUMNS.forEach(function (k) { out[k] = raw[k] != null ? raw[k] : ''; });
@@ -217,11 +255,21 @@
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
         out.colorKey = String(out.colorKey || 'teal');
+        out.timelineTracks = parseTimelineTracks(out.timelineTracks, out);
         const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(out.assignee);
         out.assignees = assigneeList;
         out.assignee = String((assigneeList[0] || out.assignee || '')).trim();
         out.children = [];
         ensureTaskDates(out);
+        out.timelineTracks = (Array.isArray(out.timelineTracks) ? out.timelineTracks : [buildLegacyTimelineTrack(out)]).map(function (track) {
+            const next = normalizeTimelineTrack(track);
+            if (!next.assignee) next.assignee = out.assignee || '';
+            if (!next.startDate) next.startDate = out.startDate;
+            if (!next.dueDate) next.dueDate = out.dueDate;
+            if (!next.colorKey) next.colorKey = out.colorKey;
+            if (!next.status) next.status = out.status;
+            return next;
+        });
         return out;
     }
 
@@ -988,6 +1036,10 @@
 
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
+            const existingTask = idx >= 0 ? state.tasks[idx] : null;
+            if (existingTask && Array.isArray(existingTask.timelineTracks) && existingTask.timelineTracks.length) {
+                payload.timelineTracks = JSON.stringify(existingTask.timelineTracks);
+            }
             if (idx >= 0) state.tasks[idx] = normalizeTask(payload, idx);
             await writeTask('updateTask', payload);
         } else {
