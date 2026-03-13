@@ -3838,6 +3838,27 @@ Subloc: ${counts.subloc}`);
                 });
             }
             
+
+            // Handle direct open task composer request from details modal contexts
+            if (event.data.type === 'OPEN_TASK_CREATE') {
+                const payload = event.data.data || {};
+                const previousTabForReferrer = currentTab;
+                switchTab('tasks');
+                setTimeout(() => {
+                    const tasksFrame = document.getElementById('tasksFrame');
+                    if (tasksFrame && tasksFrame.contentWindow) {
+                        tasksFrame.contentWindow.postMessage({
+                            type: 'openTaskComposer',
+                            prefill: {
+                                itemCode: String(payload.itemCode || ''),
+                                itemName: String(payload.itemName || '')
+                            },
+                            referrer: previousTabForReferrer
+                        }, '*');
+                    }
+                }, 550);
+            }
+
             // Handle waste modal open request
             if (event.data.type === 'openWasteModal') {
                 console.log('📊 Waste modal request received');

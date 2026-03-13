@@ -12819,13 +12819,7 @@ if (view === 'all') {
                     ctx.save();
                     
                     // Draw tooltip
-                    const usageDetails = nearestItem.usageDetails || {};
-                    const tooltipLines = [
-                        nearestItem.description,
-                        `Baseline: ${(Number(usageDetails.baselineWeeklyUsage) || 0).toFixed(1)} /wk`,
-                        `Weighted: ${(Number(usageDetails.weightedWeeklyUsage) || 0).toFixed(1)} /wk`,
-                        `Multipliers: trend ${(Number(usageDetails.trendMult) || 1).toFixed(2)} × spike ${(Number(usageDetails.spikeMult) || 1).toFixed(2)}`
-                    ];
+                    const tooltipLines = [nearestItem.description];
                     ctx.font = '12px system-ui';
                     const textWidth = Math.max(...tooltipLines.map(line => ctx.measureText(line).width));
                     const tooltipWidth = textWidth + 24;

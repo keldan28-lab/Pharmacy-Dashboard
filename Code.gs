@@ -80,6 +80,17 @@ function doGet(e) {
     }
   }
 
+  if (action === "checklistRead") {
+    try {
+      const sheetId = requireString_(p.sheetId, "sheetId");
+      const taskId = requireString_(p.taskId, "taskId");
+      const result = checklistRead_(sheetId, 'check list', taskId);
+      return jsonOrJsonp_(result, callback);
+    } catch (err) {
+      return jsonOrJsonp_({ ok: false, action, error: String((err && err.message) || err || "Unknown error") }, callback);
+    }
+  }
+
   if (action === "ping") {
     return jsonOrJsonp_({ ok: true, ts: new Date().toISOString() }, callback);
   }
@@ -463,7 +474,7 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
 }
 
 function ensureTaskSheet_(sheetId, tabName) {
@@ -500,8 +511,12 @@ function tasksRead_(sheetId, tabName) {
 }
 
 function taskWrite_(sheetId, tabName, taskAction, payload) {
-  const allowed = { createTask: true, updateTask: true, archiveTask: true, reorderTask: true };
+  const allowed = { createTask: true, updateTask: true, archiveTask: true, reorderTask: true, saveChecklist: true };
   if (!allowed[taskAction]) throw new Error('Unsupported taskAction');
+  if (taskAction === 'saveChecklist') {
+    return checklistWrite_(sheetId, 'check list', payload);
+  }
+
   const pack = ensureTaskSheet_(sheetId, tabName);
   const sh = pack.sh;
   const header = pack.header;
@@ -538,6 +553,79 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
 
   sh.appendRow(row);
   return { ok: true, taskId: taskId, mode: 'create', taskAction: taskAction };
+}
+
+
+function checklistColumns_() {
+  return ['taskId', 'itemId', 'done', 'text', 'updatedAt'];
+}
+
+function ensureChecklistSheet_(sheetId, tabName) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  let sh = ss.getSheetByName(tabName);
+  if (!sh) sh = ss.insertSheet(tabName);
+  const header = checklistColumns_();
+  if (sh.getLastRow() < 1) {
+    sh.getRange(1, 1, 1, header.length).setValues([header]);
+  } else {
+    const existing = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), header.length)).getValues()[0].slice(0, header.length);
+    let same = true;
+    for (let i = 0; i < header.length; i++) {
+      if (String(existing[i] || '').trim() !== header[i]) { same = false; break; }
+    }
+    if (!same) sh.getRange(1, 1, 1, header.length).setValues([header]);
+  }
+  return { ss: ss, sh: sh, header: header };
+}
+
+function checklistRead_(sheetId, tabName, taskId) {
+  const pack = ensureChecklistSheet_(sheetId, tabName);
+  const sh = pack.sh;
+  const header = pack.header;
+  const idxTask = header.indexOf('taskId');
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return { ok: true, items: [], taskId: taskId };
+  const values = sh.getRange(2, 1, lastRow - 1, header.length).getValues();
+  const out = [];
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][idxTask] || '').trim() !== String(taskId)) continue;
+    out.push({
+      taskId: values[i][0],
+      itemId: values[i][1],
+      done: String(values[i][2] || '') === 'true',
+      text: String(values[i][3] || ''),
+      updatedAt: values[i][4]
+    });
+  }
+  return { ok: true, items: out, taskId: taskId };
+}
+
+function checklistWrite_(sheetId, tabName, payload) {
+  const taskId = requireString_(payload.taskId, 'taskId');
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const pack = ensureChecklistSheet_(sheetId, tabName);
+  const sh = pack.sh;
+  const header = pack.header;
+  const lastRow = sh.getLastRow();
+  if (lastRow >= 2) {
+    const values = sh.getRange(2, 1, lastRow - 1, header.length).getValues();
+    const keep = [];
+    for (let i = 0; i < values.length; i++) {
+      if (String(values[i][0] || '').trim() === taskId) continue;
+      keep.push(values[i]);
+    }
+    sh.getRange(2, 1, Math.max(lastRow - 1, 1), header.length).clearContent();
+    if (keep.length) sh.getRange(2, 1, keep.length, header.length).setValues(keep);
+  }
+  const rows = [];
+  const now = new Date().toISOString();
+  for (let i = 0; i < items.length; i++) {
+    const text = String((items[i] && items[i].text) || '').trim();
+    if (!text) continue;
+    rows.push([taskId, String(i + 1), items[i].done ? 'true' : 'false', text, now]);
+  }
+  if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, header.length).setValues(rows);
+  return { ok: true, taskId: taskId, written: rows.length, taskAction: 'saveChecklist' };
 }
 
 function parsePostBody_(e) {

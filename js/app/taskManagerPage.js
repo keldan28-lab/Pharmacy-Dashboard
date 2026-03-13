@@ -1,10 +1,18 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
+    const TASK_BADGE_COLORS = [
+        { key: 'teal', label: 'Teal', base: '#2ab8ad' },
+        { key: 'green', label: 'Green', base: '#38c172' },
+        { key: 'blue', label: 'Blue', base: '#4f8ef7' },
+        { key: 'purple', label: 'Purple', base: '#8b6cf0' },
+        { key: 'orange', label: 'Orange', base: '#f39a45' },
+        { key: 'rose', label: 'Rose', base: '#e66f97' }
+    ];
 
     const state = {
         loading: true,
@@ -16,12 +24,23 @@
         editingId: null,
         zoom: 'week',
         zoomOutLevel: 0,
+        currentAnchorDate: toISODate(new Date()),
         showArchived: false,
         filtersOpen: false,
         drag: null,
         range: null,
         colPx: 42,
-        itemLookupRows: []
+        itemLookupRows: [],
+        leftPaneCollapsed: false,
+        leftPaneWidth: 360,
+        resizing: null,
+        sortMode: 'manual',
+        dragPreview: null,
+        syncingScroll: false,
+        checklistDraft: [],
+        dragDeleteHot: false,
+        printView: false,
+        checklistLoading: false
     };
 
     const els = {};
@@ -67,8 +86,36 @@
     }
 
     function syncZoomOutUi() {
-        if (!els.zoomOutBtn) return;
-        els.zoomOutBtn.textContent = state.zoomOutLevel > 0 ? ('Zoom Out x' + state.zoomOutLevel) : 'Zoom Out';
+        if (els.zoomOutBtn) els.zoomOutBtn.textContent = '+';
+        if (els.zoomInBtn) els.zoomInBtn.textContent = '-';
+    }
+
+    function syncZoomModeButtons() {
+        const map = { day: byId('tasksZoomDayBtn'), week: byId('tasksZoomWeekBtn'), month: byId('tasksZoomMonthBtn') };
+        Object.keys(map).forEach(function (k) { if (map[k]) map[k].classList.toggle('active', state.zoom === k); });
+    }
+
+    function startOfDay(d) {
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
+
+    function startOfWeek(d) {
+        const out = startOfDay(d);
+        const off = (out.getDay() + 6) % 7;
+        out.setDate(out.getDate() - off);
+        return out;
+    }
+
+    function startOfMonth(d) {
+        return new Date(d.getFullYear(), d.getMonth(), 1);
+    }
+
+    function shiftByMode(baseDate, step) {
+        const d = new Date(baseDate);
+        if (state.zoom === 'day') d.setDate(d.getDate() + step);
+        else if (state.zoom === 'week') d.setDate(d.getDate() + (step * 7));
+        else d.setMonth(d.getMonth() + step);
+        return d;
     }
 
     function jsonp(url, timeoutMs) {
@@ -128,7 +175,12 @@
         return (localStorage.getItem('spike_webAppUrl') || localStorage.getItem('jsonp_proxy_webAppUrl') || '').trim();
     }
 
-    function emptyFallbackTasks() { return []; }
+    function emptyFallbackTasks() {
+        return [
+            { taskId: 'TASK-MOCK-1', parentId: '', sortOrder: 10, level: 'group', title: 'Cycle Count Prep', description: 'Prepare cycle count sheet', status: 'In Progress', priority: 'High', assignee: 'Ops', startDate: toISODate(new Date()), dueDate: shiftIsoDate(toISODate(new Date()), 4), percentComplete: 45, itemCode: '', itemName: '', location: 'Main', sublocation: 'Pharmacy', dependencyIds: '', archived: false, createdAt: isoNow(), updatedAt: isoNow(), createdBy: 'mock', colorKey: 'teal' },
+            { taskId: 'TASK-MOCK-2', parentId: 'TASK-MOCK-1', sortOrder: 20, level: 'child', title: 'Verify Pyxis variances', description: '', status: 'Not Started', priority: 'Medium', assignee: 'Tech 1', startDate: shiftIsoDate(toISODate(new Date()), 1), dueDate: shiftIsoDate(toISODate(new Date()), 2), percentComplete: 0, itemCode: '', itemName: '', location: 'ED', sublocation: 'Pyxis', dependencyIds: '', archived: false, createdAt: isoNow(), updatedAt: isoNow(), createdBy: 'mock', colorKey: 'teal' }
+        ];
+    }
 
     function normalizeTask(raw, idx) {
         const out = {};
@@ -145,6 +197,7 @@
         out.dueDate = toISODate(out.dueDate);
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
+        out.colorKey = String(out.colorKey || 'teal');
         out.children = [];
         ensureTaskDates(out);
         return out;
@@ -179,6 +232,23 @@
         applyFilters();
     }
 
+
+    function priorityRank(priority) {
+        const p = String(priority || '').toLowerCase();
+        if (p === 'critical') return 0;
+        if (p === 'high') return 1;
+        if (p === 'medium') return 2;
+        if (p === 'low') return 3;
+        return 4;
+    }
+
+    function taskComparator(a, b) {
+        if (state.sortMode === 'name') return String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' }) || (a.sortOrder - b.sortOrder);
+        if (state.sortMode === 'priority') return priorityRank(a.priority) - priorityRank(b.priority) || String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' });
+        if (state.sortMode === 'assignee') return String(a.assignee || '').localeCompare(String(b.assignee || ''), undefined, { sensitivity: 'base' }) || String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' });
+        return a.sortOrder - b.sortOrder;
+    }
+
     function buildTree() {
         const byIdMap = {};
         state.tasks.forEach(function (t) { t.children = []; byIdMap[t.taskId] = t; });
@@ -189,7 +259,7 @@
         });
 
         function sortChildren(arr) {
-            arr.sort(function (a, b) { return a.sortOrder - b.sortOrder; });
+            arr.sort(taskComparator);
             arr.forEach(function (child) { sortChildren(child.children); });
         }
         sortChildren(roots);
@@ -244,7 +314,10 @@
 
         syncFilterPanelUi();
         syncZoomOutUi();
+        syncZoomModeButtons();
+        syncShellLayout();
         renderList();
+        renderPrintView();
         requestAnimationFrame(renderGantt);
     }
 
@@ -270,6 +343,108 @@
         byId('taskPriority').innerHTML = DEFAULT_PRIORITY.map(function (p) {
             return '<option value="' + esc(p) + '">' + esc(p) + '</option>';
         }).join('');
+
+        byId('taskColor').innerHTML = TASK_BADGE_COLORS.map(function (c) {
+            return '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>';
+        }).join('');
+    }
+    function initialsForAssignee(task) {
+        const parts = String(task.assignee || '').trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return '—';
+        const a = parts[0] ? parts[0][0] : '';
+        const b = parts.length > 1 ? parts[parts.length - 1][0] : '';
+        return (a + b).toUpperCase();
+    }
+
+    function assigneeStatusClass(task) {
+        const s = String((task && task.status) || '').toLowerCase();
+        if (s === 'in progress') return 'status-in-progress';
+        if (s === 'blocked') return 'status-blocked';
+        if (s === 'done') return 'status-done';
+        return 'status-not-started';
+    }
+
+    function assigneeAvatarContent(task) {
+        if (String((task && task.status) || '').toLowerCase() === 'done') {
+            return '<svg class="assignee-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.1 3.1L13 4.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+        }
+        return esc(initialsForAssignee(task));
+    }
+
+    function childSpanCountFromFlatIndex(flatIdx) {
+        const row = state.flatRows[flatIdx];
+        if (!row) return 1;
+        const baseDepth = row.depth;
+        let count = 1;
+        for (let i = flatIdx + 1; i < state.flatRows.length; i++) {
+            if (state.flatRows[i].depth <= baseDepth) break;
+            count++;
+        }
+        return count;
+    }
+
+    function taskProgressForBar(task) {
+        const kids = getChildTasks(task.taskId);
+        if (!kids.length) return clamp(Number(task.percentComplete || 0), 0, 100);
+        const stack = kids.slice();
+        let sum = 0;
+        let count = 0;
+        while (stack.length) {
+            const cur = stack.shift();
+            sum += clamp(Number(cur.percentComplete || 0), 0, 100);
+            count++;
+            const descendants = getChildTasks(cur.taskId);
+            for (let i = 0; i < descendants.length; i++) stack.push(descendants[i]);
+        }
+        return count ? Math.round(sum / count) : 0;
+    }
+
+
+    function isDoneStatus(task) {
+        return String(task.status || '').toLowerCase() === 'done';
+    }
+
+    function openNewChildTaskFrom(parentTaskId) {
+        const parent = state.tasks.find(function (t) { return t.taskId === parentTaskId; });
+        state.editingId = null;
+        openModal();
+        if (!parent) return;
+        byId('taskParentId').value = parent.taskId;
+        byId('taskTitle').value = 'New child task';
+        byId('taskStatus').value = 'Not Started';
+        byId('taskPriority').value = parent.priority || 'Medium';
+        byId('taskColor').value = parent.colorKey || 'teal';
+        byId('taskAssignee').value = parent.assignee || '';
+        byId('taskStartDate').value = parent.startDate || toISODate(new Date());
+        byId('taskDueDate').value = parent.dueDate || shiftIsoDate(byId('taskStartDate').value, 1);
+        byId('taskLocation').value = parent.location || '';
+        byId('taskSublocation').value = parent.sublocation || '';
+        byId('taskItemCode').value = parent.itemCode || '';
+        byId('taskItemName').value = parent.itemName || '';
+        autoSizeItemCodeInput(byId('taskItemName').value || byId('taskItemCode').value);
+    }
+
+
+    function renderPrintView() {
+        const wrap = byId('tasksPrintView');
+        if (!wrap) return;
+        if (!state.printView) { wrap.style.display = 'none'; return; }
+        wrap.style.display = 'block';
+        const rows = state.flatRows.map(function (r) {
+            const t = r.task;
+            return '<tr>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.title) + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.assignee || '') + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.status || '') + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.startDate || '') + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.dueDate || '') + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.location || '') + '</td>' +
+            '</tr>';
+        }).join('');
+        wrap.innerHTML = '<div style="font-weight:800;margin-bottom:10px;">Printable Action Plan</div>' +
+            '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+            '<thead><tr><th style="text-align:left;padding:6px;">Task</th><th style="text-align:left;padding:6px;">Assignee</th><th style="text-align:left;padding:6px;">Status</th><th style="text-align:left;padding:6px;">Start</th><th style="text-align:left;padding:6px;">Due</th><th style="text-align:left;padding:6px;">Location</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table>';
     }
 
     function renderList() {
@@ -284,49 +459,64 @@
 
         els.listBody.innerHTML = state.flatRows.map(function (row) {
             const task = row.task;
-            const hasChildren = task.children && task.children.length;
-            const expanded = state.expanded[task.taskId] !== false;
             const indent = row.depth * 14;
-            return '<div class="tasks-row" data-task-id="' + esc(task.taskId) + '">' +
-                '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '">' + (hasChildren ? (expanded ? '▾' : '▸') : '•') + '</button>' +
-                '<div class="task-title-wrap" style="padding-left:' + indent + 'px"><span class="task-title" title="' + esc(task.title) + '">' + esc(task.title) + '</span></div>' +
+            const badge = getColorDef(task.colorKey).base;
+            const connector = row.depth > 0 ? '<span class="task-connector anim" style="color:' + esc(badge) + '" aria-hidden="true"></span>' : '';
+            const avatar = assigneeAvatarContent(task);
+            const depthClass = 'depth-' + Math.min(3, row.depth);
+            const avatarClass = assigneeStatusClass(task);
+            return '<div class="tasks-row ' + depthClass + '" data-task-id="' + esc(task.taskId) + '">' +
+                '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
+                '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
+                '<button class="task-assignee-avatar ' + avatarClass + '" type="button" data-assignee-open="' + esc(task.taskId) + '" title="' + esc(task.assignee || 'Unassigned') + '">' + avatar + '</button>' +
             '</div>';
         }).join('');
     }
 
     function computeRange(rows) {
-        let start = null;
-        let end = null;
-        rows.forEach(function (row) {
-            const s = toDate(row.task.startDate);
-            const d = toDate(row.task.dueDate);
-            if (s && (!start || s < start)) start = s;
-            if (d && (!end || d > end)) end = d;
-        });
-        const now = new Date();
-        if (!start) start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-        if (!end) end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 21);
-
-        const basePad = state.zoom === 'day' ? 3 : (state.zoom === 'week' ? 7 : 14);
-        const zoomPad = state.zoomOutLevel * (state.zoom === 'day' ? 7 : (state.zoom === 'week' ? 14 : 28));
-        start = new Date(start.getTime() - ((basePad + zoomPad) * DAY_MS));
-        end = new Date(end.getTime() + ((basePad + zoomPad) * DAY_MS));
+        const anchor = toDate(state.currentAnchorDate) || new Date();
+        let start = state.zoom === 'day' ? startOfDay(anchor) : (state.zoom === 'week' ? startOfWeek(anchor) : startOfMonth(anchor));
+        let end;
 
         if (state.zoom === 'day') {
-            const minSpanDays = 7;
-            const span = Math.floor((end - start) / DAY_MS) + 1;
-            if (span < minSpanDays) {
-                end = new Date(start.getTime() + ((minSpanDays - 1) * DAY_MS));
-            }
+            end = new Date(start.getTime());
+        } else if (state.zoom === 'week') {
+            end = new Date(start.getTime() + (6 * DAY_MS));
+        } else {
+            end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
         }
+
+        for (let i = 0; i < state.zoomOutLevel; i++) {
+            start = shiftByMode(start, -1);
+            if (state.zoom === 'day') end = shiftByMode(end, 1);
+            else if (state.zoom === 'week') end = new Date(end.getTime() + (7 * DAY_MS));
+            else end = new Date(end.getFullYear(), end.getMonth() + 1, 0);
+        }
+
         return { start: start, end: end };
     }
 
-    function ganttColor(status) {
-        if (status === 'Done') return 'linear-gradient(135deg, #42e9a0, #20c8b5)';
-        if (status === 'Blocked') return 'linear-gradient(135deg, #ff7f67, #ff5454)';
-        if (status === 'Not Started') return 'linear-gradient(135deg, #8e9eab, #6b7280)';
-        return 'linear-gradient(135deg, #11998e, #38ef7d)';
+    function getColorDef(key) {
+        return TASK_BADGE_COLORS.find(function (c) { return c.key === key; }) || TASK_BADGE_COLORS[0];
+    }
+
+    function hexToRgb(hex) {
+        const h = String(hex || '').replace('#', '');
+        if (h.length !== 6) return { r: 42, g: 184, b: 173 };
+        return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+    }
+
+    function lighten(hex, amount) {
+        const rgb = hexToRgb(hex);
+        const mix = function (v) { return Math.round(v + (255 - v) * amount); };
+        return 'rgb(' + mix(rgb.r) + ',' + mix(rgb.g) + ',' + mix(rgb.b) + ')';
+    }
+
+    function ganttColor(task, depth) {
+        const base = getColorDef(task.colorKey).base;
+        const start = depth > 0 ? lighten(base, 0.18) : base;
+        const end = depth > 0 ? lighten(base, 0.34) : lighten(base, 0.12);
+        return 'linear-gradient(135deg, ' + start + ', ' + end + ')';
     }
 
     function renderGantt() {
@@ -338,8 +528,6 @@
 
         const range = computeRange(rows);
         const days = Math.max(1, Math.ceil((range.end - range.start) / DAY_MS) + 1);
-        const colPx = state.zoom === 'day' ? 54 : (state.zoom === 'week' ? 42 : 30);
-        state.colPx = colPx;
         state.range = range;
 
         const cols = [];
@@ -363,53 +551,175 @@
             return Math.floor((date - startMonday) / DAY_MS / 7);
         }
 
+        const availableWidth = Math.max(320, (els.ganttWrap.clientWidth || 960) - 64);
+        const colPx = Math.max(28, Math.floor(availableWidth / Math.max(cols.length, 1)));
+        state.colPx = colPx;
         const gridCols = 'repeat(' + cols.length + ',' + colPx + 'px)';
+        function cellClassForDate(d) {
+            const day = d.getDay();
+            const isWeekend = day === 0 || day === 6;
+            const today = new Date();
+            let isToday = false;
+            if (state.zoom === 'month') isToday = (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth());
+            else isToday = (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate());
+            return (isWeekend ? ' weekend-cell' : '') + (isToday ? ' today-cell' : '');
+        }
+
         const monthHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
             let monthLabel = '';
             if (state.zoom === 'month') monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+            else if (state.zoom === 'day') monthLabel = String(d.getDate()).padStart(2, '0');
             else if (d.getDate() === 1) monthLabel = d.toLocaleString('en-US', { month: 'short' });
-            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
-            return '<div class="gantt-cell month-marker' + weekAlt + '">' + esc(monthLabel) + '</div>';
+            return '<div class="gantt-cell month-marker' + cellClassForDate(d) + '">' + esc(monthLabel) + '</div>';
         }).join('') + '</div>';
 
         const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
         const axisHead = '<div class="gantt-head" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
             let label = '';
-            if (state.zoom === 'day') label = dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0');
+            if (state.zoom === 'day') label = dayNames[d.getDay()];
             else if (state.zoom === 'week') label = String(d.getDate()).padStart(2, '0');
             else label = d.toLocaleString('en-US', { month: 'short' });
-            const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
-            return '<div class="gantt-cell' + weekAlt + '">' + esc(label) + '</div>';
+            return '<div class="gantt-cell' + cellClassForDate(d) + '">' + esc(label) + '</div>';
         }).join('') + '</div>';
 
-        const body = rows.map(function (row) {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const body = rows.map(function (row, rowIdx) {
             const t = row.task;
             const sDate = toDate(t.startDate);
             const dDate = toDate(t.dueDate);
+            let overdueShade = '';
             let bar = '';
             if (sDate && dDate) {
-                const startOffsetDays = Math.max(0, Math.floor((sDate - range.start) / DAY_MS));
-                const durationDays = Math.max(1, Math.floor((dDate - sDate) / DAY_MS) + 1);
-                const leftUnits = state.zoom === 'month'
-                    ? Math.max(0, ((sDate.getFullYear() * 12) + sDate.getMonth()) - ((range.start.getFullYear() * 12) + range.start.getMonth()))
-                    : startOffsetDays;
-                const widthUnits = state.zoom === 'month'
-                    ? Math.max(1, (((dDate.getFullYear() * 12) + dDate.getMonth()) - ((sDate.getFullYear() * 12) + sDate.getMonth()) + 1))
-                    : durationDays;
-                const left = leftUnits * colPx;
-                const width = Math.max(18, (widthUnits * colPx) - 6);
-                bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t.status) + '">' +
-                    '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
-                    '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
-                '</div>';
+                const rangeStartUnit = state.zoom === 'month'
+                    ? ((range.start.getFullYear() * 12) + range.start.getMonth())
+                    : 0;
+                const toUnit = function (date) {
+                    if (state.zoom === 'month') return ((date.getFullYear() * 12) + date.getMonth()) - rangeStartUnit;
+                    return Math.floor((date - range.start) / DAY_MS);
+                };
+                const startUnit = toUnit(sDate);
+                const endUnit = toUnit(dDate);
+                const maxUnit = cols.length - 1;
+                const overlapStart = Math.max(0, startUnit);
+                const overlapEnd = Math.min(maxUnit, endUnit);
+
+                if (!isDoneStatus(t) && dDate < today) {
+                    const overdueStartUnit = Math.max(0, Math.min(maxUnit, endUnit + 1));
+                    const todayUnit = state.zoom === 'month'
+                        ? ((today.getFullYear() * 12) + today.getMonth()) - rangeStartUnit
+                        : Math.floor((today - range.start) / DAY_MS);
+                    const overdueEndUnit = Math.max(0, Math.min(maxUnit, todayUnit));
+                    if (overdueStartUnit <= overdueEndUnit) {
+                        const oLeft = overdueStartUnit * colPx;
+                        const oWidth = Math.max(10, ((overdueEndUnit - overdueStartUnit + 1) * colPx) - 2);
+                        overdueShade = '<div class="gantt-overdue" style="left:' + oLeft + 'px;width:' + oWidth + 'px"></div>';
+                    }
+                }
+                const barShadow = row.depth > 0 ? '0 2px 8px rgba(17, 153, 142, 0.12)' : '0 4px 12px rgba(17, 153, 142, 0.18)';
+                const progressPct = taskProgressForBar(t);
+                if (overlapStart <= overlapEnd) {
+                    const left = overlapStart * colPx;
+                    const widthUnits = Math.max(1, overlapEnd - overlapStart + 1);
+                    const width = Math.max(18, (widthUnits * colPx) - 6);
+                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                        '<span class="gantt-label">' + esc(t.title) + '</span>' +
+                        '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
+                        '<button class="gantt-child-btn" type="button" data-task-child="' + esc(t.taskId) + '" aria-label="Add child task">+</button>' +
+                        '<button class="gantt-menu-btn" type="button" data-task-menu="' + esc(t.taskId) + '" aria-label="Open task">⋯</button>' +
+                        '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
+                        '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
+                    '</div>';
+                } else {
+                    const stubWidth = Math.max(20, Math.round(colPx * 0.9));
+                    if (endUnit < 0) {
+                        bar = '<div class="gantt-bar out-of-range left" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:2px;width:' + stubWidth + 'px">' + esc(t.title) + '</div>';
+                    } else if (startUnit > maxUnit) {
+                        const leftEdge = Math.max(2, (maxUnit * colPx) - stubWidth + colPx - 4);
+                        bar = '<div class="gantt-bar out-of-range right" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + leftEdge + 'px;width:' + stubWidth + 'px">' + esc(t.title) + '</div>';
+                    }
+                }
             }
-            return '<div class="gantt-row" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
-                const weekAlt = (state.zoom !== 'month' && (weekIndexFrom(d) % 2 === 1)) ? ' week-alt' : '';
-                return '<div class="gantt-cell' + weekAlt + '"></div>';
-            }).join('') + bar + '</div>';
+            return '<div class="gantt-row" data-row-index="' + rowIdx + '" data-task-id="' + esc(t.taskId) + '" data-parent-id="' + esc(t.parentId || '') + '" style="grid-template-columns:' + gridCols + '">' + cols.map(function (d) {
+                return '<div class="gantt-cell' + cellClassForDate(d) + '"></div>';
+            }).join('') + overdueShade + bar + '</div>';
         }).join('');
 
-        els.ganttWrap.innerHTML = monthHead + axisHead + body;
+        els.ganttWrap.innerHTML = '<div id="tasksDeleteZone" class="gantt-delete-zone" aria-hidden="true">🗑</div>' + '<button id="tasksPrevRange" class="timeline-nav-arrow left" type="button" aria-label="Previous period">‹</button>' + '<button id="tasksNextRange" class="timeline-nav-arrow right" type="button" aria-label="Next period">›</button>' + monthHead + axisHead + body;
+
+        const prevBtn = els.ganttWrap.querySelector('#tasksPrevRange');
+        const nextBtn = els.ganttWrap.querySelector('#tasksNextRange');
+        const tableHeight = (2 * 34) + (rows.length * 44);
+        const navTop = Math.max(56, Math.min(Math.round(tableHeight / 2), (els.ganttWrap.clientHeight || tableHeight) - 18));
+        if (prevBtn) prevBtn.style.top = navTop + 'px';
+        if (nextBtn) nextBtn.style.top = navTop + 'px';
+        const heads = els.ganttWrap.querySelectorAll('.gantt-head');
+        let headH = 0;
+        for (let i = 0; i < heads.length; i++) headH += Math.round(heads[i].getBoundingClientRect().height || 0);
+        if (els.listGap) els.listGap.style.height = '0px';
+        if (els.listBody && els.ganttWrap) els.ganttWrap.scrollTop = els.listBody.scrollTop;
+    }
+
+
+    function renderChecklistDraft() {
+        const wrap = byId('taskChecklistRows');
+        const panel = byId('taskChecklistPanel');
+        if (!wrap) return;
+        if (panel) panel.classList.toggle('loading', !!state.checklistLoading);
+        if (state.checklistLoading) {
+            wrap.innerHTML = '<div class="tasks-empty" style="padding:8px 6px;">Loading checklist…</div>';
+            return;
+        }
+        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, text: '' }];
+        wrap.innerHTML = state.checklistDraft.map(function (item, idx) {
+            return '<div class="checklist-row">' +
+                '<input type="checkbox" data-check-idx="' + idx + '" ' + (item.done ? 'checked' : '') + ' />' +
+                '<input class="tasks-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
+                '<button type="button" class="task-checklist-remove" data-check-remove-idx="' + idx + '" aria-label="Remove checklist item">-</button>' +
+            '</div>';
+        }).join('');
+    }
+
+    function syncChecklistDraftFromUi() {
+        const wrap = byId('taskChecklistRows');
+        if (!wrap) return;
+        const next = [];
+        const rows = wrap.querySelectorAll('.checklist-row');
+        for (let i = 0; i < rows.length; i++) {
+            const cb = rows[i].querySelector('input[type="checkbox"]');
+            const tx = rows[i].querySelector('input[data-check-text-idx]');
+            const text = String((tx && tx.value) || '').trim();
+            if (!text && !(cb && cb.checked)) continue;
+            next.push({ done: !!(cb && cb.checked), text: text });
+        }
+        state.checklistDraft = next;
+    }
+
+    async function loadChecklist(taskId) {
+        state.checklistLoading = true;
+        state.checklistDraft = [];
+        renderChecklistDraft();
+        if (!taskId) {
+            state.checklistLoading = false;
+            renderChecklistDraft();
+            return;
+        }
+        const webAppUrl = getWebAppUrl();
+        const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
+        if (!webAppUrl || !sheetId) {
+            state.checklistLoading = false;
+            renderChecklistDraft();
+            return;
+        }
+        try {
+            const url = webAppUrl + '?action=checklistRead&sheetId=' + encodeURIComponent(sheetId) + '&taskId=' + encodeURIComponent(taskId);
+            const res = await jsonp(url, 12000);
+            if (res && res.ok && Array.isArray(res.items)) {
+                state.checklistDraft = res.items.map(function (it) { return { done: String(it.done) === 'true' || it.done === true, text: String(it.text || '') }; });
+            }
+        } catch (_) {}
+        state.checklistLoading = false;
+        renderChecklistDraft();
     }
 
     function openModal(taskId) {
@@ -431,6 +741,7 @@
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
+        byId('taskColor').value = task ? task.colorKey : 'teal';
 
         byId('taskParentId').innerHTML = ['<option value="">No parent (group)</option>'].concat(
             state.tasks.filter(function (t) { return !task || t.taskId !== task.taskId; }).map(function (t) {
@@ -440,6 +751,26 @@
         byId('taskParentId').value = task ? task.parentId : '';
         byId('taskArchiveBtn').style.display = task ? 'inline-block' : 'none';
         byId('taskModal').classList.add('open');
+
+        byId('taskParentId').onchange = function () {
+            const parent = state.tasks.find(function (t) { return t.taskId === byId('taskParentId').value; });
+            if (!parent) return;
+            byId('taskStartDate').value = parent.startDate;
+            if (toDate(byId('taskDueDate').value) < toDate(parent.startDate)) byId('taskDueDate').value = parent.startDate;
+        };
+
+        loadChecklist(task ? task.taskId : null);
+    }
+
+
+    function focusAssigneeFieldSoon() {
+        const assignee = byId('taskAssignee');
+        if (!assignee) return;
+        setTimeout(function () {
+            assignee.focus();
+            assignee.classList.add('assignee-focus');
+            setTimeout(function () { assignee.classList.remove('assignee-focus'); }, 1200);
+        }, 40);
     }
 
     function closeModal() {
@@ -448,15 +779,18 @@
 
     async function saveTask() {
         const now = isoNow();
+        const parentIdValue = byId('taskParentId').value;
+        const parentTask = parentIdValue ? state.tasks.find(function (t) { return t.taskId === parentIdValue; }) : null;
         const payload = {
             taskId: state.editingId || ('TASK-' + Date.now()),
-            parentId: byId('taskParentId').value,
+            parentId: parentIdValue,
             sortOrder: nextSortOrder(),
             level: byId('taskParentId').value ? 'child' : 'group',
             title: byId('taskTitle').value.trim() || 'New Task',
             description: byId('taskDescription').value.trim(),
             status: byId('taskStatus').value,
             priority: byId('taskPriority').value,
+            colorKey: byId('taskColor').value,
             assignee: byId('taskAssignee').value.trim(),
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
@@ -472,6 +806,13 @@
             createdBy: 'dashboard'
         };
 
+        if (parentTask) {
+            payload.startDate = parentTask.startDate;
+            if (payload.dueDate && toDate(payload.dueDate) < toDate(payload.startDate)) payload.dueDate = payload.startDate;
+        }
+
+        syncChecklistDraftFromUi();
+
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
             if (idx >= 0) state.tasks[idx] = normalizeTask(payload, idx);
@@ -481,6 +822,7 @@
             await writeTask('createTask', payload);
         }
 
+        await writeTask('saveChecklist', { taskId: payload.taskId, items: state.checklistDraft });
         closeModal();
         applyFilters();
     }
@@ -496,7 +838,32 @@
         applyFilters();
     }
 
+    function getChildTasks(parentId) {
+        return state.tasks.filter(function (t) { return String(t.parentId || '') === String(parentId || ''); });
+    }
+
+    function getDescendantTaskIds(parentId, out) {
+        const children = getChildTasks(parentId);
+        for (let i = 0; i < children.length; i++) {
+            out.push(children[i].taskId);
+            getDescendantTaskIds(children[i].taskId, out);
+        }
+    }
+
+    function shiftTaskWithChildren(parentTask, deltaDays, out) {
+        const children = getChildTasks(parentTask.taskId);
+        children.forEach(function (child) {
+            ensureTaskDates(child);
+            child.startDate = shiftIsoDate(child.startDate, deltaDays);
+            child.dueDate = shiftIsoDate(child.dueDate, deltaDays);
+            child.updatedAt = isoNow();
+            out.push(child);
+            shiftTaskWithChildren(child, deltaDays, out);
+        });
+    }
+
     async function updateTaskDatesFromDrag(task, nextStart, nextDue) {
+        const prevStart = task.startDate;
         task.startDate = nextStart;
         task.dueDate = nextDue;
         task.updatedAt = isoNow();
@@ -506,9 +873,133 @@
             dueDate: task.dueDate,
             updatedAt: task.updatedAt
         });
+
+        const deltaDays = Math.round((toDate(task.startDate) - toDate(prevStart)) / DAY_MS);
+        if (deltaDays && getChildTasks(task.taskId).length) {
+            const shifted = [];
+            shiftTaskWithChildren(task, deltaDays, shifted);
+            for (let i = 0; i < shifted.length; i++) {
+                const child = shifted[i];
+                await writeTask('updateTask', {
+                    taskId: child.taskId,
+                    startDate: child.startDate,
+                    dueDate: child.dueDate,
+                    updatedAt: child.updatedAt
+                });
+            }
+        }
     }
 
-    function startDrag(taskId, dragType, clientX) {
+
+
+    function clearDragRowHighlights() {
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row') : [];
+        for (let i = 0; i < rows.length; i++) {
+            rows[i].classList.remove('drag-disabled');
+            rows[i].classList.remove('drag-target');
+        }
+    }
+
+    function clearDropPreviewTransforms() {
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-row-index]') : [];
+        for (let i = 0; i < rows.length; i++) rows[i].style.transform = '';
+    }
+
+    function updateDropPreviewTransforms(drag) {
+        clearDropPreviewTransforms();
+        if (!drag || drag.pendingTargetRowIndex == null || !drag.pendingTargetTaskId || !drag.draggedRowIndexes || !drag.draggedRowIndexes.length) return;
+        const shiftPx = drag.draggedRowIndexes.length * 44;
+        const targetIdx = drag.pendingTargetRowIndex;
+        const draggedSet = new Set(drag.draggedRowIndexes);
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-row-index]') : [];
+        for (let i = 0; i < rows.length; i++) {
+            const idx = Number(rows[i].getAttribute('data-row-index'));
+            if (draggedSet.has(idx)) continue;
+            if (idx >= targetIdx) rows[i].style.transform = 'translateY(' + shiftPx + 'px)';
+        }
+    }
+
+    function updateDragRowHighlights(drag) {
+        if (!drag || drag.dragType !== 'move') { clearDragRowHighlights(); return; }
+        const rows = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-row[data-task-id]') : [];
+        for (let i = 0; i < rows.length; i++) {
+            const rowTaskId = rows[i].getAttribute('data-task-id') || '';
+            const allowed = String(rows[i].getAttribute('data-parent-id') || '') === String(drag.sourceParentId || '');
+            rows[i].classList.toggle('drag-disabled', !allowed);
+            rows[i].classList.toggle('drag-target', !!drag.pendingTargetTaskId && rowTaskId === drag.pendingTargetTaskId);
+        }
+    }
+
+    function reorderSiblingsLocal(taskId, targetTaskId) {
+        const task = state.tasks.find(function (t) { return t.taskId === taskId; });
+        const target = state.tasks.find(function (t) { return t.taskId === targetTaskId; });
+        if (!task || !target) return false;
+        if (String(task.parentId || '') !== String(target.parentId || '')) return false;
+        const siblings = state.tasks
+            .filter(function (t) { return String(t.parentId || '') === String(task.parentId || ''); })
+            .sort(function (a, b) { return a.sortOrder - b.sortOrder; });
+        const fromIdx = siblings.findIndex(function (t) { return t.taskId === task.taskId; });
+        const toIdx = siblings.findIndex(function (t) { return t.taskId === target.taskId; });
+        if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return false;
+        const moved = siblings.splice(fromIdx, 1)[0];
+        siblings.splice(toIdx, 0, moved);
+        siblings.forEach(function (sibling, orderIdx) { sibling.sortOrder = (orderIdx + 1) * 10; sibling.updatedAt = isoNow(); });
+        return true;
+    }
+
+    function updateSortUi() {
+        const btn = byId('tasksSortBtn');
+        const modeEl = byId('tasksSortMode');
+        const labels = { manual: 'Manual', name: 'Name', priority: 'Importance', assignee: 'Assignee' };
+        const label = labels[state.sortMode] || 'Manual';
+        if (btn) btn.title = 'Sort: ' + label;
+        if (modeEl) modeEl.textContent = label;
+    }
+
+    function persistSiblingOrder(parentId) {
+        const siblings = state.tasks
+            .filter(function (t) { return String(t.parentId || '') === String(parentId || ''); })
+            .sort(function (a, b) { return a.sortOrder - b.sortOrder; });
+        return Promise.all(siblings.map(function (task, idx) {
+            task.sortOrder = (idx + 1) * 10;
+            task.updatedAt = isoNow();
+            return writeTask('reorderTask', { taskId: task.taskId, parentId: task.parentId || '', sortOrder: task.sortOrder, updatedAt: task.updatedAt });
+        }));
+    }
+
+    function reorderWithinHierarchy(drag, clientY) {
+        const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
+        if (!task || !els.ganttWrap) return;
+        const wrapRect = els.ganttWrap.getBoundingClientRect();
+        const yInWrap = clientY - wrapRect.top + els.ganttWrap.scrollTop;
+        const rowHeight = 44;
+        const headerOffset = 68;
+        let targetRowIndex = Math.floor((yInWrap - headerOffset) / rowHeight);
+        targetRowIndex = Math.max(0, Math.min(state.flatRows.length - 1, targetRowIndex));
+
+        const draggedSet = new Set(drag.draggedRowIndexes || []);
+        if (draggedSet.has(targetRowIndex)) {
+            drag.pendingTargetTaskId = '';
+            drag.pendingTargetRowIndex = null;
+            updateDragRowHighlights(drag);
+            updateDropPreviewTransforms(drag);
+            return;
+        }
+
+        let targetId = '';
+        const row = state.flatRows[targetRowIndex];
+        if (row && String(row.task.parentId || '') === String(task.parentId || '') && row.task.taskId !== task.taskId) {
+            targetId = row.task.taskId;
+        }
+
+        drag.pendingTargetTaskId = targetId;
+        drag.pendingTargetRowIndex = targetId ? targetRowIndex : null;
+        if (targetId) drag.moved = true;
+        updateDragRowHighlights(drag);
+        updateDropPreviewTransforms(drag);
+    }
+
+    function startDrag(taskId, dragType, clientX, clientY) {
         const task = state.tasks.find(function (t) { return t.taskId === taskId; });
         if (!task) return;
         ensureTaskDates(task);
@@ -519,30 +1010,126 @@
             startX: clientX,
             startDate: task.startDate,
             dueDate: task.dueDate,
-            stepDays: state.zoom === 'month' ? 7 : 1,
-            moved: false
+            stepDays: 1,
+            moved: false,
+            lastDeltaDays: 0,
+            startY: clientY,
+            reordered: false,
+            sourceParentId: task.parentId || '',
+            pendingTargetTaskId: '',
+            pendingTargetRowIndex: null,
+            dragEl: null,
+            dragElStartLeft: 0,
+            draggedRowStartIndex: state.flatRows.findIndex(function (r) { return r.task.taskId === task.taskId; }),
+            draggedRowIndexes: [],
+            deleteHot: false
         };
+        const dz = byId('tasksDeleteZone');
+        if (dz) dz.classList.add('show');
+        if (state.drag.draggedRowStartIndex >= 0) {
+            const span = childSpanCountFromFlatIndex(state.drag.draggedRowStartIndex);
+            const list = [];
+            for (let i = 0; i < span; i++) list.push(state.drag.draggedRowStartIndex + i);
+            state.drag.draggedRowIndexes = list;
+        }
     }
 
     async function finishDrag() {
         const drag = state.drag;
         state.drag = null;
-        if (!drag || !drag.moved) return;
+        const dz0 = byId('tasksDeleteZone');
+        if (dz0) { dz0.classList.remove('show'); dz0.classList.remove('hot'); }
+        const movedEls = els.ganttWrap ? els.ganttWrap.querySelectorAll('.gantt-bar[data-task-id]') : [];
+        for (let i = 0; i < movedEls.length; i++) {
+            if (movedEls[i].style.pointerEvents === 'none' || movedEls[i].style.transform) {
+                movedEls[i].style.transform = '';
+                movedEls[i].style.zIndex = '';
+                movedEls[i].style.pointerEvents = '';
+            }
+        }
+        if (!drag || (!drag.moved && !drag.deleteHot)) return;
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
-        await updateTaskDatesFromDrag(task, task.startDate, task.dueDate);
-        applyFilters();
+        clearDragRowHighlights();
+        clearDropPreviewTransforms();
+        const dz = byId('tasksDeleteZone');
+        if (dz) { dz.classList.remove('show'); dz.classList.remove('hot'); }
+        if (drag.deleteHot) {
+            const ids = [task.taskId];
+            getDescendantTaskIds(task.taskId, ids);
+            for (let i = 0; i < ids.length; i++) {
+                const t = state.tasks.find(function (x) { return x.taskId === ids[i]; });
+                if (!t) continue;
+                t.archived = true;
+                t.updatedAt = isoNow();
+                writeTask('archiveTask', { taskId: t.taskId, archived: true, updatedAt: t.updatedAt });
+            }
+            applyFilters();
+            return;
+        }
+
+        if (drag.pendingTargetTaskId) {
+            const changed = reorderSiblingsLocal(task.taskId, drag.pendingTargetTaskId);
+            if (changed) {
+                applyFilters();
+                persistSiblingOrder(task.parentId || '').catch(function () {});
+                return;
+            }
+        }
+        if (drag.moved) {
+            await updateTaskDatesFromDrag(task, task.startDate, task.dueDate);
+            applyFilters();
+        }
     }
 
-    function onDragMove(clientX) {
+    function onDragMove(clientX, clientY) {
         const drag = state.drag;
         if (!drag) return;
         const task = state.tasks.find(function (t) { return t.taskId === drag.taskId; });
         if (!task) return;
 
-        const deltaCols = Math.round((clientX - drag.startX) / state.colPx);
-        const deltaDays = deltaCols * drag.stepDays;
-        if (!deltaDays) return;
+        const yDelta = clientY - drag.startY;
+        const xDelta = clientX - drag.startX;
+        const dz = byId('tasksDeleteZone');
+        if (dz) {
+            const r = dz.getBoundingClientRect();
+            const hot = clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+            drag.deleteHot = hot;
+            if (hot) drag.moved = true;
+            dz.classList.toggle('hot', hot);
+        }
+        if (drag.dragType === 'move' && Math.abs(yDelta) > 12 && Math.abs(yDelta) > Math.abs(xDelta)) {
+            if (!drag.dragEl) {
+                drag.dragEl = els.ganttWrap.querySelector('.gantt-bar[data-task-id="' + task.taskId + '"]');
+                if (drag.dragEl) {
+                    drag.dragEl.style.zIndex = '15';
+                    drag.dragEl.style.pointerEvents = 'none';
+                }
+            }
+            const moveIds = [task.taskId];
+            getDescendantTaskIds(task.taskId, moveIds);
+            for (let i = 0; i < moveIds.length; i++) {
+                const el = els.ganttWrap.querySelector('.gantt-bar[data-task-id="' + moveIds[i] + '"]');
+                if (el) { el.style.zIndex = '15'; el.style.pointerEvents = 'none'; el.style.transform = 'translate(' + xDelta + 'px,' + yDelta + 'px)'; }
+            }
+            reorderWithinHierarchy(drag, clientY);
+            return;
+        }
+        if (drag.dragEl) {
+            drag.dragEl.style.transform = '';
+            drag.dragEl.style.zIndex = '';
+            drag.dragEl.style.pointerEvents = '';
+            drag.dragEl = null;
+            drag.pendingTargetTaskId = '';
+            drag.pendingTargetRowIndex = null;
+            clearDragRowHighlights();
+            clearDropPreviewTransforms();
+        }
+
+        const rawDeltaCols = (clientX - drag.startX) / Math.max(1, state.colPx);
+        const deltaDays = (rawDeltaCols >= 0 ? Math.floor(rawDeltaCols) : Math.ceil(rawDeltaCols)) * drag.stepDays;
+        if (deltaDays === drag.lastDeltaDays) return;
+        drag.lastDeltaDays = deltaDays;
 
         let newStart = drag.startDate;
         let newDue = drag.dueDate;
@@ -593,24 +1180,67 @@
         openModal();
     }
 
+
+    function openNewTaskWithPrefill(prefill) {
+        state.editingId = null;
+        openModal();
+        const itemCode = String((prefill && prefill.itemCode) || '').trim();
+        const itemName = String((prefill && prefill.itemName) || '').trim();
+        if (itemCode) byId('taskItemCode').value = itemCode;
+        if (itemName) byId('taskItemName').value = itemName;
+        autoSizeItemCodeInput(itemName || itemCode);
+        closeItemLookup();
+    }
+
+    function syncShellLayout() {
+        if (!els.shell) return;
+        els.shell.style.setProperty('--left-pane-width', Math.max(240, Math.min(620, state.leftPaneWidth)) + 'px');
+        els.shell.classList.toggle('left-collapsed', !!state.leftPaneCollapsed);
+        els.shell.style.display = state.printView ? 'none' : 'grid';
+        const v = byId('tasksViewToggle');
+        if (v) v.textContent = state.printView ? 'Planner View' : 'Printable Layout';
+    }
+
     function bindEvents() {
         ['search','statusFilter','assigneeFilter','itemFilter','locationFilter'].forEach(function (k) {
             const ev = (k === 'statusFilter' || k === 'assigneeFilter') ? 'change' : 'input';
             els[k].addEventListener(ev, debounce(applyFilters, 120));
         });
 
-        els.zoom.addEventListener('change', function () {
-            state.zoom = els.zoom.value;
-            renderGantt();
+        [['tasksZoomDayBtn','day'],['tasksZoomWeekBtn','week'],['tasksZoomMonthBtn','month']].forEach(function (pair) {
+            const btn = byId(pair[0]);
+            if (!btn) return;
+            btn.addEventListener('click', function () {
+                state.zoom = pair[1];
+                state.zoomOutLevel = 0;
+                state.currentAnchorDate = toISODate(new Date());
+                syncZoomOutUi();
+                syncZoomModeButtons();
+                renderGantt();
+            });
         });
 
-        els.zoomOutBtn.addEventListener('click', function () {
-            state.zoomOutLevel = (state.zoomOutLevel + 1) % 6;
+        els.zoomInBtn.addEventListener('click', function () {
+            state.zoomOutLevel = Math.max(0, state.zoomOutLevel - 1);
             syncZoomOutUi();
             renderGantt();
         });
 
-        byId('tasksExpandAll').addEventListener('click', function () {
+        els.zoomOutBtn.addEventListener('click', function () {
+            state.zoomOutLevel = Math.min(8, state.zoomOutLevel + 1);
+            syncZoomOutUi();
+            renderGantt();
+        });
+
+        byId('tasksSortBtn').addEventListener('click', function () {
+            const order = ['manual', 'name', 'priority', 'assignee'];
+            const idx = order.indexOf(state.sortMode);
+            state.sortMode = order[(idx + 1) % order.length];
+            updateSortUi();
+            applyFilters();
+        });
+
+        byId('tasksExpandAllMini').addEventListener('click', function () {
             const collapse = state.flatRows.some(function (r) { return r.task.children && r.task.children.length && state.expanded[r.task.taskId] !== false; });
             state.flatRows.forEach(function (r) {
                 if (r.task.children && r.task.children.length) state.expanded[r.task.taskId] = collapse ? false : true;
@@ -631,12 +1261,60 @@
             applyFilters();
         });
 
+        byId('tasksSearchBtn').addEventListener('click', function () {
+            const wrap = byId('tasksSearchWrap');
+            if (!wrap) return;
+            wrap.classList.toggle('open');
+            if (wrap.classList.contains('open') && els.search) els.search.focus();
+        });
+
+        els.listBody.addEventListener('scroll', function () {
+            if (state.syncingScroll) return;
+            state.syncingScroll = true;
+            if (els.ganttWrap) els.ganttWrap.scrollTop = els.listBody.scrollTop;
+            requestAnimationFrame(function () { state.syncingScroll = false; });
+        });
+        els.ganttWrap.addEventListener('scroll', function () {
+            if (state.syncingScroll) return;
+            state.syncingScroll = true;
+            if (els.listBody) els.listBody.scrollTop = els.ganttWrap.scrollTop;
+            requestAnimationFrame(function () { state.syncingScroll = false; });
+        });
+
+        byId('tasksViewToggle').addEventListener('click', function () {
+            state.printView = !state.printView;
+            syncShellLayout();
+            renderPrintView();
+        });
+
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
+        byId('taskChecklistAdd').addEventListener('click', function () {
+            if (state.checklistLoading) return;
+            syncChecklistDraftFromUi();
+            state.checklistDraft.push({ done: false, text: '' });
+            renderChecklistDraft();
+        });
+        byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) syncChecklistDraftFromUi(); });
+        byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) syncChecklistDraftFromUi(); });
+        byId('taskChecklistRows').addEventListener('click', function (e) {
+            const removeBtn = e.target.closest('[data-check-remove-idx]');
+            if (!removeBtn || state.checklistLoading) return;
+            syncChecklistDraftFromUi();
+            const idx = Number(removeBtn.getAttribute('data-check-remove-idx'));
+            if (!isNaN(idx) && idx >= 0 && idx < state.checklistDraft.length) state.checklistDraft.splice(idx, 1);
+            renderChecklistDraft();
+        });
 
         els.listBody.addEventListener('click', function (e) {
+            const assigneeOpen = e.target.closest('[data-assignee-open]');
+            if (assigneeOpen) {
+                openModal(assigneeOpen.getAttribute('data-assignee-open'));
+                focusAssigneeFieldSoon();
+                return;
+            }
             const toggleId = e.target && e.target.getAttribute('data-toggle');
             if (toggleId) {
                 state.expanded[toggleId] = state.expanded[toggleId] === false;
@@ -644,31 +1322,60 @@
                 return;
             }
             const row = e.target.closest('.tasks-row');
-            if (row) openModal(row.getAttribute('data-task-id'));
+            if (!row) return;
+            const taskId = row.getAttribute('data-task-id');
+            const task = state.tasks.find(function (t) { return t.taskId === taskId; });
+            if (task && task.children && task.children.length) {
+                state.expanded[taskId] = state.expanded[taskId] === false;
+                applyFilters();
+            }
         });
 
         els.ganttWrap.addEventListener('click', function (e) {
+            const navPrev = e.target.closest('#tasksPrevRange');
+            const navNext = e.target.closest('#tasksNextRange');
+            if (navPrev || navNext) {
+                const step = navPrev ? -1 : 1;
+                state.currentAnchorDate = toISODate(shiftByMode(toDate(state.currentAnchorDate) || new Date(), step));
+                renderGantt();
+                return;
+            }
             if (state.drag && state.drag.moved) return;
-            const bar = e.target.closest('.gantt-bar');
-            if (bar) openModal(bar.getAttribute('data-task-id'));
+            const childBtn = e.target.closest('[data-task-child]');
+            if (childBtn) { openNewChildTaskFrom(childBtn.getAttribute('data-task-child')); return; }
+            const menuBtn = e.target.closest('[data-task-menu]');
+            if (menuBtn) openModal(menuBtn.getAttribute('data-task-menu'));
+        });
+
+        els.splitter.addEventListener('pointerdown', function (e) {
+            state.resizing = { startX: e.clientX, width: state.leftPaneWidth };
+            e.preventDefault();
         });
 
         els.ganttWrap.addEventListener('pointerdown', function (e) {
+            if (e.target.closest('.gantt-menu-btn, .gantt-child-btn')) return;
             const hit = e.target.closest('.gantt-bar, .gantt-handle');
             if (!hit) return;
             const taskId = hit.getAttribute('data-task-id');
             const dragType = hit.getAttribute('data-drag-type') || 'move';
             if (!taskId) return;
             e.preventDefault();
-            startDrag(taskId, dragType, e.clientX);
+            startDrag(taskId, dragType, e.clientX, e.clientY);
         });
 
         window.addEventListener('pointermove', function (e) {
+            if (state.resizing) {
+                state.leftPaneCollapsed = false;
+                state.leftPaneWidth = state.resizing.width + (e.clientX - state.resizing.startX);
+                syncShellLayout();
+                return;
+            }
             if (!state.drag) return;
-            onDragMove(e.clientX);
+            onDragMove(e.clientX, e.clientY);
         });
 
         window.addEventListener('pointerup', function () {
+            if (state.resizing) { state.resizing = null; return; }
             if (!state.drag) return;
             finishDrag();
         });
@@ -677,6 +1384,13 @@
             if (!event || !event.data) return;
             if (event.data.type === 'darkModeToggle') {
                 document.body.classList.toggle('dark-mode', !!event.data.enabled);
+            }
+            if (event.data.type === 'setReferrer') {
+                loadTasks();
+            }
+            if (event.data.type === 'openTaskComposer') {
+                const prefill = event.data.prefill || {};
+                openNewTaskWithPrefill(prefill);
             }
         });
     }
@@ -696,13 +1410,17 @@
         els.assigneeFilter = byId('tasksAssigneeFilter');
         els.itemFilter = byId('tasksItemFilter');
         els.locationFilter = byId('tasksLocationFilter');
-        els.zoom = byId('tasksZoom');
+        els.zoomInBtn = byId('tasksZoomInBtn');
         els.zoomOutBtn = byId('tasksZoomOutBtn');
         els.filterToggle = byId('tasksFilterToggle');
         els.filtersPanel = byId('tasksFiltersPanel');
         els.clearFiltersBtn = byId('tasksClearFilters');
         els.listBody = byId('tasksListBody');
+        els.listGap = byId('tasksListGap');
         els.ganttWrap = byId('tasksGanttWrap');
+        els.shell = byId('tasksShell');
+        els.splitter = byId('tasksSplitter');
+        els.panelToggleBtn = byId('tasksViewToggle');
     }
 
     function bootstrapInventoryHint() {
@@ -830,6 +1548,9 @@
         bootstrapInventoryHint();
         syncFilterPanelUi();
         syncZoomOutUi();
+        syncZoomModeButtons();
+        syncShellLayout();
+        updateSortUi();
         await loadTasks();
     }
 
