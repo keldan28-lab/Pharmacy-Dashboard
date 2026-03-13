@@ -40,6 +40,7 @@
         checklistDraft: [],
         checklistAssignMode: '',
         focusTaskId: '',
+        tracksUnlocked: false,
         dragDeleteHot: false,
         printView: false,
         checklistLoading: false,
@@ -105,6 +106,13 @@
     function syncZoomModeButtons() {
         const map = { day: byId('tasksZoomDayBtn'), week: byId('tasksZoomWeekBtn'), month: byId('tasksZoomMonthBtn') };
         Object.keys(map).forEach(function (k) { if (map[k]) map[k].classList.toggle('active', state.zoom === k); });
+    }
+
+    function syncTrackLockUi() {
+        const row = byId('taskTrackRow');
+        const unlockBtn = byId('taskTracksUnlockBtn');
+        if (row) row.classList.toggle('locked', !state.tracksUnlocked);
+        if (unlockBtn) unlockBtn.textContent = state.tracksUnlocked ? 'Assignee timeline tracks unlocked' : 'Unlock Assignee timeline tracks';
     }
 
     function startOfDay(d) {
@@ -195,18 +203,24 @@
     }
 
     function parseAssignees(value) {
+        function clean(v) {
+            const s = String(v || '').trim();
+            if (!s) return '';
+            if (s.toLowerCase() === 'unassigned') return '';
+            return s;
+        }
         if (Array.isArray(value)) {
-            return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+            return value.map(clean).filter(Boolean);
         }
         const raw = String(value == null ? '' : value).trim();
         if (!raw) return [];
         if (raw.charAt(0) === '[') {
             try {
                 const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+                if (Array.isArray(parsed)) return parsed.map(clean).filter(Boolean);
             } catch (_) {}
         }
-        return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+        return raw.split(/[|,;\n]/).map(clean).filter(Boolean);
     }
 
     function serializeAssignees(list) {
@@ -417,10 +431,14 @@
             ? task.assignees.slice()
             : [task.assignee || 'Unassigned'];
         const progressPct = Math.max(0, Math.min(100, Number(taskProgressForBar(task) || 0)));
+        const total = Math.max(1, assignees.length);
         return '<div class="task-assignee-stack" style="--avatar-count:' + assignees.length + '" role="group" aria-label="Task assignees">' + assignees.map(function (assigneeName, idx) {
             const avatar = assigneeAvatarContent(task, assigneeName);
             const assigneeKey = String(assigneeName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || ('assignee-' + idx);
-            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + assignees.length + ';--avatar-progress:' + progressPct + '%" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
+            const fade = Math.max(0.16, 0.32 - (idx * 0.08));
+            const fill = Math.max(0.42, 0.78 - (idx * (0.2 / total)));
+            const shadow = Math.max(1, 3 - idx);
+            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + assignees.length + ';--avatar-progress:' + progressPct + '%;--avatar-fill-alpha:' + fill.toFixed(2) + ';--avatar-back-alpha:' + fade.toFixed(2) + ';--avatar-shadow:0 ' + shadow + 'px ' + (shadow + 2) + 'px rgba(15,32,40,' + (0.2 - (idx * 0.04)).toFixed(2) + ')" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
         }).join('') + '</div>';
     }
 
@@ -938,11 +956,15 @@
                 const barShadow = row.depth > 0 ? '0 2px 8px rgba(17, 153, 142, 0.12)' : '0 4px 12px rgba(17, 153, 142, 0.18)';
                 const progressPct = taskProgressForBar(t);
                 const timeline = buildTaskTimelineSegments(t, range, maxUnit);
-                if (!timeline.hasMultipleTracks && overlapStart <= overlapEnd) {
+                if (overlapStart <= overlapEnd) {
                     const left = overlapStart * colPx;
                     const widthUnits = Math.max(1, overlapEnd - overlapStart + 1);
                     const width = Math.max(18, (widthUnits * colPx) - 6);
+                    const cascade = timeline.hasMultipleTracks
+                        ? '<span class="gantt-bar-cascade back" style="background:' + ganttColor(t, row.depth) + ';"></span><span class="gantt-bar-cascade" style="background:' + ganttColor(t, row.depth) + ';"></span>'
+                        : '';
                     bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                        cascade +
                         '<span class="gantt-label">' + esc(t.title) + '</span>' +
                         '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
                         '<button class="gantt-child-btn" type="button" data-task-child="' + esc(t.taskId) + '" aria-label="Add child task">+</button>' +
@@ -951,22 +973,7 @@
                         '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                     '</div>';
                 } else if (timeline.hasMultipleTracks) {
-                    const trackHeight = Math.max(6, Math.floor(28 / Math.max(1, timeline.segments.length)) - 1);
-                    bar = timeline.segments.map(function (seg) {
-                        if (!seg.visible) return '';
-                        const left = seg.overlapStart * colPx;
-                        const widthUnits = Math.max(1, seg.overlapEnd - seg.overlapStart + 1);
-                        const width = Math.max(18, (widthUnits * colPx) - 6);
-                        const top = 6 + (seg.trackIndex * (trackHeight + 1));
-                        const label = seg.trackIndex === 0 ? esc(t.title) : esc(seg.assignee);
-                        return '<div class="gantt-bar gantt-bar-track ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;top:' + top + 'px;height:' + trackHeight + 'px;background:' + assigneeTrackColor(t, row.depth, seg.assignee) + ';box-shadow:' + barShadow + '">' +
-                            '<span class="gantt-label">' + label + '</span>' +
-                            '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
-                            '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="start"></span>' +
-                            '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-segment-key="' + esc(seg.key) + '" data-drag-type="end"></span>' +
-                        '</div>';
-                    }).join('');
-                    bar += timeline.overlaps.map(function (ov) {
+                    bar = timeline.overlaps.map(function (ov) {
                         const left = ov.startUnit * colPx;
                         const widthUnits = Math.max(1, ov.endUnit - ov.startUnit + 1);
                         const width = Math.max(8, (widthUnits * colPx) - 6);
@@ -1199,6 +1206,8 @@
 
     function openModal(taskId) {
         closeChecklistAssignMenu();
+        state.tracksUnlocked = false;
+        syncTrackLockUi();
         const task = state.tasks.find(function (t) { return t.taskId === taskId; });
         state.editingId = task ? task.taskId : null;
         byId('taskModalTitle').textContent = task ? task.title : 'New Task';
@@ -1920,6 +1929,13 @@
         });
         byId('taskTrackHandoffBtn').addEventListener('click', function () {
             byId('taskAssigneeTracks').value = serializeTracksForInput(buildTracksByMode('handoff'));
+        });
+        byId('taskTracksUnlockBtn').addEventListener('click', function () {
+            if (state.tracksUnlocked) return;
+            const pw = window.prompt('Admin password required to edit Assignee timeline tracks:');
+            if (String(pw || '') !== 'admin') return;
+            state.tracksUnlocked = true;
+            syncTrackLockUi();
         });
 
         els.splitter.addEventListener('pointerdown', function (e) {

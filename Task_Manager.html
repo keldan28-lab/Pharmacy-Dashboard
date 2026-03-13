@@ -290,7 +290,7 @@
             background: rgba(255,255,255,0.01);
         }
         .tasks-row:hover { background: rgba(255,255,255,0.06); }
-        .tasks-row.active { background: rgba(42,184,173,0.16); box-shadow: inset 2px 0 0 rgba(42,184,173,0.8); }
+        .tasks-row.active { background: rgba(42,184,173,0.14); box-shadow: inset 2px 0 0 rgba(42,184,173,0.72); }
         .tree-toggle { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
         .tree-toggle:hover { background: rgba(255,255,255,0.08); }
         .task-title-wrap { min-width: 0; position: relative; }
@@ -299,14 +299,14 @@
         .tasks-row.depth-1 .task-title { font-weight: 620; }
         .tasks-row.depth-2 .task-title { font-weight: 520; }
         .tasks-row.depth-3 .task-title { font-weight: 460; }
-        .task-assignee-stack { --avatar-size: 28px; --avatar-cascade-left: 8px; --avatar-cascade-down: 3px; --avatar-fan-gap: 3px; display: inline-flex; justify-content: flex-end; align-items: center; width: 100%; min-height: calc(var(--avatar-size) + ((var(--avatar-count, 1) - 1) * var(--avatar-cascade-down))); position: relative; }
-        .task-assignee-avatar { width: var(--avatar-size); height: var(--avatar-size); border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: transparent; background: linear-gradient(to top, rgba(9,97,143,0.8) var(--avatar-progress, 0%), rgba(126, 154, 188, 0.16) var(--avatar-progress, 0%)); margin: 0; border: 1px solid rgba(126, 154, 188, 0.28); cursor: pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease, top 180ms ease, right 180ms ease; position: absolute; right: calc(var(--avatar-index, 0) * var(--avatar-cascade-left)); top: calc(var(--avatar-index, 0) * var(--avatar-cascade-down)); z-index: calc(var(--avatar-count, 1) - var(--avatar-index, 0)); }
+        .task-assignee-stack { --avatar-size: 28px; --avatar-cascade-left: 8px; --avatar-fan-gap: 3px; display: inline-flex; justify-content: flex-end; align-items: center; width: 100%; min-height: var(--avatar-size); position: relative; }
+        .task-assignee-avatar { width: var(--avatar-size); height: var(--avatar-size); border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: transparent; background: linear-gradient(to top, rgba(9,97,143,var(--avatar-fill-alpha,0.65)) var(--avatar-progress, 0%), rgba(126,154,188,var(--avatar-back-alpha,0.18)) var(--avatar-progress, 0%)); margin: 0; border: 1px solid rgba(126, 154, 188, 0.28); cursor: pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease, right 180ms ease, box-shadow 180ms ease; position: absolute; right: calc(var(--avatar-index, 0) * var(--avatar-cascade-left)); top: 0; z-index: calc(var(--avatar-count, 1) - var(--avatar-index, 0)); box-shadow: var(--avatar-shadow, 0 2px 6px rgba(15,32,40,0.2)); }
         .task-assignee-stack:hover .task-assignee-avatar,
         .task-assignee-stack:focus-within .task-assignee-avatar { right: calc(var(--avatar-index, 0) * (var(--avatar-size) + var(--avatar-fan-gap))); top: 0; color: #e8f6ff; z-index: calc((var(--avatar-count, 1) * 2) + var(--avatar-index, 0)); }
-        .task-assignee-avatar.status-not-started { background: rgba(126, 154, 188, 0.16); border-color: rgba(126, 154, 188, 0.28); color: var(--text-secondary); }
-        .task-assignee-avatar.status-in-progress { background: rgba(17, 153, 142, 0.22); border-color: rgba(17, 153, 142, 0.6); color: #dffffa; }
-        .task-assignee-avatar.status-blocked { background: rgba(255, 84, 84, 0.2); border-color: rgba(255, 84, 84, 0.62); color: #ffecec; }
-        .task-assignee-avatar.status-done { background: rgba(17, 153, 142, 0.25); border-color: rgba(17, 153, 142, 0.68); color: #eafff8; }
+        .task-assignee-avatar.status-not-started { border-color: rgba(126, 154, 188, 0.28); }
+        .task-assignee-avatar.status-in-progress { border-color: rgba(17, 153, 142, 0.6); }
+        .task-assignee-avatar.status-blocked { border-color: rgba(255, 84, 84, 0.62); }
+        .task-assignee-avatar.status-done { border-color: rgba(17, 153, 142, 0.68); }
         .task-assignee-avatar .assignee-check { width: 14px; height: 14px; display: block; }
         .task-assignee-avatar:hover { background: rgba(42,184,173,0.16); border-color: rgba(42,184,173,0.46); color: var(--text-primary); }
         .assignee-focus { border-color: rgba(42,184,173,0.9) !important; box-shadow: 0 0 0 3px rgba(42,184,173,0.2); }
@@ -413,7 +413,7 @@
         .gantt-row { position: relative; min-height: 44px; border-bottom: 1px solid rgba(160,160,160,0.14); transition: transform 140ms ease; }
         .gantt-row.drag-disabled { opacity: 0.35; }
         .gantt-row.drag-target { background: rgba(56, 200, 160, 0.12); }
-        .gantt-row.focus-task { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(25,119,117,0.22); background: rgba(42,184,173,0.08); z-index: 3; }
+        .gantt-row.focus-task { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(25,119,117,0.16); background: rgba(42,184,173,0.07); z-index: 3; }
         .gantt-overdue { position: absolute; top: 0; bottom: 0; background: rgba(255,126,113,0.28); border-right: 1px solid rgba(255,126,113,0.45); pointer-events: none; }
         .gantt-bar {
             position: absolute;
@@ -435,6 +435,18 @@
         .gantt-bar:hover { filter: brightness(1.03); box-shadow: 0 4px 12px rgba(17, 153, 142, 0.24); }
         .gantt-bar-track { justify-content: flex-start; padding: 0 6px; }
         .gantt-bar-track .gantt-label { font-size: 10px; opacity: 0.95; }
+        .gantt-bar-cascade {
+            position: absolute;
+            left: -3px;
+            width: calc(100% - 2px);
+            height: 26px;
+            top: 9px;
+            border-radius: 3px;
+            pointer-events: none;
+            opacity: 0.25;
+            box-shadow: 0 1px 4px rgba(12,36,52,0.12);
+        }
+        .gantt-bar-cascade.back { left: -6px; opacity: 0.16; box-shadow: 0 1px 3px rgba(12,36,52,0.09); }
         .gantt-bar-composite {
             position: absolute;
             top: 5px;
@@ -492,7 +504,7 @@
         .task-modal-card {
             width: min(780px, 92vw);
             max-height: 88vh;
-            overflow: auto;
+            overflow: hidden;
             border-radius: 18px;
             border: 1px solid var(--card-border);
             background: var(--card-bg);
@@ -509,8 +521,13 @@
             top: 0;
             z-index: 2;
         }
-        .task-modal-body { padding: 16px; }
+        .task-modal-body { padding: 16px; max-height: calc(88vh - 82px); overflow: auto; }
         .task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 10px; }
+        .task-form-section { grid-column: 1 / -1; display: grid; gap: 8px; padding: 8px; border: 1px solid rgba(140,160,180,0.2); border-radius: 10px; background: rgba(255,255,255,0.02); }
+        .task-form-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+        .task-dates-row { display: grid; grid-template-columns: 1fr 20px 1fr; gap: 8px; align-items: center; }
+        .task-date-arrow { text-align: center; color: var(--text-secondary); opacity: 0.9; }
+        .task-track-row.locked { display: none; }
         .task-form-grid textarea { grid-column: 1 / -1; min-height: 74px; resize: vertical; }
         .task-form-grid details { grid-column: 1 / -1; border: 1px solid var(--card-border); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.02); }
         .task-form-grid summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); font-weight: 700; }
@@ -641,15 +658,28 @@
             <div id="taskModalTitle" class="task-modal-header">Task</div>
             <div class="task-modal-body">
                 <div class="task-form-grid">
-                    <input id="taskTitle" class="tasks-input" placeholder="Task title" />
-                    <select id="taskParentId" class="tasks-select"></select>
-                    <select id="taskStatus" class="tasks-select"></select>
-                    <input id="taskAssignee" class="tasks-input" placeholder="Assignee" />
-                    <input id="taskAssigner" class="tasks-input" placeholder="Assigner" />
-                    <input id="taskStartDate" type="date" class="tasks-input" />
-                    <input id="taskDueDate" type="date" class="tasks-input" />
-                    <textarea id="taskDescription" class="tasks-input" placeholder="Description (optional)"></textarea>
-                    <div id="taskChecklistPanel" class="task-checklist">
+                    <div class="task-form-section">
+                        <div class="task-form-label">New task / child task name</div>
+                        <input id="taskTitle" class="tasks-input" placeholder="Task title" />
+                    </div>
+                    <div class="task-form-section">
+                        <div class="task-form-label">Parent group / assigner</div>
+                        <select id="taskParentId" class="tasks-select"></select>
+                        <input id="taskAssigner" class="tasks-input" placeholder="Assigner" />
+                    </div>
+                    <div class="task-form-section">
+                        <div class="task-form-label">Description</div>
+                        <textarea id="taskDescription" class="tasks-input" placeholder="Description (optional)"></textarea>
+                    </div>
+                    <div class="task-form-section">
+                        <div class="task-form-label">Task dates</div>
+                        <div class="task-dates-row">
+                            <input id="taskStartDate" type="date" class="tasks-input" />
+                            <span class="task-date-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>
+                            <input id="taskDueDate" type="date" class="tasks-input" />
+                        </div>
+                    </div>
+                    <div id="taskChecklistPanel" class="task-checklist task-form-section">
                         <div class="task-checklist-title">Checklist
                             <span class="task-checklist-actions">
                                 <button id="taskChecklistAdd" class="task-checklist-icon-btn" type="button" title="Add checklist item" aria-label="Add checklist item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></button>
@@ -669,9 +699,11 @@
                         </div>
                         <div id="taskChecklistRows"></div>
                     </div>
-                    <details>
+                    <details open>
                         <summary>Optional fields</summary>
                         <div class="task-optional-grid">
+                            <select id="taskStatus" class="tasks-select"></select>
+                            <input id="taskAssignee" class="tasks-input" placeholder="Assignee" />
                             <select id="taskPriority" class="tasks-select"></select>
                             <select id="taskColor" class="tasks-select"></select>
                             <input id="taskPercent" type="number" min="0" max="100" class="tasks-input" placeholder="Percent Complete" />
@@ -683,7 +715,10 @@
                             <input id="taskLocation" class="tasks-input" placeholder="Location" />
                             <input id="taskSublocation" class="tasks-input" placeholder="Sublocation" />
                         </div>
-                        <div class="task-track-row">
+                        <div class="task-track-buttons" style="margin-top:8px;">
+                            <button id="taskTracksUnlockBtn" class="tasks-button" type="button">Unlock Assignee timeline tracks</button>
+                        </div>
+                        <div id="taskTrackRow" class="task-track-row locked">
                             <div class="task-track-help">Assignee timeline tracks (optional). One track per line: <code>Assignee | YYYY-MM-DD | YYYY-MM-DD</code></div>
                             <textarea id="taskAssigneeTracks" class="tasks-input" placeholder="Ops | 2026-03-01 | 2026-03-05&#10;Tech 1 | 2026-03-03 | 2026-03-08"></textarea>
                             <div class="task-track-buttons">

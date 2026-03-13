@@ -478,18 +478,24 @@ function taskColumns_() {
 }
 
 function parseAssignees_(value) {
+  function clean_(v) {
+    var s = String(v || '').trim();
+    if (!s) return '';
+    if (s.toLowerCase() === 'unassigned') return '';
+    return s;
+  }
   if (Array.isArray(value)) {
-    return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+    return value.map(clean_).filter(Boolean);
   }
   var raw = String(value == null ? '' : value).trim();
   if (!raw) return [];
   if (raw.charAt(0) === '[') {
     try {
       var parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+      if (Array.isArray(parsed)) return parsed.map(clean_).filter(Boolean);
     } catch (err) {}
   }
-  return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+  return raw.split(/[|,;\n]/).map(clean_).filter(Boolean);
 }
 
 function normalizeAssigneeFields_(obj) {
