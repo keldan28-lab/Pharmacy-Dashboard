@@ -6,12 +6,11 @@
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
     const TASK_BADGE_COLORS = [
-        { key: 'teal', label: 'Teal', base: '#2ab8ad' },
-        { key: 'green', label: 'Green', base: '#38c172' },
-        { key: 'blue', label: 'Blue', base: '#4f8ef7' },
-        { key: 'purple', label: 'Purple', base: '#8b6cf0' },
-        { key: 'orange', label: 'Orange', base: '#f39a45' },
-        { key: 'rose', label: 'Rose', base: '#e66f97' }
+        { key: 'teal', label: 'Teal', base: '#2ab8ad' },{ key: 'green', label: 'Green', base: '#38c172' },{ key: 'blue', label: 'Blue', base: '#4f8ef7' },{ key: 'purple', label: 'Purple', base: '#8b6cf0' },{ key: 'orange', label: 'Orange', base: '#f39a45' },
+        { key: 'rose', label: 'Rose', base: '#e66f97' },{ key: 'red', label: 'Red', base: '#e24f4f' },{ key: 'amber', label: 'Amber', base: '#d6a21f' },{ key: 'lime', label: 'Lime', base: '#91c91a' },{ key: 'mint', label: 'Mint', base: '#43d6a8' },
+        { key: 'cyan', label: 'Cyan', base: '#22c7d8' },{ key: 'sky', label: 'Sky', base: '#4a9ff5' },{ key: 'indigo', label: 'Indigo', base: '#6474f2' },{ key: 'violet', label: 'Violet', base: '#9a5cf2' },{ key: 'magenta', label: 'Magenta', base: '#d64fd4' },
+        { key: 'pink', label: 'Pink', base: '#ef6ea6' },{ key: 'peach', label: 'Peach', base: '#ef9570' },{ key: 'brown', label: 'Brown', base: '#9d7458' },{ key: 'slate', label: 'Slate', base: '#6f7f95' },{ key: 'steel', label: 'Steel', base: '#688aa1' },
+        { key: 'navy', label: 'Navy', base: '#33528f' },{ key: 'forest', label: 'Forest', base: '#2f7a53' },{ key: 'olive', label: 'Olive', base: '#74853b' },{ key: 'gold', label: 'Gold', base: '#c9a040' },{ key: 'charcoal', label: 'Charcoal', base: '#4b5563' }
     ];
 
     const state = {
@@ -44,7 +43,8 @@
         dragDeleteHot: false,
         printView: false,
         checklistLoading: false,
-        ganttRenderQueued: false
+        ganttRenderQueued: false,
+        checklistProgressOpenIdx: -1
     };
 
     const els = {};
@@ -1011,6 +1011,62 @@
     }
 
 
+
+    function checklistProgressList() { return ['Not Started', 'In Progress', 'Blocked', 'Done']; }
+
+    function checklistOverallProgressStatus(items) {
+        const list = Array.isArray(items) ? items : [];
+        if (!list.length) return 'Not Started';
+        const statuses = list.map(function (it) { return String((it && it.progressStatus) || (it && it.done ? 'Done' : 'Not Started')); });
+        if (statuses.indexOf('Done') >= 0) return 'Done';
+        if (statuses.indexOf('Not Started') >= 0) return 'Not Started';
+        if (statuses.indexOf('In Progress') >= 0) return 'In Progress';
+        if (statuses.indexOf('Blocked') >= 0) return 'Blocked';
+        return 'Not Started';
+    }
+
+    function syncChecklistMasterDates() {
+        if (!Array.isArray(state.checklistDraft) || !state.checklistDraft.length) return;
+        const ms = byId('taskStartDate');
+        const me = byId('taskDueDate');
+        const note = byId('taskMasterRangeNote');
+        if (!ms || !me) return;
+        const start = ms.value || '';
+        const due = me.value || start || '';
+        let earliest = '';
+        let latest = '';
+        state.checklistDraft.forEach(function (item) {
+            if (!item) return;
+            if (start && (!item.startDate || item.startDate < start)) item.startDate = start;
+            if (due && item.startDate && item.startDate > due) item.startDate = due;
+            if (!item.dueDate || (start && item.dueDate < start)) item.dueDate = start || item.dueDate;
+            if (due && item.dueDate > due) item.dueDate = due;
+            if (!earliest || (item.startDate && item.startDate < earliest)) earliest = item.startDate;
+            if (!latest || (item.dueDate && item.dueDate > latest)) latest = item.dueDate;
+        });
+        if (note) note.textContent = (earliest && latest) ? ('Checklist range: ' + earliest + ' → ' + latest) : '';
+    }
+
+    function openChecklistProgressMenu(idx, anchor) {
+        const menu = byId('checklistProgressMenu');
+        if (!menu || !anchor) return;
+        state.checklistProgressOpenIdx = idx;
+        const current = String((state.checklistDraft[idx] && state.checklistDraft[idx].progressStatus) || 'Not Started');
+        menu.innerHTML = checklistProgressList().map(function (status) {
+            return '<button class="checklist-progress-btn" type="button" data-progress-status="' + esc(status) + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
+        }).join('');
+        const r = anchor.getBoundingClientRect();
+        menu.style.left = Math.round(r.left) + 'px';
+        menu.style.top = Math.round(r.bottom + 6) + 'px';
+        menu.classList.add('open');
+    }
+
+    function closeChecklistProgressMenu() {
+        const menu = byId('checklistProgressMenu');
+        if (menu) menu.classList.remove('open');
+        state.checklistProgressOpenIdx = -1;
+    }
+
     function renderChecklistDraft() {
         const wrap = byId('taskChecklistRows');
         const panel = byId('taskChecklistPanel');
@@ -1020,7 +1076,7 @@
             wrap.innerHTML = '<div class="tasks-empty" style="padding:8px 6px;">Loading checklist…</div>';
             return;
         }
-        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '' }];
+        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '', progressStatus: 'Not Started' }];
         const selectedCount = state.checklistDraft.filter(function (it) { return !!(it && it.selected); }).length;
         const title = panel ? panel.querySelector('.task-checklist-title') : null;
         if (title) title.setAttribute('data-selected-count', String(selectedCount));
@@ -1032,6 +1088,9 @@
             const badges = [];
             const assigned = parseChecklistAssignees(item && item.assignees, '');
             assigned.forEach(function (name) { badges.push('<span class="checklist-badge">' + esc(name) + '</span>'); });
+            const progressStatus = String((item && item.progressStatus) || (item && item.done ? 'Done' : 'Not Started'));
+            badges.push('<button type="button" class="checklist-badge progress" data-check-progress-idx="' + idx + '">' + esc(progressStatus) + '</button>');
+            if (item && item.handoffMode === 'handoff' && assigned.length > 1) badges.push('<span class="checklist-badge">' + esc(assigned[0]) + ' → ' + esc(assigned[assigned.length - 1]) + '</span>');
             if (item && item.done) badges.push('<span class="checklist-badge done">Done</span>');
             return '<div class="checklist-row">' +
                 '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item && item.selected ? 'checked' : '') + ' />' +
@@ -1061,7 +1120,8 @@
                 assignees: prev.assignees || '',
                 startDate: prev.startDate || '',
                 dueDate: prev.dueDate || '',
-                handoffMode: prev.handoffMode || ''
+                handoffMode: prev.handoffMode || '',
+                progressStatus: prev.progressStatus || (prev.done ? 'Done' : 'Not Started')
             });
         }
         state.checklistDraft = next;
@@ -1087,7 +1147,8 @@
                 assignees: item.assignees || '',
                 startDate: item.startDate || '',
                 dueDate: item.dueDate || '',
-                handoffMode: item.handoffMode || ''
+                handoffMode: item.handoffMode || '',
+                progressStatus: item.progressStatus || (item.done ? 'Done' : 'Not Started')
             };
         });
     }
@@ -1097,15 +1158,18 @@
         const indexes = selectedChecklistIndexes();
         if (!indexes.length) return;
         if (action === 'delete') {
+            if (!window.confirm('Delete selected checklist item(s)?')) return;
             state.checklistDraft = state.checklistDraft.filter(function (item) { return !item.selected; });
         } else if (action === 'done') {
             indexes.forEach(function (idx) {
                 state.checklistDraft[idx].done = true;
+                state.checklistDraft[idx].progressStatus = 'Done';
                 state.checklistDraft[idx].selected = false;
             });
         }
-        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '' }];
+        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '', progressStatus: 'Not Started' }];
         syncEditingTaskChecklistToState();
+        syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
     }
@@ -1144,7 +1208,7 @@
                 item.assignees = serializeAssignees(merged);
                 item.handoffMode = 'collaborate';
             } else {
-                const assigned = assigneeName ? [assigneeName] : current;
+                const assigned = assigneeName ? Array.from(new Set((current.length ? [current[0]] : []).concat([assigneeName]))) : current;
                 item.assignees = serializeAssignees(assigned);
                 item.handoffMode = 'handoff';
             }
@@ -1161,6 +1225,7 @@
         if (mergedForField.length) byId('taskAssignee').value = mergedForField.join(', ');
         syncEditingTaskChecklistToState();
         closeChecklistAssignMenu();
+        syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
     }
@@ -1193,7 +1258,8 @@
                         assignees: String(it.assignees || ''),
                         startDate: String(it.startDate || ''),
                         dueDate: String(it.dueDate || ''),
-                        handoffMode: String(it.handoffMode || '')
+                        handoffMode: String(it.handoffMode || ''),
+                        progressStatus: String(it.progressStatus || (String(it.done) === 'true' || it.done === true ? 'Done' : 'Not Started'))
                     };
                 });
                 const task = state.tasks.find(function (t) { return t.taskId === taskId; });
@@ -1201,6 +1267,7 @@
             }
         } catch (_) {}
         state.checklistLoading = false;
+        syncChecklistMasterDates();
         renderChecklistDraft();
     }
 
@@ -1218,7 +1285,8 @@
         byId('taskAssigner').value = task ? task.assigner : '';
         byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
         byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
-        byId('taskPercent').value = task ? task.percentComplete : 0;
+const pctEl = byId('taskPercent');
+        if (pctEl) pctEl.value = task ? task.percentComplete : 0;
         byId('taskItemCode').value = task ? task.itemCode : '';
         byId('taskItemName').value = task ? task.itemName : '';
         autoSizeItemCodeInput((task && (task.itemName || task.description)) || byId('taskItemCode').value);
@@ -1228,6 +1296,7 @@
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
         byId('taskColor').value = task ? task.colorKey : 'teal';
+        syncTaskColorPicker();
         const modalHeader = byId('taskModalTitle');
         if (modalHeader) {
             const headerColor = getColorDef(task ? task.colorKey : byId('taskColor').value).base;
@@ -1253,7 +1322,8 @@
             if (toDate(byId('taskDueDate').value) < toDate(parent.startDate)) byId('taskDueDate').value = parent.startDate;
         };
 
-        loadChecklist(task ? task.taskId : null);
+loadChecklist(task ? task.taskId : null);
+        syncChecklistMasterDates();
     }
 
 
@@ -1291,7 +1361,7 @@
             assignees: '[]',
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
-            percentComplete: clamp(Number(byId('taskPercent').value || 0), 0, 100),
+            percentComplete: clamp(Number((byId('taskPercent') && byId('taskPercent').value) || 0), 0, 100),
             itemCode: byId('taskItemCode').value.trim(),
             itemName: byId('taskItemName').value.trim(),
             location: byId('taskLocation').value.trim(),
@@ -1312,7 +1382,8 @@
         payload.assignees = serializeAssignees(assigneeList);
         payload.assignee = assigneeList[0] || '';
         modalTracksToPayload(payload, assigneeList);
-        syncChecklistAssigneesWithTask(assigneeList);
+syncChecklistAssigneesWithTask(assigneeList);
+        payload.status = checklistOverallProgressStatus(state.checklistDraft);
 
         if (parentTask) {
             payload.startDate = parentTask.startDate;
@@ -1337,7 +1408,8 @@
                 assignees: item.assignees || '',
                 startDate: item.startDate || '',
                 dueDate: item.dueDate || '',
-                handoffMode: item.handoffMode || ''
+                handoffMode: item.handoffMode || '',
+                progressStatus: item.progressStatus || (item.done ? 'Done' : 'Not Started')
             };
         });
         await writeTask('saveChecklist', { taskId: payload.taskId, items: checklistPayload });
@@ -1847,12 +1919,18 @@
         byId('taskChecklistAdd').addEventListener('click', function () {
             if (state.checklistLoading) return;
             syncChecklistDraftFromUi();
-            state.checklistDraft.push({ done: false, selected: false, text: '' });
+            state.checklistDraft.push({ done: false, selected: false, text: '', progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
             renderChecklistDraft();
         });
-        byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) syncChecklistDraftFromUi(); });
-        byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) syncChecklistDraftFromUi(); });
+        byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });
+        byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });
         byId('taskChecklistRows').addEventListener('click', function (e) {
+            const progressBtn = e.target.closest('[data-check-progress-idx]');
+            if (progressBtn) {
+                const idx = Number(progressBtn.getAttribute('data-check-progress-idx'));
+                if (Number.isFinite(idx)) openChecklistProgressMenu(idx, progressBtn);
+                return;
+            }
             const selectCb = e.target.closest('[data-check-select-idx]');
             if (!selectCb || state.checklistLoading) return;
             syncChecklistDraftFromUi();
@@ -1863,12 +1941,28 @@
         byId('taskChecklistHandoff').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('handoff'); });
         byId('taskChecklistCollaborate').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('collaborate'); });
         byId('taskChecklistAssignSave').addEventListener('click', function () { if (!state.checklistLoading) saveChecklistAssignMenu(); });
+        byId('taskChecklistAssignCancel').addEventListener('click', closeChecklistAssignMenu);
+
         document.addEventListener('click', function (e) {
-            const menu = byId('taskChecklistAssigneeMenu');
-            if (!menu || !menu.classList.contains('open')) return;
-            if (e.target.closest('#taskChecklistAssigneeMenu, #taskChecklistHandoff, #taskChecklistCollaborate')) return;
-            closeChecklistAssignMenu();
+            const progMenu = byId('checklistProgressMenu');
+            if (progMenu && progMenu.classList.contains('open')) {
+                const btn = e.target.closest('[data-progress-status]');
+                if (btn && state.checklistProgressOpenIdx >= 0 && state.checklistDraft[state.checklistProgressOpenIdx]) {
+                    const next = String(btn.getAttribute('data-progress-status') || 'Not Started');
+                    const item = state.checklistDraft[state.checklistProgressOpenIdx];
+                    item.progressStatus = next;
+                    item.done = next === 'Done';
+                    closeChecklistProgressMenu();
+                    syncChecklistMasterDates();
+                    renderChecklistDraft();
+                    return;
+                }
+                if (!e.target.closest('#checklistProgressMenu,[data-check-progress-idx]')) closeChecklistProgressMenu();
+            }
         });
+
+        byId('taskStartDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
+        byId('taskDueDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
 
         els.listBody.addEventListener('click', function (e) {
             const assigneeOpen = e.target.closest('[data-assignee-open]');
@@ -2133,16 +2227,100 @@
         });
     }
 
+
+    function getLocationRows() {
+        const map = (window.SUBLOCATION_MAP || (window.parent && window.parent.SUBLOCATION_MAP) || {});
+        return Object.keys(map || {}).map(function (key) {
+            const row = map[key] || {};
+            return { sublocation: String(key || ''), location: String(row.mainLocation || ''), department: String(row.department || '') };
+        });
+    }
+
+    function bindTaskLocationLookup() {
+        const locationInput = byId('taskLocation');
+        const subInput = byId('taskSublocation');
+        const locationDd = byId('taskLocationLookup');
+        const subDd = byId('taskSublocationLookup');
+        if (!locationInput || !subInput || !locationDd || !subDd) return;
+        const rows = getLocationRows();
+        function render(dd, items, mode) {
+            if (!items.length) { dd.style.display = 'none'; dd.innerHTML = ''; return; }
+            dd.innerHTML = items.map(function (r, idx) {
+                const primary = mode === 'location' ? r.location : r.sublocation;
+                const secondary = mode === 'location' ? r.sublocation : r.location;
+                return '<div class="dropdown-option" data-loc-idx="' + idx + '"><span class="lookup-option-code">' + esc(primary) + '</span><span class="lookup-option-name">' + esc(secondary) + '</span></div>';
+            }).join('');
+            dd.style.display = 'block';
+        }
+        function find(term, mode) {
+            const q = String(term || '').trim().toLowerCase();
+            if (!q) return [];
+            const out = [];
+            for (let i=0;i<rows.length;i++) {
+                const r = rows[i];
+                const hay = mode === 'location' ? (r.location + ' ' + r.sublocation + ' ' + r.department).toLowerCase() : (r.sublocation + ' ' + r.location + ' ' + r.department).toLowerCase();
+                if (hay.indexOf(q) === -1) continue;
+                out.push(r);
+                if (out.length >= 12) break;
+            }
+            return out;
+        }
+        locationInput.addEventListener('input', function () { render(locationDd, find(locationInput.value, 'location'), 'location'); });
+        subInput.addEventListener('input', function () { render(subDd, find(subInput.value, 'sub'), 'sub'); });
+        locationDd.addEventListener('mousedown', function (e) {
+            const opt = e.target.closest('[data-loc-idx]'); if (!opt) return; e.preventDefault();
+            const pick = find(locationInput.value, 'location')[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
+            locationInput.value = pick.location; subInput.value = pick.sublocation; locationDd.style.display='none';
+        });
+        subDd.addEventListener('mousedown', function (e) {
+            const opt = e.target.closest('[data-loc-idx]'); if (!opt) return; e.preventDefault();
+            const pick = find(subInput.value, 'sub')[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
+            locationInput.value = pick.location; subInput.value = pick.sublocation; subDd.style.display='none';
+        });
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('.task-link-lookup')) { locationDd.style.display='none'; subDd.style.display='none'; }
+        });
+    }
+
+    function syncTaskColorPicker() {
+        const color = byId('taskColor');
+        const badge = byId('taskColorBadge');
+        const grid = byId('taskColorGrid');
+        if (!color || !badge || !grid) return;
+        const active = String(color.value || 'teal');
+        const def = getColorDef(active);
+        badge.style.background = def.base;
+        grid.innerHTML = TASK_BADGE_COLORS.map(function (c) {
+            const cls = c.key === active ? 'task-color-chip active' : 'task-color-chip';
+            return '<button type="button" class="' + cls + '" style="background:' + esc(c.base) + '" data-color-key="' + esc(c.key) + '" aria-label="' + esc(c.label) + '"></button>';
+        }).join('');
+    }
+
     async function init() {
         cacheEls();
         bindEvents();
         bindTaskItemLookup();
+        bindTaskLocationLookup();
         bootstrapInventoryHint();
         syncFilterPanelUi();
         syncZoomOutUi();
         syncZoomModeButtons();
         syncShellLayout();
         updateSortUi();
+        syncTaskColorPicker();
+        const colorBadge = byId('taskColorBadge');
+        const colorGrid = byId('taskColorGrid');
+        if (colorBadge && colorGrid) {
+            colorBadge.addEventListener('click', function () { colorGrid.classList.toggle('open'); });
+            colorGrid.addEventListener('click', function (e) {
+                const chip = e.target.closest('[data-color-key]');
+                if (!chip) return;
+                byId('taskColor').value = chip.getAttribute('data-color-key') || 'teal';
+                syncTaskColorPicker();
+                colorGrid.classList.remove('open');
+            });
+            document.addEventListener('click', function (e) { if (!e.target.closest('.task-color-picker')) colorGrid.classList.remove('open'); });
+        }
         await loadTasks();
     }
 
