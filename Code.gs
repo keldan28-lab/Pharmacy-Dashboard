@@ -523,9 +523,10 @@ function ensureTaskSheet_(sheetId, tabName) {
 }
 
 function tasksRead_(sheetId, tabName) {
-  const pack = ensureTaskSheet_(sheetId, tabName);
-  const sh = pack.sh;
-  const header = pack.header;
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sh = ss.getSheetByName(tabName);
+  const header = taskColumns_();
+  if (!sh) return { ok: true, tasks: [], tabName, schema: header };
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return { ok: true, tasks: [], tabName, schema: header };
   const values = sh.getRange(2, 1, lastRow - 1, header.length).getValues();
