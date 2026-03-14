@@ -46,7 +46,11 @@
         printView: false,
         checklistLoading: false,
         ganttRenderQueued: false,
-        lastAssignerValue: ''
+        lastAssignerValue: '',
+        autosaveTimer: null,
+        autosaveSaving: false,
+        autosaveQueued: false,
+        autosaveSignature: ''
     };
 
     const els = {};
@@ -1368,7 +1372,14 @@
         const renderIndexes = visibleChecklistIndexes();
         const selectedCount = state.checklistDraft.filter(function (it) { return !!(it && it.selected); }).length;
         const selectedRows = state.checklistDraft.filter(function (it) { return !!(it && it.selected); });
-        const canHandoff = selectedRows.length > 0 && selectedRows.every(function (it) { return hasChecklistAssignees(it); });
+        const indexPos = {};
+        renderIndexes.forEach(function (idx, pos) { indexPos[idx] = pos; });
+        const canHandoff = selectedRows.length > 0 && selectedRows.every(function (it) { return hasChecklistAssignees(it); }) && selectedChecklistIndexes().every(function (idx) {
+            const pos = Object.prototype.hasOwnProperty.call(indexPos, idx) ? indexPos[idx] : -1;
+            if (pos <= 0) return false;
+            const prev = state.checklistDraft[renderIndexes[pos - 1]];
+            return hasChecklistAssignees(prev);
+        });
         const title = panel ? panel.querySelector('.task-checklist-title') : null;
         if (title) title.setAttribute('data-selected-count', String(selectedCount));
         ['taskChecklistDelete','taskChecklistDone','taskChecklistCollaborate'].forEach(function (id) {
@@ -1505,7 +1516,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
-        if (state.editingId) persistChecklistForTask(state.editingId);
+        if (state.editingId) { persistChecklistForTask(state.editingId); queueModalAutosave(); }
     }
 
     function openChecklistAssignMenu(mode) {
@@ -1564,7 +1575,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
-        if (state.editingId) persistChecklistForTask(state.editingId);
+        if (state.editingId) { persistChecklistForTask(state.editingId); queueModalAutosave(); }
     }
 
     function createChecklistHandoffEntries() {
@@ -1594,7 +1605,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
-        if (state.editingId) persistChecklistForTask(state.editingId);
+        if (state.editingId) { persistChecklistForTask(state.editingId); queueModalAutosave(); }
     }
 
 
@@ -1714,16 +1725,24 @@ loadChecklist(task ? task.taskId : null);
     function closeModal() {
         byId('taskModal').classList.remove('open');
         closeChecklistAssignMenu();
+        if (state.autosaveTimer) {
+            clearTimeout(state.autosaveTimer);
+            state.autosaveTimer = null;
+        }
+        state.autosaveQueued = false;
+        state.autosaveSignature = '';
     }
 
-    async function saveTask() {
+    function buildTaskPayloadFromModal() {
         const now = isoNow();
         const parentIdValue = byId('taskParentId').value;
         const parentTask = parentIdValue ? state.tasks.find(function (t) { return t.taskId === parentIdValue; }) : null;
         const payload = {
             taskId: state.editingId || ('TASK-' + Date.now()),
             parentId: parentIdValue,
-            sortOrder: nextSortOrder(),
+            sortOrder: state.editingId
+                ? Number((state.tasks.find(function (t) { return t.taskId === state.editingId; }) || {}).sortOrder || nextSortOrder())
+                : nextSortOrder(),
             level: byId('taskParentId').value ? 'child' : 'group',
             title: byId('taskTitle').value.trim() || 'New Task',
             description: byId('taskDescription').value.trim(),
@@ -1765,6 +1784,46 @@ loadChecklist(task ? task.taskId : null);
         }
 
         syncChecklistDraftFromUi();
+        return payload;
+    }
+
+    function queueModalAutosave() {
+        if (!state.editingId || !byId('taskModal').classList.contains('open')) return;
+        if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
+        state.autosaveTimer = setTimeout(function () {
+            state.autosaveTimer = null;
+            autosaveEditingTaskNow();
+        }, 300);
+    }
+
+    async function autosaveEditingTaskNow() {
+        if (!state.editingId || state.autosaveSaving) {
+            if (state.editingId) state.autosaveQueued = true;
+            return;
+        }
+        const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
+        if (idx < 0) return;
+        const payload = buildTaskPayloadFromModal();
+        const signature = JSON.stringify({ task: payload, checklist: state.checklistDraft });
+        if (signature === state.autosaveSignature) return;
+        state.autosaveSaving = true;
+        try {
+            state.tasks[idx] = normalizeTask(payload, idx);
+            await writeTask('updateTask', payload);
+            await persistChecklistForTask(payload.taskId);
+            state.autosaveSignature = signature;
+            applyFilters();
+        } finally {
+            state.autosaveSaving = false;
+            if (state.autosaveQueued) {
+                state.autosaveQueued = false;
+                queueModalAutosave();
+            }
+        }
+    }
+
+    async function saveTask() {
+        const payload = buildTaskPayloadFromModal();
 
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
@@ -1776,6 +1835,7 @@ loadChecklist(task ? task.taskId : null);
         }
 
         await persistChecklistForTask(payload.taskId);
+        state.autosaveSignature = JSON.stringify({ task: payload, checklist: state.checklistDraft });
         closeModal();
         applyFilters();
     }
@@ -2288,11 +2348,19 @@ loadChecklist(task ? task.taskId : null);
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
+        ['taskTitle','taskDescription','taskStatus','taskPriority','taskColor','taskAssignee','taskPercent','taskItemCode','taskItemName','taskLocation','taskSublocation','taskParentId','taskAssigneeTracks'].forEach(function (id) {
+            const field = byId(id);
+            if (!field) return;
+            const evt = (field.tagName === 'SELECT' || field.type === 'date' || field.type === 'range') ? 'change' : 'input';
+            field.addEventListener(evt, queueModalAutosave);
+            if (evt !== 'change') field.addEventListener('change', queueModalAutosave);
+        });
         byId('taskAssigner').addEventListener('input', function () {
             const next = String(byId('taskAssigner').value || '').trim();
             syncChecklistAssignerBadges(state.lastAssignerValue, next);
             state.lastAssignerValue = next;
             renderChecklistDraft();
+            queueModalAutosave();
         });
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
         byId('taskChecklistAdd').addEventListener('click', function () {
@@ -2301,8 +2369,8 @@ loadChecklist(task ? task.taskId : null);
             state.checklistDraft.push({ done: false, selected: false, text: '', assignees: '', progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
             renderChecklistDraft();
         });
-        byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });
-        byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });
+        byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); queueModalAutosave(); } });
+        byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); queueModalAutosave(); } });
         byId('taskChecklistRows').addEventListener('click', function (e) {
             const progressBtn = e.target.closest('[data-check-progress-idx]');
             if (progressBtn) {
@@ -2345,7 +2413,7 @@ loadChecklist(task ? task.taskId : null);
                     syncChecklistMasterDates();
                     renderChecklistDraft();
                     syncEditingTaskChecklistToState();
-                    if (state.editingId) persistChecklistForTask(state.editingId);
+                    if (state.editingId) { persistChecklistForTask(state.editingId); queueModalAutosave(); }
                 }
                 closeChecklistProgressMenu();
                 return;
@@ -2353,8 +2421,8 @@ loadChecklist(task ? task.taskId : null);
             if (!e.target.closest('#checklistProgressMenu,[data-check-progress-idx]')) closeChecklistProgressMenu();
         });
 
-        byId('taskStartDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
-        byId('taskDueDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
+        byId('taskStartDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); queueModalAutosave(); });
+        byId('taskDueDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); queueModalAutosave(); });
 
         els.listBody.addEventListener('click', function (e) {
             const assigneeOpen = e.target.closest('[data-assignee-open]');
