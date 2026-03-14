@@ -374,6 +374,23 @@
     }
 
 
+    async function fetchTasksViaHttp(url) {
+        try {
+            const resp = await fetch(url, { method: 'GET' });
+            if (!resp.ok) return [];
+            const text = await resp.text();
+            if (!text) return [];
+            try {
+                return parseTaskRowsPayload(JSON.parse(text));
+            } catch (_) {
+                return parseTaskRowsPayload(text);
+            }
+        } catch (_) {
+            return [];
+        }
+    }
+
+
     async function loadTasks() {
         state.loading = true;
         renderList();
@@ -388,19 +405,30 @@
         }
 
         try {
-            const readTasksUrl = webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
-            const legacyPayload = await jsonp(readTasksUrl, 25000);
-            let rows = parseTaskRowsPayload(legacyPayload);
-            if (!rows.length) {
-                const readUrl = webAppUrl + '?action=read&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
-                const payload = await jsonp(readUrl, 25000);
-                rows = parseTaskRowsPayload(payload);
+            const tabNames = ['tasks', 'Tasks'];
+            let rows = [];
+
+            for (let t = 0; t < tabNames.length && !rows.length; t++) {
+                const tabName = tabNames[t];
+                const urls = [
+                    webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
+                    webAppUrl + '?action=read&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
+                    webAppUrl + '?fn=tasks&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName)
+                ];
+
+                for (let i = 0; i < urls.length && !rows.length; i++) {
+                    try {
+                        const payload = await jsonp(urls[i], 25000);
+                        rows = parseTaskRowsPayload(payload);
+                    } catch (_) {
+                        rows = [];
+                    }
+                    if (!rows.length) {
+                        rows = await fetchTasksViaHttp(urls[i]);
+                    }
+                }
             }
-            if (!rows.length) {
-                const altUrl = webAppUrl + '?fn=tasks&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
-                const altPayload = await jsonp(altUrl, 25000);
-                rows = parseTaskRowsPayload(altPayload);
-            }
+
             if (!rows.length) throw new Error('No task rows returned');
             state.tasks = rows.map(normalizeTask);
             state.usingMock = false;
