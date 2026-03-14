@@ -1,10 +1,12 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assigner','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
+    const PB_DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec';
+    const PB_DEFAULT_SHEET_ID = '1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ';
     const TASK_BADGE_COLORS = [
         { key: 'teal', label: 'Teal', base: '#2ab8ad' },{ key: 'green', label: 'Green', base: '#38c172' },{ key: 'blue', label: 'Blue', base: '#4f8ef7' },{ key: 'purple', label: 'Purple', base: '#8b6cf0' },{ key: 'orange', label: 'Orange', base: '#f39a45' },
         { key: 'rose', label: 'Rose', base: '#e66f97' },{ key: 'red', label: 'Red', base: '#e24f4f' },{ key: 'amber', label: 'Amber', base: '#d6a21f' },{ key: 'lime', label: 'Lime', base: '#91c91a' },{ key: 'mint', label: 'Mint', base: '#43d6a8' },
@@ -44,7 +46,7 @@
         printView: false,
         checklistLoading: false,
         ganttRenderQueued: false,
-        checklistProgressOpenIdx: -1
+        lastAssignerValue: ''
     };
 
     const els = {};
@@ -94,6 +96,7 @@
         let c = 0;
         if ((els.statusFilter && els.statusFilter.value && els.statusFilter.value !== 'all')) c++;
         if ((els.assigneeFilter && els.assigneeFilter.value && els.assigneeFilter.value !== 'all')) c++;
+        if ((els.assignerFilter && els.assignerFilter.value && els.assignerFilter.value !== 'all')) c++;
         if ((els.itemFilter && (els.itemFilter.value || '').trim())) c++;
         if ((els.locationFilter && (els.locationFilter.value || '').trim())) c++;
         return c;
@@ -147,26 +150,52 @@
     }
 
     function jsonp(url, timeoutMs) {
-        timeoutMs = timeoutMs || 10000;
+        timeoutMs = timeoutMs || 20000;
         return new Promise(function (resolve, reject) {
             const cb = '__pbTaskCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
             const script = document.createElement('script');
             const sep = url.indexOf('?') >= 0 ? '&' : '?';
-            let done = false;
-            const timer = setTimeout(function () { cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
-            function cleanup() {
-                if (done) return;
-                done = true;
+            let settled = false;
+
+            function cleanup(removeCallback) {
                 clearTimeout(timer);
-                try { delete window[cb]; } catch (_) { window[cb] = null; }
                 if (script.parentNode) script.parentNode.removeChild(script);
+                if (removeCallback) {
+                    try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+                }
             }
-            window[cb] = function (payload) { cleanup(); resolve(payload || {}); };
-            script.onerror = function () { cleanup(); reject(new Error('JSONP failed')); };
+
+            const timer = setTimeout(function () {
+                if (settled) return;
+                settled = true;
+                // Keep a harmless callback to avoid "ReferenceError: <cb> is not defined" if response arrives late.
+                window[cb] = function () {};
+                cleanup(false);
+                reject(new Error('JSONP timeout'));
+                setTimeout(function () {
+                    try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+                }, 15000);
+            }, timeoutMs);
+
+            window[cb] = function (payload) {
+                if (settled) return;
+                settled = true;
+                cleanup(true);
+                resolve(payload || {});
+            };
+
+            script.onerror = function () {
+                if (settled) return;
+                settled = true;
+                cleanup(true);
+                reject(new Error('JSONP failed'));
+            };
+
             script.src = url + sep + 'callback=' + encodeURIComponent(cb);
             document.head.appendChild(script);
         });
     }
+
 
     function postForm(webAppUrl, payload) {
         return new Promise(function (resolve) {
@@ -200,7 +229,11 @@
     }
 
     function getWebAppUrl() {
-        return (localStorage.getItem('spike_webAppUrl') || localStorage.getItem('jsonp_proxy_webAppUrl') || '').trim();
+        return (localStorage.getItem('spike_webAppUrl') || localStorage.getItem('jsonp_proxy_webAppUrl') || PB_DEFAULT_WEBAPP_URL).trim();
+    }
+
+    function getSheetId() {
+        return (localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || PB_DEFAULT_SHEET_ID).trim();
     }
 
     function emptyFallbackTasks() {
@@ -244,7 +277,15 @@
 
     function normalizeTask(raw, idx) {
         const out = {};
-        TASK_COLUMNS.forEach(function (k) { out[k] = raw[k] != null ? raw[k] : ''; });
+        const source = raw && typeof raw === 'object' ? raw : {};
+        const keyMap = {};
+        Object.keys(source).forEach(function (k) { keyMap[String(k).trim().toLowerCase().replace(/[^a-z0-9]/g, '')] = source[k]; });
+        TASK_COLUMNS.forEach(function (k) {
+            const direct = source[k];
+            if (direct != null) { out[k] = direct; return; }
+            const alt = keyMap[String(k).toLowerCase().replace(/[^a-z0-9]/g, '')];
+            out[k] = alt != null ? alt : '';
+        });
         out.taskId = String(out.taskId || ('TASK-' + Date.now() + '-' + idx));
         out.parentId = String(out.parentId || '');
         out.sortOrder = Number(out.sortOrder || ((idx + 1) * 10));
@@ -258,34 +299,146 @@
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
         out.colorKey = String(out.colorKey || 'teal');
-        const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(out.assignee);
+        const sourceAssignee = source.assignee != null ? source.assignee : keyMap.assignee;
+        const sourceTracks = source.assigneeTracks != null ? source.assigneeTracks : keyMap.assigneetracks;
+        const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(sourceAssignee);
         out.assignees = assigneeList;
-        out.assignee = String((assigneeList[0] || out.assignee || '')).trim();
-        out.checklistItems = Array.isArray(out.checklistItems) ? out.checklistItems : [];
+        out.assignee = String((assigneeList[0] || sourceAssignee || '')).trim();
+        out.assigneeTracks = sourceTracks || '';
+        if (!Array.isArray(out.checklistItems)) {
+            try {
+                const parsedChecklist = JSON.parse(String(out.checklistItems || '[]'));
+                out.checklistItems = Array.isArray(parsedChecklist) ? parsedChecklist : [];
+            } catch (_) {
+                out.checklistItems = [];
+            }
+        }
         out.children = [];
         ensureTaskDates(out);
         return out;
     }
 
+
+    function parseTaskRowsPayload(payload) {
+        if (!payload) return [];
+
+        if (typeof payload === 'string') {
+            const text = payload.trim();
+            if (!text) return [];
+            try { return parseTaskRowsPayload(JSON.parse(text)); } catch (_) { return []; }
+        }
+
+        function keyNorm(v) {
+            return String(v || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+
+        function rowsToObjects(rows) {
+            if (!Array.isArray(rows) || !rows.length) return [];
+            const first = rows[0];
+            if (!Array.isArray(first)) return rows;
+            const headers = first.map(function (h) { return String(h || '').trim(); });
+            const headerNorm = headers.map(keyNorm);
+            const hasHeader = headerNorm.some(function (k) {
+                return k === 'taskid' || k === 'title' || k === 'status' || k === 'duedate' || k === 'taskname';
+            });
+            if (!hasHeader) return rows;
+            return rows.slice(1).map(function (row) {
+                if (!Array.isArray(row)) return row;
+                const out = {};
+                headers.forEach(function (h, i) { out[h] = row[i]; });
+                return out;
+            });
+        }
+
+        if (Array.isArray(payload)) return rowsToObjects(payload);
+        if (payload && typeof payload === 'object' && payload.task && typeof payload.task === 'object') return rowsToObjects([payload.task]);
+        if (Array.isArray(payload.tasks)) return rowsToObjects(payload.tasks);
+        if (Array.isArray(payload.rows)) return rowsToObjects(payload.rows);
+        if (Array.isArray(payload.values)) return rowsToObjects(payload.values);
+        if (payload.data && typeof payload.data === 'object') {
+            if (Array.isArray(payload.data.tasks)) return rowsToObjects(payload.data.tasks);
+            if (Array.isArray(payload.data.rows)) return rowsToObjects(payload.data.rows);
+            if (Array.isArray(payload.data.values)) return rowsToObjects(payload.data.values);
+            if (Array.isArray(payload.data.data)) return rowsToObjects(payload.data.data);
+        }
+        if (Array.isArray(payload.result)) return rowsToObjects(payload.result);
+        if (payload.result && typeof payload.result === 'object') {
+            if (Array.isArray(payload.result.tasks)) return rowsToObjects(payload.result.tasks);
+            if (Array.isArray(payload.result.rows)) return rowsToObjects(payload.result.rows);
+            if (Array.isArray(payload.result.values)) return rowsToObjects(payload.result.values);
+            if (payload.result.data && typeof payload.result.data === 'object') {
+                if (Array.isArray(payload.result.data.tasks)) return rowsToObjects(payload.result.data.tasks);
+                if (Array.isArray(payload.result.data.rows)) return rowsToObjects(payload.result.data.rows);
+                if (Array.isArray(payload.result.data.values)) return rowsToObjects(payload.result.data.values);
+            }
+        }
+        return [];
+    }
+
+
+    async function fetchTasksViaHttp(url) {
+        try {
+            const resp = await fetch(url, { method: 'GET' });
+            if (!resp.ok) return [];
+            const text = await resp.text();
+            if (!text) return [];
+            try {
+                return parseTaskRowsPayload(JSON.parse(text));
+            } catch (_) {
+                return parseTaskRowsPayload(text);
+            }
+        } catch (_) {
+            return [];
+        }
+    }
+
+
     async function loadTasks() {
         state.loading = true;
         renderList();
         const webAppUrl = getWebAppUrl();
-        if (!webAppUrl) {
+        const sheetId = getSheetId();
+        if (!webAppUrl || !sheetId) {
             state.usingMock = true;
-            state.tasks = emptyFallbackTasks().map(normalizeTask);
+            state.tasks = [];
             state.loading = false;
             applyFilters();
             return;
         }
 
         try {
-            const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
-            const url = webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
-            const res = await jsonp(url, 12000);
-            if (!res || !res.ok || !Array.isArray(res.tasks)) throw new Error((res && res.error) || 'Invalid task payload');
-            state.tasks = res.tasks.map(normalizeTask);
-            state.usingMock = false;
+            const tabNames = ['tasks', 'Tasks', 'task_manager', 'Task_Manager'];
+            let rows = [];
+
+            for (let t = 0; t < tabNames.length && !rows.length; t++) {
+                const tabName = tabNames[t];
+                const urls = [
+                    webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
+                    webAppUrl + '?fn=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
+                    webAppUrl + '?action=read&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
+                    webAppUrl + '?fn=tasks&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName)
+                ];
+
+                for (let i = 0; i < urls.length && !rows.length; i++) {
+                    try {
+                        const payload = await jsonp(urls[i], 25000);
+                        rows = parseTaskRowsPayload(payload);
+                    } catch (_) {
+                        rows = [];
+                    }
+                    if (!rows.length) {
+                        rows = await fetchTasksViaHttp(urls[i]);
+                    }
+                }
+            }
+
+            if (rows.length) {
+                state.tasks = rows.map(normalizeTask);
+                state.usingMock = false;
+            } else {
+                state.tasks = emptyFallbackTasks().map(normalizeTask);
+                state.usingMock = true;
+            }
         } catch (e) {
             console.warn('Task load failed, using empty fallback', e);
             state.usingMock = true;
@@ -351,6 +504,7 @@
         const q = (els.search.value || '').toLowerCase();
         const status = els.statusFilter.value;
         const assignee = els.assigneeFilter.value;
+        const assigner = els.assignerFilter.value;
         const itemTerm = (els.itemFilter.value || '').toLowerCase();
         const locTerm = (els.locationFilter.value || '').toLowerCase();
 
@@ -358,6 +512,7 @@
             if (!state.showArchived && task.archived) return false;
             if (status !== 'all' && task.status !== status) return false;
             if (assignee !== 'all' && (!Array.isArray(task.assignees) || task.assignees.indexOf(assignee) === -1)) return false;
+            if (assigner !== 'all' && String(task.assigner || '').trim() !== assigner) return false;
             const hay = [task.title, task.description, task.itemCode, task.itemName, task.location, task.sublocation].join(' ').toLowerCase();
             if (q && hay.indexOf(q) === -1) return false;
             if (itemTerm && (String(task.itemCode).toLowerCase().indexOf(itemTerm) === -1 && String(task.itemName).toLowerCase().indexOf(itemTerm) === -1)) return false;
@@ -390,11 +545,18 @@
         const assignees = ['all'].concat(Array.from(new Set(state.tasks.reduce(function (acc, t) {
             return acc.concat(Array.isArray(t.assignees) ? t.assignees : []);
         }, []).filter(Boolean))).sort());
+        const currentAssigner = els.assignerFilter.value || 'all';
+        const assigners = ['all'].concat(Array.from(new Set(state.tasks.map(function (t) { return String(t.assigner || '').trim(); }).filter(Boolean))).sort());
 
         els.assigneeFilter.innerHTML = assignees.map(function (a) {
             return '<option value="' + esc(a) + '">' + esc(a === 'all' ? 'All Assignees' : a) + '</option>';
         }).join('');
         if (assignees.indexOf(currentAssignee) >= 0) els.assigneeFilter.value = currentAssignee;
+
+        els.assignerFilter.innerHTML = assigners.map(function (a) {
+            return '<option value="' + esc(a) + '">' + esc(a === 'all' ? 'All Assigners' : a) + '</option>';
+        }).join('');
+        if (assigners.indexOf(currentAssigner) >= 0) els.assignerFilter.value = currentAssigner;
 
         if (!els.statusFilter.options.length) {
             els.statusFilter.innerHTML = DEFAULT_STATUS.map(function (s) {
@@ -435,18 +597,26 @@
     }
 
     function assigneeStackForTask(task, avatarClass) {
-        const assignees = Array.isArray(task.assignees) && task.assignees.length
+        const assignerName = String(task.assigner || '').trim().toLowerCase();
+        const assigneesRaw = Array.isArray(task.assignees) && task.assignees.length
             ? task.assignees.slice()
             : [task.assignee || 'Unassigned'];
+        const assignees = assigneesRaw.filter(function (n) {
+            const v = String(n || '').trim();
+            if (!v) return false;
+            if (assignerName && v.toLowerCase() === assignerName) return false;
+            return true;
+        });
         const progressPct = Math.max(0, Math.min(100, Number(taskProgressForBar(task) || 0)));
         const total = Math.max(1, assignees.length);
-        return '<div class="task-assignee-stack" style="--avatar-count:' + assignees.length + '" role="group" aria-label="Task assignees">' + assignees.map(function (assigneeName, idx) {
+        const displayAssignees = assignees.length ? assignees : ['Unassigned'];
+        return '<div class="task-assignee-stack" style="--avatar-count:' + displayAssignees.length + '" role="group" aria-label="Task assignees">' + displayAssignees.map(function (assigneeName, idx) {
             const avatar = assigneeAvatarContent(task, assigneeName);
             const assigneeKey = String(assigneeName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || ('assignee-' + idx);
             const fade = Math.max(0.16, 0.32 - (idx * 0.08));
             const fill = Math.max(0.42, 0.78 - (idx * (0.2 / total)));
             const shadow = Math.max(1, 3 - idx);
-            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + assignees.length + ';--avatar-progress:' + progressPct + '%;--avatar-fill-alpha:' + fill.toFixed(2) + ';--avatar-back-alpha:' + fade.toFixed(2) + ';--avatar-shadow:0 ' + shadow + 'px ' + (shadow + 2) + 'px rgba(15,32,40,' + (0.2 - (idx * 0.04)).toFixed(2) + ')" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
+            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + displayAssignees.length + ';--avatar-progress:' + progressPct + '%;--avatar-fill-alpha:' + fill.toFixed(2) + ';--avatar-back-alpha:' + fade.toFixed(2) + ';--avatar-shadow:0 ' + shadow + 'px ' + (shadow + 2) + 'px rgba(15,32,40,' + (0.2 - (idx * 0.04)).toFixed(2) + ')" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
         }).join('') + '</div>';
     }
 
@@ -494,7 +664,7 @@
         byId('taskPriority').value = parent.priority || 'Medium';
         syncPriorityToggleUi();
         byId('taskColor').value = parent.colorKey || 'teal';
-        byId('taskAssignee').value = parent.assignee || '';
+        byId('taskAssignee').value = Array.isArray(parent.assignees) ? parent.assignees.join(', ') : (parent.assignee || '');
         byId('taskAssigner').value = parent.assigner || '';
         byId('taskStartDate').value = parent.startDate || toISODate(new Date());
         byId('taskDueDate').value = parent.dueDate || shiftIsoDate(byId('taskStartDate').value, 1);
@@ -1023,6 +1193,59 @@
 
     function checklistProgressList() { return ['Not Started', 'In Progress', 'Blocked', 'Done']; }
 
+    function checklistStatusClass(status) {
+        const s = String(status || '').toLowerCase();
+        if (s === 'done') return 'status-done';
+        if (s === 'in progress') return 'status-in-progress';
+        if (s === 'blocked') return 'status-blocked';
+        return 'status-not-started';
+    }
+
+    function normalizeChecklistStatus(status, done) {
+        const raw = String(status || '').trim();
+        if (raw) return raw;
+        return done ? 'Done' : 'Not Started';
+    }
+
+    function getChecklistAssignerName() {
+        return String((byId('taskAssigner') && byId('taskAssigner').value) || '').trim();
+    }
+
+    function syncChecklistAssignerBadges(previousValue, nextValue) {
+        const prev = String(previousValue || '').trim();
+        const next = String(nextValue || '').trim();
+        if (!Array.isArray(state.checklistDraft) || !state.checklistDraft.length) return;
+        state.checklistDraft.forEach(function (item) {
+            if (!item) return;
+            const names = parseChecklistAssignees(item.assignees, prev);
+            if (!names.length) {
+                item.assignees = serializeAssignees(next ? [next] : []);
+                return;
+            }
+            if (names.length === 1 && (!prev || names[0] === prev)) {
+                item.assignees = serializeAssignees(next ? [next] : []);
+            }
+        });
+    }
+
+    async function persistChecklistForTask(taskId) {
+        if (!taskId) return;
+        const checklistPayload = state.checklistDraft.map(function (item) {
+            return {
+                done: !!item.done,
+                text: item.text || '',
+                assignees: item.assignees || '',
+                startDate: item.startDate || '',
+                dueDate: item.dueDate || '',
+                handoffMode: item.handoffMode || '',
+                progressStatus: normalizeChecklistStatus(item.progressStatus, item.done)
+            };
+        });
+        await writeTask('saveChecklist', { taskId: taskId, items: checklistPayload });
+        const savedTask = state.tasks.find(function (t) { return t.taskId === taskId; });
+        if (savedTask) savedTask.checklistItems = checklistPayload;
+    }
+
     function checklistOverallProgressStatus(items) {
         const list = Array.isArray(items) ? items : [];
         if (!list.length) return 'Not Started';
@@ -1038,7 +1261,6 @@
         if (!Array.isArray(state.checklistDraft) || !state.checklistDraft.length) return;
         const ms = byId('taskStartDate');
         const me = byId('taskDueDate');
-        const note = byId('taskMasterRangeNote');
         if (!ms || !me) return;
         const start = ms.value || '';
         const due = me.value || start || '';
@@ -1053,16 +1275,15 @@
             if (!earliest || (item.startDate && item.startDate < earliest)) earliest = item.startDate;
             if (!latest || (item.dueDate && item.dueDate > latest)) latest = item.dueDate;
         });
-        if (note) note.textContent = (earliest && latest) ? ('Checklist range: ' + earliest + ' → ' + latest) : '';
     }
 
     function openChecklistProgressMenu(idx, anchor) {
         const menu = byId('checklistProgressMenu');
         if (!menu || !anchor) return;
-        state.checklistProgressOpenIdx = idx;
-        const current = String((state.checklistDraft[idx] && state.checklistDraft[idx].progressStatus) || 'Not Started');
+        const item = state.checklistDraft[idx] || {};
+        const current = normalizeChecklistStatus(item.progressStatus, item.done);
         menu.innerHTML = checklistProgressList().map(function (status) {
-            return '<button class="checklist-progress-btn" type="button" data-progress-status="' + esc(status) + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
+            return '<button class="checklist-progress-btn" type="button" data-progress-status="' + esc(status) + '" data-progress-idx="' + idx + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
         }).join('');
         const r = anchor.getBoundingClientRect();
         menu.style.left = Math.round(r.left) + 'px';
@@ -1073,8 +1294,42 @@
     function closeChecklistProgressMenu() {
         const menu = byId('checklistProgressMenu');
         if (menu) menu.classList.remove('open');
-        state.checklistProgressOpenIdx = -1;
     }
+
+    function checklistTextKey(item) {
+        return String((item && item.text) || '').trim().toLowerCase();
+    }
+
+    function buildChecklistAssigneeStages(idx, item, assignerName) {
+        const stages = [];
+        const seen = {};
+
+        function addStage(list) {
+            const names = (Array.isArray(list) ? list : []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+            if (!names.length) return;
+            const key = names.join('|').toLowerCase();
+            if (seen[key]) return;
+            seen[key] = true;
+            stages.push(names);
+        }
+
+        const base = parseChecklistAssignees(item && item.assignees, '').filter(function (n) {
+            return String(n || '').trim() && String(n || '').trim() !== assignerName;
+        });
+        addStage(base);
+
+        const key = checklistTextKey(item);
+        for (let i = idx + 1; i < state.checklistDraft.length; i++) {
+            const next = state.checklistDraft[i];
+            if (!next || String(next.handoffMode || '') !== 'handoff') continue;
+            if (!key || checklistTextKey(next) !== key) continue;
+            addStage(parseChecklistAssignees(next.assignees, '').filter(function (n) {
+                return String(n || '').trim() && String(n || '').trim() !== assignerName;
+            }));
+        }
+        return stages;
+    }
+
 
     function renderChecklistDraft() {
         const wrap = byId('taskChecklistRows');
@@ -1085,22 +1340,42 @@
             wrap.innerHTML = '<div class="tasks-empty" style="padding:8px 6px;">Loading checklist…</div>';
             return;
         }
-        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '', progressStatus: 'Not Started' }];
+        if (!state.checklistDraft.length) {
+            const assignerName = getChecklistAssignerName();
+            state.checklistDraft = [{ done: false, selected: false, text: '', assignees: serializeAssignees(assignerName ? [assignerName] : []), progressStatus: 'Not Started' }];
+        }
         const selectedCount = state.checklistDraft.filter(function (it) { return !!(it && it.selected); }).length;
+        const selectedRows = state.checklistDraft.filter(function (it) { return !!(it && it.selected); });
+        const canHandoff = selectedRows.length > 0 && selectedRows.every(function (it) { return hasChecklistAssignees(it); });
         const title = panel ? panel.querySelector('.task-checklist-title') : null;
         if (title) title.setAttribute('data-selected-count', String(selectedCount));
-        ['taskChecklistDelete','taskChecklistDone','taskChecklistHandoff','taskChecklistCollaborate'].forEach(function (id) {
+        ['taskChecklistDelete','taskChecklistDone','taskChecklistCollaborate'].forEach(function (id) {
             const btn = byId(id);
             if (btn) btn.disabled = selectedCount < 1;
         });
+        const handoffBtn = byId('taskChecklistHandoff');
+        if (handoffBtn) handoffBtn.disabled = !canHandoff;
+
         wrap.innerHTML = state.checklistDraft.map(function (item, idx) {
             const badges = [];
-            const assigned = parseChecklistAssignees(item && item.assignees, '');
-            assigned.forEach(function (name) { badges.push('<span class="checklist-badge">' + esc(name) + '</span>'); });
-            const progressStatus = String((item && item.progressStatus) || (item && item.done ? 'Done' : 'Not Started'));
-            badges.push('<button type="button" class="checklist-badge progress" data-check-progress-idx="' + idx + '">' + esc(progressStatus) + '</button>');
-            if (item && item.handoffMode === 'handoff' && assigned.length > 1) badges.push('<span class="checklist-badge"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>' + esc(assigned[assigned.length - 1]) + '</span>');
-            if (item && item.done) badges.push('<span class="checklist-badge done">Done</span>');
+            const progressStatus = normalizeChecklistStatus(item && item.progressStatus, item && item.done);
+            const statusCls = checklistStatusClass(progressStatus);
+            const assignerName = getChecklistAssignerName();
+            const assigneeStages = buildChecklistAssigneeStages(idx, item, assignerName);
+            const assigned = assigneeStages.length ? assigneeStages[0] : [];
+            if (assignerName) {
+                badges.push('<button type="button" class="checklist-badge assignee assigner" data-check-progress-idx="' + idx + '">' + esc(assignerName) + '</button>');
+                badges.push('<svg class="checklist-handoff-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:' + (assigned.length ? '1' : '0.35') + ';"><circle cx="8" cy="8" r="3"></circle><path d="M3 18c0-2.8 2.2-4.8 5-4.8"></path><path d="M11.5 12h8"></path><path d="M16.5 9l3 3-3 3"></path></svg>');
+            }
+            assigneeStages.forEach(function (stage, stageIdx) {
+                if (stageIdx > 0) {
+                    badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
+                }
+                stage.forEach(function (name) {
+                    badges.push('<button type="button" class="checklist-badge assignee ' + statusCls + '" data-check-progress-idx="' + idx + '">' + esc(name) + '</button>');
+                });
+            });
+            if (item && item.done) badges.push('<span class="checklist-badge done"><svg class="checklist-done-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg></span>');
             return '<div class="checklist-row">' +
                 '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item && item.selected ? 'checked' : '') + ' />' +
                 '<div class="checklist-item-main">' +
@@ -1110,6 +1385,7 @@
             '</div>';
         }).join('');
     }
+
 
     function syncChecklistDraftFromUi() {
         const wrap = byId('taskChecklistRows');
@@ -1135,6 +1411,15 @@
         }
         state.checklistDraft = next;
         syncEditingTaskChecklistToState();
+    }
+
+
+    function parseAssigneeInputList(raw) {
+        return parseAssignees(String(raw || '').replace(/\n/g, ',').replace(/\|/g, ','));
+    }
+
+    function hasChecklistAssignees(item) {
+        return parseChecklistAssignees(item && item.assignees, '').length > 0;
     }
 
     function selectedChecklistIndexes() {
@@ -1181,6 +1466,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
+        if (state.editingId) persistChecklistForTask(state.editingId);
     }
 
     function openChecklistAssignMenu(mode) {
@@ -1189,9 +1475,11 @@
         state.checklistAssignMode = mode;
         const menu = byId('taskChecklistAssigneeMenu');
         if (!menu) return;
-        byId('taskChecklistAssignName').value = byId('taskAssignee').value || '';
-        byId('taskChecklistAssignStart').value = byId('taskStartDate').value;
-        byId('taskChecklistAssignDue').value = byId('taskDueDate').value;
+        byId('taskChecklistAssignName').value = '';
+        byId('taskChecklistAssignStart').value = '';
+        byId('taskChecklistAssignDue').value = '';
+        const saveLabel = byId('taskChecklistAssignSaveLabel');
+        if (saveLabel) saveLabel.textContent = 'Assign';
         menu.classList.add('open');
         byId('taskChecklistAssignName').focus();
     }
@@ -1206,42 +1494,70 @@
         syncChecklistDraftFromUi();
         const selected = selectedChecklistIndexes();
         if (!selected.length) { closeChecklistAssignMenu(); return; }
-        const assigneeName = String(byId('taskChecklistAssignName').value || '').trim();
+        const assigneeNames = parseAssigneeInputList(byId('taskChecklistAssignName').value || '');
         const masterStart = String(byId('taskStartDate').value || '').trim();
         const masterDue = String(byId('taskDueDate').value || '').trim() || masterStart;
         const rawStart = String(byId('taskChecklistAssignStart').value || '').trim() || masterStart;
         const rawDue = String(byId('taskChecklistAssignDue').value || '').trim() || rawStart || masterDue;
         const startDate = clampIsoRange(rawStart, masterStart, masterDue);
         const dueDate = clampIsoRange(rawDue, startDate || masterStart, masterDue);
+
         selected.forEach(function (idx) {
             const item = state.checklistDraft[idx];
-            const current = parseChecklistAssignees(item.assignees, '');
-            if (state.checklistAssignMode === 'collaborate') {
-                const merged = assigneeName ? Array.from(new Set(current.concat([assigneeName]))) : current;
-                item.assignees = serializeAssignees(merged);
-                item.handoffMode = 'collaborate';
-            } else {
-                const assigned = assigneeName ? Array.from(new Set((current.length ? [current[0]] : []).concat([assigneeName]))) : current;
-                item.assignees = serializeAssignees(assigned);
-                item.handoffMode = 'handoff';
-            }
+            const current = parseChecklistAssignees(item.assignees, getChecklistAssignerName());
+            const merged = Array.from(new Set(current.concat(assigneeNames))).filter(Boolean);
+            item.assignees = serializeAssignees(merged);
+            item.handoffMode = '';
             item.startDate = startDate;
             item.dueDate = dueDate;
             item.selected = false;
         });
-        const existingTaskAssignees = parseAssignees(byId('taskAssignee').value);
+
         const checklistAssignees = [];
         state.checklistDraft.forEach(function (item) {
             parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
         });
-        const mergedForField = Array.from(new Set(existingTaskAssignees.concat(checklistAssignees))).filter(Boolean);
-        if (mergedForField.length) byId('taskAssignee').value = mergedForField.join(', ');
+        const mergedForField = Array.from(new Set(parseAssignees(byId('taskAssignee').value).concat(checklistAssignees))).filter(Boolean);
+        byId('taskAssignee').value = mergedForField.join(', ');
+
         syncEditingTaskChecklistToState();
         closeChecklistAssignMenu();
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
+        if (state.editingId) persistChecklistForTask(state.editingId);
     }
+
+    function createChecklistHandoffEntries() {
+        syncChecklistDraftFromUi();
+        const selected = selectedChecklistIndexes();
+        if (!selected.length) return;
+        const appended = [];
+        selected.forEach(function (idx) {
+            const item = state.checklistDraft[idx];
+            const assignees = parseChecklistAssignees(item.assignees, '');
+            if (!assignees.length) return;
+            const clone = {
+                done: false,
+                selected: false,
+                text: String(item.text || 'Handoff').trim() || 'Handoff',
+                assignees: serializeAssignees(assignees),
+                startDate: item.startDate || byId('taskStartDate').value || '',
+                dueDate: item.dueDate || byId('taskDueDate').value || '',
+                handoffMode: 'handoff',
+                progressStatus: 'Not Started'
+            };
+            appended.push(clone);
+        });
+        if (!appended.length) return;
+        state.checklistDraft = state.checklistDraft.concat(appended);
+        syncEditingTaskChecklistToState();
+        syncChecklistMasterDates();
+        renderChecklistDraft();
+        queueRenderGantt();
+        if (state.editingId) persistChecklistForTask(state.editingId);
+    }
+
 
     async function loadChecklist(taskId) {
         state.checklistLoading = true;
@@ -1253,7 +1569,7 @@
             return;
         }
         const webAppUrl = getWebAppUrl();
-        const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
+        const sheetId = getSheetId();
         if (!webAppUrl || !sheetId) {
             state.checklistLoading = false;
             renderChecklistDraft();
@@ -1296,6 +1612,7 @@
         byId('taskDescription').value = task ? task.description : '';
         byId('taskAssignee').value = task ? task.assignee : '';
         byId('taskAssigner').value = task ? task.assigner : '';
+        state.lastAssignerValue = byId('taskAssigner').value || ''; 
         byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
         byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
 
@@ -1330,6 +1647,8 @@ const pctEl = byId('taskPercent');
         byId('taskParentId').value = task ? task.parentId : '';
         byId('taskArchiveBtn').style.display = task ? 'inline-block' : 'none';
         byId('taskModal').classList.add('open');
+        const opt = byId('taskOptionalDetails');
+        if (opt) opt.open = false;
 
         byId('taskParentId').onchange = function () {
             const parent = state.tasks.find(function (t) { return t.taskId === byId('taskParentId').value; });
@@ -1372,9 +1691,8 @@ loadChecklist(task ? task.taskId : null);
             status: byId('taskStatus').value,
             priority: byId('taskPriority').value,
             colorKey: byId('taskColor').value,
-            assignee: byId('taskAssignee').value.trim(),
             assigner: byId('taskAssigner').value.trim(),
-            assignees: '[]',
+            assignees: [],
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
             percentComplete: clamp(Number((byId('taskPercent') && byId('taskPercent').value) || 0), 0, 100),
@@ -1395,7 +1713,7 @@ loadChecklist(task ? task.taskId : null);
         });
         const assigneeList = Array.from(new Set(parseAssignees(payload.assignee).concat(checklistAssignees))).filter(Boolean);
         if (assigneeList.length) byId('taskAssignee').value = assigneeList.join(', ');
-        payload.assignees = serializeAssignees(assigneeList);
+        payload.assignees = assigneeList.slice();
         payload.assignee = assigneeList[0] || '';
         modalTracksToPayload(payload, assigneeList);
 syncChecklistAssigneesWithTask(assigneeList);
@@ -1417,20 +1735,7 @@ syncChecklistAssigneesWithTask(assigneeList);
             await writeTask('createTask', payload);
         }
 
-        const checklistPayload = state.checklistDraft.map(function (item) {
-            return {
-                done: !!item.done,
-                text: item.text || '',
-                assignees: item.assignees || '',
-                startDate: item.startDate || '',
-                dueDate: item.dueDate || '',
-                handoffMode: item.handoffMode || '',
-                progressStatus: item.progressStatus || (item.done ? 'Done' : 'Not Started')
-            };
-        });
-        await writeTask('saveChecklist', { taskId: payload.taskId, items: checklistPayload });
-        const savedTask = state.tasks.find(function (t) { return t.taskId === payload.taskId; });
-        if (savedTask) savedTask.checklistItems = checklistPayload;
+        await persistChecklistForTask(payload.taskId);
         closeModal();
         applyFilters();
     }
@@ -1797,18 +2102,29 @@ syncChecklistAssigneesWithTask(assigneeList);
     async function writeTask(action, taskPayload) {
         const webAppUrl = getWebAppUrl();
         if (!webAppUrl) return;
-        const sheetId = (localStorage.getItem('spike_sheetId') || '').trim();
-        const payload = {
+        const sheetId = getSheetId();
+        const directPayload = {
+            action: action,
+            taskAction: action,
+            sheetId: sheetId,
+            tabName: 'tasks',
+            payload: JSON.stringify((function(){ var cp=Object.assign({}, taskPayload||{}); delete cp.assignee; delete cp.assigneeTracks; return cp; })())
+        };
+        const wrappedPayload = {
             action: 'taskWrite',
             taskAction: action,
             sheetId: sheetId,
             tabName: 'tasks',
-            payload: JSON.stringify(taskPayload)
+            payload: JSON.stringify((function(){ var cp=Object.assign({}, taskPayload||{}); delete cp.assignee; delete cp.assigneeTracks; return cp; })())
         };
         try {
-            await postForm(webAppUrl, payload);
-        } catch (e) {
-            console.warn('Task write failed', e);
+            await postForm(webAppUrl, wrappedPayload);
+        } catch (e1) {
+            try {
+                await postForm(webAppUrl, directPayload);
+            } catch (e2) {
+                console.warn('Task write failed', e1 || e2);
+            }
         }
     }
 
@@ -1843,8 +2159,8 @@ syncChecklistAssigneesWithTask(assigneeList);
     }
 
     function bindEvents() {
-        ['search','statusFilter','assigneeFilter','itemFilter','locationFilter'].forEach(function (k) {
-            const ev = (k === 'statusFilter' || k === 'assigneeFilter') ? 'change' : 'input';
+        ['search','statusFilter','assigneeFilter','assignerFilter','itemFilter','locationFilter'].forEach(function (k) {
+            const ev = (k === 'statusFilter' || k === 'assigneeFilter' || k === 'assignerFilter') ? 'change' : 'input';
             els[k].addEventListener(ev, debounce(applyFilters, 120));
         });
 
@@ -1897,6 +2213,7 @@ syncChecklistAssigneesWithTask(assigneeList);
         els.clearFiltersBtn.addEventListener('click', function () {
             els.statusFilter.value = 'all';
             els.assigneeFilter.value = 'all';
+            els.assignerFilter.value = 'all';
             els.itemFilter.value = '';
             els.locationFilter.value = '';
             applyFilters();
@@ -1931,11 +2248,18 @@ syncChecklistAssigneesWithTask(assigneeList);
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
+        byId('taskAssigner').addEventListener('input', function () {
+            const next = String(byId('taskAssigner').value || '').trim();
+            syncChecklistAssignerBadges(state.lastAssignerValue, next);
+            state.lastAssignerValue = next;
+            renderChecklistDraft();
+        });
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
         byId('taskChecklistAdd').addEventListener('click', function () {
             if (state.checklistLoading) return;
             syncChecklistDraftFromUi();
-            state.checklistDraft.push({ done: false, selected: false, text: '', progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
+            const assignerName = getChecklistAssignerName();
+            state.checklistDraft.push({ done: false, selected: false, text: '', assignees: serializeAssignees(assignerName ? [assignerName] : []), progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
             renderChecklistDraft();
         });
         byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });
@@ -1954,8 +2278,8 @@ syncChecklistAssigneesWithTask(assigneeList);
         });
         byId('taskChecklistDelete').addEventListener('click', function () { if (!state.checklistLoading) applyChecklistSelectionAction('delete'); });
         byId('taskChecklistDone').addEventListener('click', function () { if (!state.checklistLoading) applyChecklistSelectionAction('done'); });
-        byId('taskChecklistHandoff').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('handoff'); });
-        byId('taskChecklistCollaborate').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('collaborate'); });
+        byId('taskChecklistHandoff').addEventListener('click', function () { if (!state.checklistLoading) createChecklistHandoffEntries(); });
+        byId('taskChecklistCollaborate').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('assign'); });
         byId('taskChecklistAssignSave').addEventListener('click', function () { if (!state.checklistLoading) saveChecklistAssignMenu(); });
         byId('taskChecklistAssignCancel').addEventListener('click', closeChecklistAssignMenu);
         const pr = byId('taskPriorityToggleRow');
@@ -1968,22 +2292,26 @@ syncChecklistAssigneesWithTask(assigneeList);
             });
         }
 
+
         document.addEventListener('click', function (e) {
-            const progMenu = byId('checklistProgressMenu');
-            if (progMenu && progMenu.classList.contains('open')) {
-                const btn = e.target.closest('[data-progress-status]');
-                if (btn && state.checklistProgressOpenIdx >= 0 && state.checklistDraft[state.checklistProgressOpenIdx]) {
-                    const next = String(btn.getAttribute('data-progress-status') || 'Not Started');
-                    const item = state.checklistDraft[state.checklistProgressOpenIdx];
-                    item.progressStatus = next;
-                    item.done = next === 'Done';
-                    closeChecklistProgressMenu();
+            const menu = byId('checklistProgressMenu');
+            if (!menu || !menu.classList.contains('open')) return;
+            const btn = e.target.closest('[data-progress-status][data-progress-idx]');
+            if (btn) {
+                const idx = Number(btn.getAttribute('data-progress-idx'));
+                const next = String(btn.getAttribute('data-progress-status') || 'Not Started');
+                if (Number.isFinite(idx) && state.checklistDraft[idx]) {
+                    state.checklistDraft[idx].progressStatus = next;
+                    state.checklistDraft[idx].done = next === 'Done';
                     syncChecklistMasterDates();
                     renderChecklistDraft();
-                    return;
+                    syncEditingTaskChecklistToState();
+                    if (state.editingId) persistChecklistForTask(state.editingId);
                 }
-                if (!e.target.closest('#checklistProgressMenu,[data-check-progress-idx]')) closeChecklistProgressMenu();
+                closeChecklistProgressMenu();
+                return;
             }
+            if (!e.target.closest('#checklistProgressMenu,[data-check-progress-idx]')) closeChecklistProgressMenu();
         });
 
         byId('taskStartDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
@@ -2119,6 +2447,7 @@ syncChecklistAssigneesWithTask(assigneeList);
         els.search = byId('tasksSearch');
         els.statusFilter = byId('tasksStatusFilter');
         els.assigneeFilter = byId('tasksAssigneeFilter');
+        els.assignerFilter = byId('tasksAssignerFilter');
         els.itemFilter = byId('tasksItemFilter');
         els.locationFilter = byId('tasksLocationFilter');
         els.zoomInBtn = byId('tasksZoomInBtn');
@@ -2267,41 +2596,97 @@ syncChecklistAssigneesWithTask(assigneeList);
         const locationDd = byId('taskLocationLookup');
         const subDd = byId('taskSublocationLookup');
         if (!locationInput || !subInput || !locationDd || !subDd) return;
-        const rows = getLocationRows();
-        function render(dd, items, mode) {
+
+        const rows = getLocationRows().filter(function (r) { return String(r.location || '').trim() || String(r.sublocation || '').trim(); });
+        const uniqLocations = Array.from(new Set(rows.map(function (r) { return String(r.location || '').trim(); }).filter(Boolean)));
+
+        function locationForSubloc(text) {
+            const q = String(text || '').trim().toLowerCase();
+            if (!q) return '';
+            for (let i = 0; i < rows.length; i++) {
+                if (String(rows[i].sublocation || '').trim().toLowerCase() === q) return String(rows[i].location || '').trim();
+            }
+            return '';
+        }
+
+        function showDropdown(dd, items, mode) {
             if (!items.length) { dd.style.display = 'none'; dd.innerHTML = ''; return; }
             dd.innerHTML = items.map(function (r, idx) {
-                const primary = mode === 'location' ? r.location : r.sublocation;
-                const secondary = mode === 'location' ? r.sublocation : r.location;
+                const primary = mode === 'location' ? String(r.location || '') : String(r.sublocation || '');
+                const secondary = mode === 'location' ? String(r.sublocation || '') : String(r.location || '');
                 return '<div class="dropdown-option" data-loc-idx="' + idx + '"><span class="lookup-option-code">' + esc(primary) + '</span><span class="lookup-option-name">' + esc(secondary) + '</span></div>';
             }).join('');
             dd.style.display = 'block';
         }
-        function find(term, mode) {
+
+        function findLocations(term) {
             const q = String(term || '').trim().toLowerCase();
-            if (!q) return [];
             const out = [];
-            for (let i=0;i<rows.length;i++) {
-                const r = rows[i];
-                const hay = mode === 'location' ? (r.location + ' ' + r.sublocation + ' ' + r.department).toLowerCase() : (r.sublocation + ' ' + r.location + ' ' + r.department).toLowerCase();
-                if (hay.indexOf(q) === -1) continue;
-                out.push(r);
+            for (let i = 0; i < uniqLocations.length; i++) {
+                const loc = uniqLocations[i];
+                if (!q || loc.toLowerCase().indexOf(q) !== -1) out.push({ location: loc, sublocation: '' });
                 if (out.length >= 12) break;
             }
             return out;
         }
-        locationInput.addEventListener('input', function () { render(locationDd, find(locationInput.value, 'location'), 'location'); });
-        subInput.addEventListener('input', function () { render(subDd, find(subInput.value, 'sub'), 'sub'); });
+
+        function findSublocations(term) {
+            const q = String(term || '').trim().toLowerCase();
+            const selectedLoc = String(locationInput.value || '').trim().toLowerCase();
+            const out = [];
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                const sub = String(r.sublocation || '').trim();
+                const loc = String(r.location || '').trim();
+                if (!sub) continue;
+                if (selectedLoc && loc.toLowerCase() !== selectedLoc) continue;
+                const hay = (sub + ' ' + loc + ' ' + String(r.department || '')).toLowerCase();
+                if (!q || hay.indexOf(q) !== -1) out.push(r);
+                if (out.length >= 12) break;
+            }
+            return out;
+        }
+
+        locationInput.addEventListener('input', function () {
+            showDropdown(locationDd, findLocations(locationInput.value), 'location');
+            if (String(locationInput.value || '').trim()) {
+                showDropdown(subDd, findSublocations(subInput.value), 'sub');
+            }
+        });
+
+        locationInput.addEventListener('focus', function () {
+            showDropdown(locationDd, findLocations(locationInput.value), 'location');
+        });
+
+        subInput.addEventListener('input', function () {
+            showDropdown(subDd, findSublocations(subInput.value), 'sub');
+            const inferred = locationForSubloc(subInput.value);
+            if (inferred) {
+                locationInput.value = inferred;
+                showDropdown(locationDd, findLocations(inferred), 'location');
+            }
+        });
+
+        subInput.addEventListener('focus', function () {
+            showDropdown(subDd, findSublocations(subInput.value), 'sub');
+        });
+
         locationDd.addEventListener('mousedown', function (e) {
             const opt = e.target.closest('[data-loc-idx]'); if (!opt) return; e.preventDefault();
-            const pick = find(locationInput.value, 'location')[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
-            locationInput.value = pick.location; subInput.value = pick.sublocation; locationDd.style.display='none';
+            const pick = findLocations(locationInput.value)[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
+            locationInput.value = pick.location;
+            locationDd.style.display = 'none';
+            showDropdown(subDd, findSublocations(subInput.value), 'sub');
         });
+
         subDd.addEventListener('mousedown', function (e) {
             const opt = e.target.closest('[data-loc-idx]'); if (!opt) return; e.preventDefault();
-            const pick = find(subInput.value, 'sub')[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
-            locationInput.value = pick.location; subInput.value = pick.sublocation; subDd.style.display='none';
+            const pick = findSublocations(subInput.value)[Number(opt.getAttribute('data-loc-idx'))]; if (!pick) return;
+            locationInput.value = pick.location;
+            subInput.value = pick.sublocation;
+            subDd.style.display = 'none';
         });
+
         document.addEventListener('click', function (e) {
             if (!e.target.closest('.task-link-lookup')) { locationDd.style.display='none'; subDd.style.display='none'; }
         });
@@ -2360,7 +2745,13 @@ syncChecklistAssigneesWithTask(assigneeList);
                 const cls = iso === selected ? 'task-cal-day active' : 'task-cal-day';
                 cells.push('<button type="button" class="' + cls + '" data-cal-date="' + iso + '">' + d + '</button>');
             }
-            pair.host.innerHTML = '<div class="task-cal-pop-head"><button type="button" data-cal-nav="prev">‹</button><span class="task-cal-pop-title">' + monthNames[month] + ' ' + year + '</span><button type="button" data-cal-nav="next">›</button></div><div class="task-cal-grid">' + cells.join('') + '</div>';
+            pair.host.innerHTML = '<div class=\"task-cal-pop-head\">' +
+                '<button type=\"button\" data-cal-nav=\"prevYear\" aria-label=\"Previous year\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M18 6l-6 6 6 6\"></path><path d=\"M12 6l-6 6 6 6\"></path></svg></button>' +
+                '<button type=\"button\" data-cal-nav=\"prev\" aria-label=\"Previous month\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M15 18l-6-6 6-6\"></path></svg></button>' +
+                '<span class=\"task-cal-pop-title\">' + monthNames[month] + ' ' + year + '</span>' +
+                '<button type=\"button\" data-cal-nav=\"next\" aria-label=\"Next month\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M9 6l6 6-6 6\"></path></svg></button>' +
+                '<button type=\"button\" data-cal-nav=\"nextYear\" aria-label=\"Next year\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M6 6l6 6-6 6\"></path><path d=\"M12 6l6 6-6 6\"></path></svg></button>' +
+                '</div><div class=\"task-cal-grid\">' + cells.join('') + '</div>';
         }
 
         function closeAll() { pairs.forEach(function (p) { if (p && p.pop) p.pop.classList.remove('open'); }); }
@@ -2382,9 +2773,17 @@ syncChecklistAssigneesWithTask(assigneeList);
             pair.host.addEventListener('click', function (e) {
                 const nav = e.target.closest('[data-cal-nav]');
                 if (nav) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const cur = toDate(views[pair.field.id] || pair.field.value || new Date()) || new Date();
-                    const step = nav.getAttribute('data-cal-nav') === 'prev' ? -1 : 1;
-                    views[pair.field.id] = new Date(cur.getFullYear(), cur.getMonth() + step, 1).toISOString().slice(0, 10);
+                    const navType = nav.getAttribute('data-cal-nav');
+                    if (navType === 'prevYear' || navType === 'nextYear') {
+                        const ystep = navType === 'prevYear' ? -1 : 1;
+                        views[pair.field.id] = new Date(cur.getFullYear() + ystep, cur.getMonth(), 1).toISOString().slice(0, 10);
+                    } else {
+                        const step = navType === 'prev' ? -1 : 1;
+                        views[pair.field.id] = new Date(cur.getFullYear(), cur.getMonth() + step, 1).toISOString().slice(0, 10);
+                    }
                     renderCal(pair);
                     return;
                 }
@@ -2398,7 +2797,7 @@ syncChecklistAssigneesWithTask(assigneeList);
         });
 
         document.addEventListener('click', function (e) {
-            if (e.target.closest('.task-date-field')) return;
+            if (e.target.closest('.task-date-field') || e.target.closest('.task-date-popover') || e.target.closest('[data-cal-nav]') || e.target.closest('[data-cal-date]')) return;
             closeAll();
         });
     }

@@ -13,6 +13,17 @@ console.log('[Dashboard] build: patched20-1772260795384');
 // Ensure debug state container exists in Dashboard frame (file:// + iframes)
 window.costChartState = window.costChartState || {};
 
+const PB_DEFAULT_SPIKE_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec';
+const PB_DEFAULT_SPIKE_SHEET_ID = '1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ';
+
+function __getDefaultedSpikeWebAppUrl() {
+    return String(localStorage.getItem('spike_webAppUrl') || PB_DEFAULT_SPIKE_WEBAPP_URL).trim();
+}
+
+function __getDefaultedSpikeSheetId() {
+    return String(localStorage.getItem('spike_sheetId') || localStorage.getItem('gs_sheetId') || PB_DEFAULT_SPIKE_SHEET_ID).trim();
+}
+
 // Ensure SpikeFactors is available (self-heal if script failed to load)
 function _ensureSpikeFactorsLoaded() {
     return new Promise(function(resolve) {
@@ -171,7 +182,7 @@ window.requestChartStateMirror = function() {
          */
         async function fetchSunsetTimes(latitude, longitude) {
             try {
-                const baseWebAppUrl = (localStorage.getItem('jsonp_proxy_webAppUrl') || localStorage.getItem('spike_webAppUrl') || '').trim();
+                const baseWebAppUrl = (localStorage.getItem('jsonp_proxy_webAppUrl') || __getDefaultedSpikeWebAppUrl()).trim();
                 if (!baseWebAppUrl) {
                     throw new Error('Missing Apps Script Web App URL. Configure spike_webAppUrl in Settings for file:// JSONP proxy usage.');
                 }
@@ -728,7 +739,7 @@ function _initSettingsCardCollapse() {
             try {
                 const apiKey = localStorage.getItem('gs_apiKey') || '';
                 const clientId = localStorage.getItem('gs_clientId') || '';
-                const sheetId = localStorage.getItem('gs_sheetId') || '';
+                const sheetId = localStorage.getItem('gs_sheetId') || PB_DEFAULT_SPIKE_SHEET_ID;
                 const tabName = localStorage.getItem('gs_tabName') || 'min_spike_factors';
 
                 const apiEl = document.getElementById('gsApiKeyInput');
@@ -760,8 +771,8 @@ function _initSettingsCardCollapse() {
         
             // Load Apps Script spike-factor cache config (no OAuth required)
             try {
-                const webAppUrl = localStorage.getItem('spike_webAppUrl') || '';
-                const sheetId2 = localStorage.getItem('spike_sheetId') || (localStorage.getItem('gs_sheetId') || '');
+                const webAppUrl = __getDefaultedSpikeWebAppUrl();
+                const sheetId2 = __getDefaultedSpikeSheetId();
                 const tabName2 = localStorage.getItem('spike_tabName') || 'min_spike_factors';
 
                 const tabEl2 = document.getElementById('spikeTabName');
@@ -839,8 +850,8 @@ function __setSpikeBridgeFrameSrc(execUrl){
 }
 
 function __readAndPersistSpikeWebAppConfigFromInputs() {
-            const webAppUrl = (document.getElementById('spikeWebAppUrl')?.value || '').trim();
-            const sheetId = (document.getElementById('spikeSheetId')?.value || '').trim();
+            const webAppUrl = (document.getElementById('spikeWebAppUrl')?.value || PB_DEFAULT_SPIKE_WEBAPP_URL).trim();
+            const sheetId = (document.getElementById('spikeSheetId')?.value || PB_DEFAULT_SPIKE_SHEET_ID).trim();
             const tabName = (document.getElementById('spikeTabName')?.value || 'min_spike_factors').trim() || 'min_spike_factors';
 
             localStorage.setItem('spike_webAppUrl', webAppUrl);
@@ -2330,8 +2341,8 @@ Subloc: ${counts.subloc}`);
 
         function __refreshSheetTrendTimelineAsync(){
             try {
-                const webAppUrl = String(localStorage.getItem('spike_webAppUrl') || '').trim();
-                const sheetId = String(localStorage.getItem('spike_sheetId') || '').trim();
+                const webAppUrl = __getDefaultedSpikeWebAppUrl();
+                const sheetId = __getDefaultedSpikeSheetId();
                 if (!webAppUrl || !sheetId || !/^https?:\/\//i.test(webAppUrl)) return;
                 const now = Date.now();
                 const cacheRaw = localStorage.getItem('trend_timeline_cache_v1');
@@ -5751,8 +5762,8 @@ Subloc: ${counts.subloc}`);
 
 
         // ---- Trend Facts (Google Sheets append-only timeline) ----
-const TREND_FACTS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec";
-const TREND_FACTS_SHEET_ID = "1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ";
+const TREND_FACTS_WEBAPP_URL = PB_DEFAULT_SPIKE_WEBAPP_URL;
+const TREND_FACTS_SHEET_ID = PB_DEFAULT_SPIKE_SHEET_ID;
 const TREND_FACTS_UP_TAB = "trend_facts_up";
 const TREND_FACTS_DOWN_TAB = "trend_facts_down";
 function _setTrendFactsWriteStatus(message) {
@@ -6235,8 +6246,8 @@ async function loadLatestTrendFactsFromSheet() {
 
 // ---- Spike Factor Admin (Apps Script Web App) ----
         function _spikeGetConfigFromUI() {
-            const webAppUrl = (document.getElementById('spikeWebAppUrl')?.value || '').trim();
-            const sheetId = (document.getElementById('spikeSheetId')?.value || '').trim();
+            const webAppUrl = (document.getElementById('spikeWebAppUrl')?.value || PB_DEFAULT_SPIKE_WEBAPP_URL).trim();
+            const sheetId = (document.getElementById('spikeSheetId')?.value || PB_DEFAULT_SPIKE_SHEET_ID).trim();
             const tabName = 'min_spike_factors';
             return { webAppUrl, sheetId, tabName };
         }
@@ -6246,8 +6257,8 @@ async function loadLatestTrendFactsFromSheet() {
             try {
                 const urlEl = document.getElementById('spikeWebAppUrl');
                 const idEl = document.getElementById('spikeSheetId');
-                const savedUrl = localStorage.getItem('spike_webAppUrl') || '';
-                const savedId = localStorage.getItem('spike_sheetId') || '';
+                const savedUrl = __getDefaultedSpikeWebAppUrl();
+                const savedId = __getDefaultedSpikeSheetId();
                 if (urlEl && !urlEl.value && savedUrl) urlEl.value = savedUrl;
                 if (idEl && !idEl.value && savedId) idEl.value = savedId;
 
@@ -6714,8 +6725,8 @@ async function adminLoadSpikeFactors() {
 
         const sf = window.SpikeFactors;
         const saver = sf && sf.saveToWebApp;
-        const webAppUrl = localStorage.getItem('spike_webAppUrl') || '';
-        const sheetId = localStorage.getItem('spike_sheetId') || '';
+        const webAppUrl = __getDefaultedSpikeWebAppUrl();
+        const sheetId = __getDefaultedSpikeSheetId();
 
         if (typeof saver !== 'function' || !webAppUrl || !sheetId) {
           _tf_warn('[TrendFacts] SpikeFactors.saveToWebApp missing or config missing; skipping Sheets write', { hasSaver: typeof saver, webAppUrl: !!webAppUrl, sheetId: !!sheetId });

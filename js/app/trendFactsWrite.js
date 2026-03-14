@@ -12,15 +12,18 @@
 (function () {
   "use strict";
 
+  const DEFAULT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec";
+  const DEFAULT_SHEET_ID = "1S5TnYiY3UIlPvJrgd063OVm3a77iaWx_f89I-hYP7tQ";
+
   function _getTrendFactsConfig() {
     const scriptUrl =
       window.TREND_FACTS_WEBAPP_URL ||
       localStorage.getItem("spike_webAppUrl") || // Settings modal values
-      "";
+      DEFAULT_WEBAPP_URL;
     const sheetId =
       window.TREND_FACTS_SHEET_ID ||
       localStorage.getItem("spike_sheetId") ||
-      "";
+      DEFAULT_SHEET_ID;
     return { scriptUrl, sheetId };
   }
 
