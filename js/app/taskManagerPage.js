@@ -1591,6 +1591,7 @@ const pctEl = byId('taskPercent');
         ).join('');
         byId('taskParentId').value = task ? task.parentId : '';
         byId('taskArchiveBtn').style.display = task ? 'inline-block' : 'none';
+        if (byId('taskSaveBtn')) byId('taskSaveBtn').disabled = false;
         byId('taskModal').classList.add('open');
         const opt = byId('taskOptionalDetails');
         if (opt) opt.open = false;
