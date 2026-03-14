@@ -582,7 +582,7 @@
         .checklist-badge { font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 999px; border: 1px solid rgba(126,154,188,0.4); background: rgba(126,154,188,0.14); color: var(--text-secondary); }
         .checklist-badge.assignee { cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
         .checklist-badge.assignee:hover { border-color: rgba(79,142,247,0.6); }
-        .checklist-badge.assigner { border-color: rgba(79,142,247,0.76); background: rgba(79,142,247,0.24); color: #eaf2ff; }
+        .checklist-badge.assigner { border-color: rgba(79,142,247,0.76); background: rgba(79,142,247,0.24); color: var(--text-primary); }
         .checklist-badge.status-not-started { border-color: rgba(79,142,247,0.66); background: rgba(79,142,247,0.2); color: #e8f1ff; }
         .checklist-badge.status-in-progress { border-color: rgba(242,201,76,0.66); background: rgba(242,201,76,0.18); color: #fff6d7; }
         .checklist-badge.status-blocked { border-color: rgba(226,79,79,0.66); background: rgba(226,79,79,0.2); color: #ffe3e3; }
@@ -609,10 +609,12 @@
         .task-title-row { display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; }
         .task-link-section-grid { margin-top: 8px; display:grid; grid-template-columns: repeat(2,minmax(170px,1fr)); gap:8px; }
         .task-link-lookup { position: relative; }
-        .checklist-progress-menu { position: fixed; z-index: 420; width: 160px; border-radius: 10px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: 0 10px 24px rgba(0,0,0,0.25); padding: 6px; display:none; }
-        .checklist-progress-menu.open { display:block; }
-        .checklist-progress-btn { width:100%; text-align:left; min-height:30px; border-radius:8px; border:0; background:transparent; color:var(--text-primary); padding:4px 8px; cursor:pointer; }
-        .checklist-progress-btn:hover { background: rgba(42,184,173,0.14); }
+        .checklist-assign-arrow { width: 12px; height: 12px; color: var(--text-secondary); margin: 0 2px; vertical-align: -1px; }
+        body:not(.dark-mode) .checklist-badge.assigner,
+        body:not(.dark-mode) .checklist-badge.status-not-started,
+        body:not(.dark-mode) .checklist-badge.status-in-progress,
+        body:not(.dark-mode) .checklist-badge.status-blocked,
+        body:not(.dark-mode) .checklist-badge.status-done { color: #1f2937; }
         input.tasks-input[type="date"] { transition: box-shadow 180ms ease, transform 180ms ease; }
         input.tasks-input[type="date"]:focus { transform: translateY(1px); }
 
@@ -720,6 +722,7 @@
                         <select id="taskPriority" class="tasks-select" style="display:none;"></select>
                         <select id="taskParentId" class="tasks-select"></select>
                         <input id="taskAssigner" class="tasks-input" placeholder="Assigner" />
+                        <input id="taskAssignee" type="hidden" value="" />
                     </div>
                     <div class="task-form-section">
                         <div class="task-form-label">Description</div>
@@ -727,15 +730,14 @@
                     </div>
                     <div class="task-form-section">
                         <div class="task-form-label">Task dates</div>
-                        <div id="taskMasterRangeNote" class="task-master-range-note"></div>
-                        <div class="task-dates-row">
+                                                <div class="task-dates-row">
                             <div class="task-date-field">
-                                <input id="taskStartDate" type="date" class="tasks-input" />
+                                <input id="taskStartDate" type="text" class="tasks-input" placeholder="YYYY-MM-DD" autocomplete="off" />
                                 <div id="taskStartDatePopover" class="task-date-popover" aria-hidden="true"><div id="taskStartCalendar"></div></div>
                             </div>
                             <span class="task-date-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>
                             <div class="task-date-field">
-                                <input id="taskDueDate" type="date" class="tasks-input" />
+                                <input id="taskDueDate" type="text" class="tasks-input" placeholder="YYYY-MM-DD" autocomplete="off" />
                                 <div id="taskDueDatePopover" class="task-date-popover" aria-hidden="true"><div id="taskDueCalendar"></div></div>
                             </div>
                         </div>
@@ -751,8 +753,8 @@
                                 <div id="taskChecklistAssigneeMenu" class="task-checklist-assignee-menu" role="dialog" aria-label="Checklist assignee controls">
                                     <div class="task-checklist-assignee-menu-grid">
                                         <input id="taskChecklistAssignName" class="tasks-input" placeholder="Assignee" />
-                                        <input id="taskChecklistAssignStart" type="date" class="tasks-input" />
-                                        <input id="taskChecklistAssignDue" type="date" class="tasks-input" />
+                                        <input id="taskChecklistAssignStart" type="text" class="tasks-input" placeholder="YYYY-MM-DD" autocomplete="off" />
+                                        <input id="taskChecklistAssignDue" type="text" class="tasks-input" placeholder="YYYY-MM-DD" autocomplete="off" />
                                     </div>
                                     <div class="task-checklist-assignee-actions"><button id="taskChecklistAssignCancel" class="tasks-button task-checklist-assignee-save" type="button">Cancel</button><button id="taskChecklistAssignSave" class="tasks-button task-checklist-assignee-save" type="button">Assign</button></div>
                                 </div>
@@ -760,12 +762,11 @@
                         </div>
                         <div id="taskChecklistRows"></div>
                     </div>
-                    <details open>
+                    <details id="taskOptionalDetails">
                         <summary>OPTIONAL</summary>
                         <div class="task-optional-grid">
                             <select id="taskStatus" class="tasks-select"></select>
-                            <input id="taskAssignee" class="tasks-input" placeholder="Assignee" />
-                            <div class="task-form-section" style="grid-column:1 / -1; margin-top:4px;">
+                                                        <div class="task-form-section" style="grid-column:1 / -1; margin-top:4px;">
                                 <div class="task-form-label">Link Item</div>
                                 <div class="task-link-section-grid">
                                     <div class="task-itemcode-lookup">
@@ -807,7 +808,6 @@
         </div>
     </div>
 
-    <div id="checklistProgressMenu" class="checklist-progress-menu" role="dialog" aria-label="Checklist progress"></div>
 
     <script src="items_details_mockdata.js"></script>
     <script src="location_ref_mockdata.js"></script>

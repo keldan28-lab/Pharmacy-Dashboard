@@ -46,7 +46,6 @@
         printView: false,
         checklistLoading: false,
         ganttRenderQueued: false,
-        checklistProgressOpenIdx: -1,
         lastAssignerValue: ''
     };
 
@@ -1150,7 +1149,6 @@
         if (!Array.isArray(state.checklistDraft) || !state.checklistDraft.length) return;
         const ms = byId('taskStartDate');
         const me = byId('taskDueDate');
-        const note = byId('taskMasterRangeNote');
         if (!ms || !me) return;
         const start = ms.value || '';
         const due = me.value || start || '';
@@ -1165,28 +1163,23 @@
             if (!earliest || (item.startDate && item.startDate < earliest)) earliest = item.startDate;
             if (!latest || (item.dueDate && item.dueDate > latest)) latest = item.dueDate;
         });
-        if (note) note.textContent = (earliest && latest) ? ('Checklist range: ' + earliest + ' → ' + latest) : '';
     }
 
-    function openChecklistProgressMenu(idx, anchor) {
-        const menu = byId('checklistProgressMenu');
-        if (!menu || !anchor) return;
-        state.checklistProgressOpenIdx = idx;
-        const current = String((state.checklistDraft[idx] && state.checklistDraft[idx].progressStatus) || 'Not Started');
-        menu.innerHTML = checklistProgressList().map(function (status) {
-            return '<button class="checklist-progress-btn" type="button" data-progress-status="' + esc(status) + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
-        }).join('');
-        const r = anchor.getBoundingClientRect();
-        menu.style.left = Math.round(r.left) + 'px';
-        menu.style.top = Math.round(r.bottom + 6) + 'px';
-        menu.classList.add('open');
+    function advanceChecklistStatus(idx) {
+        const item = state.checklistDraft[idx];
+        if (!item) return;
+        const list = checklistProgressList();
+        const cur = normalizeChecklistStatus(item.progressStatus, item.done);
+        const at = Math.max(0, list.indexOf(cur));
+        const next = list[(at + 1) % list.length];
+        item.progressStatus = next;
+        item.done = next === 'Done';
+        syncChecklistMasterDates();
+        renderChecklistDraft();
+        syncEditingTaskChecklistToState();
+        if (state.editingId) persistChecklistForTask(state.editingId);
     }
 
-    function closeChecklistProgressMenu() {
-        const menu = byId('checklistProgressMenu');
-        if (menu) menu.classList.remove('open');
-        state.checklistProgressOpenIdx = -1;
-    }
 
     function renderChecklistDraft() {
         const wrap = byId('taskChecklistRows');
@@ -1213,7 +1206,10 @@
             const assigned = parseChecklistAssignees(item && item.assignees, getChecklistAssignerName());
             const progressStatus = normalizeChecklistStatus(item && item.progressStatus, item && item.done);
             const statusCls = checklistStatusClass(progressStatus);
-            assigned.forEach(function (name) {
+            assigned.forEach(function (name, nameIdx) {
+                if (nameIdx > 0) {
+                    badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
+                }
                 const isAssigner = String(name || '').trim() && String(name || '').trim() === getChecklistAssignerName();
                 const cls = 'checklist-badge assignee ' + statusCls + (isAssigner ? ' assigner' : '');
                 badges.push('<button type="button" class="' + cls + '" data-check-progress-idx="' + idx + '">' + esc(name || 'Assigner') + '</button>');
@@ -1221,9 +1217,6 @@
             if (!assigned.length) {
                 const label = getChecklistAssignerName() || 'Assigner';
                 badges.push('<button type="button" class="checklist-badge assignee assigner ' + statusCls + '" data-check-progress-idx="' + idx + '">' + esc(label) + '</button>');
-            }
-            if (item && item.handoffMode === 'handoff' && assigned.length > 1) {
-                badges.push('<svg class="checklist-handoff-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
             }
             if (item && item.done) badges.push('<span class="checklist-badge done">Done</span>');
             return '<div class="checklist-row">' +
@@ -1316,7 +1309,7 @@
         state.checklistAssignMode = mode;
         const menu = byId('taskChecklistAssigneeMenu');
         if (!menu) return;
-        byId('taskChecklistAssignName').value = byId('taskAssignee').value || '';
+        byId('taskChecklistAssignName').value = '';
         byId('taskChecklistAssignStart').value = byId('taskStartDate').value;
         byId('taskChecklistAssignDue').value = byId('taskDueDate').value;
         menu.classList.add('open');
@@ -1459,6 +1452,8 @@ const pctEl = byId('taskPercent');
         byId('taskParentId').value = task ? task.parentId : '';
         byId('taskArchiveBtn').style.display = task ? 'inline-block' : 'none';
         byId('taskModal').classList.add('open');
+        const opt = byId('taskOptionalDetails');
+        if (opt) opt.open = false;
 
         byId('taskParentId').onchange = function () {
             const parent = state.tasks.find(function (t) { return t.taskId === byId('taskParentId').value; });
@@ -2067,7 +2062,7 @@ syncChecklistAssigneesWithTask(assigneeList);
             const progressBtn = e.target.closest('[data-check-progress-idx]');
             if (progressBtn) {
                 const idx = Number(progressBtn.getAttribute('data-check-progress-idx'));
-                if (Number.isFinite(idx)) openChecklistProgressMenu(idx, progressBtn);
+                if (Number.isFinite(idx)) advanceChecklistStatus(idx);
                 return;
             }
             const selectCb = e.target.closest('[data-check-select-idx]');
@@ -2090,24 +2085,6 @@ syncChecklistAssigneesWithTask(assigneeList);
                 syncPriorityToggleUi();
             });
         }
-
-        document.addEventListener('click', function (e) {
-            const progMenu = byId('checklistProgressMenu');
-            if (progMenu && progMenu.classList.contains('open')) {
-                const btn = e.target.closest('[data-progress-status]');
-                if (btn && state.checklistProgressOpenIdx >= 0 && state.checklistDraft[state.checklistProgressOpenIdx]) {
-                    const next = String(btn.getAttribute('data-progress-status') || 'Not Started');
-                    const item = state.checklistDraft[state.checklistProgressOpenIdx];
-                    item.progressStatus = next;
-                    item.done = next === 'Done';
-                    closeChecklistProgressMenu();
-                    syncChecklistMasterDates();
-                    renderChecklistDraft();
-                    return;
-                }
-                if (!e.target.closest('#checklistProgressMenu,[data-check-progress-idx]')) closeChecklistProgressMenu();
-            }
-        });
 
         byId('taskStartDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
         byId('taskDueDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
@@ -2539,7 +2516,7 @@ syncChecklistAssigneesWithTask(assigneeList);
                 const cls = iso === selected ? 'task-cal-day active' : 'task-cal-day';
                 cells.push('<button type="button" class="' + cls + '" data-cal-date="' + iso + '">' + d + '</button>');
             }
-            pair.host.innerHTML = '<div class="task-cal-pop-head"><button type="button" data-cal-nav="prev">‹</button><span class="task-cal-pop-title">' + monthNames[month] + ' ' + year + '</span><button type="button" data-cal-nav="next">›</button></div><div class="task-cal-grid">' + cells.join('') + '</div>';
+            pair.host.innerHTML = '<div class=\"task-cal-pop-head\"><button type=\"button\" data-cal-nav=\"prev\">‹</button><button type=\"button\" data-cal-nav=\"prevYear\"><<</button><span class=\"task-cal-pop-title\">' + monthNames[month] + ' ' + year + '</span><button type=\"button\" data-cal-nav=\"nextYear\">>></button><button type=\"button\" data-cal-nav=\"next\">›</button></div><div class=\"task-cal-grid\">' + cells.join('') + '</div>';
         }
 
         function closeAll() { pairs.forEach(function (p) { if (p && p.pop) p.pop.classList.remove('open'); }); }
@@ -2562,8 +2539,14 @@ syncChecklistAssigneesWithTask(assigneeList);
                 const nav = e.target.closest('[data-cal-nav]');
                 if (nav) {
                     const cur = toDate(views[pair.field.id] || pair.field.value || new Date()) || new Date();
-                    const step = nav.getAttribute('data-cal-nav') === 'prev' ? -1 : 1;
-                    views[pair.field.id] = new Date(cur.getFullYear(), cur.getMonth() + step, 1).toISOString().slice(0, 10);
+                    const navType = nav.getAttribute('data-cal-nav');
+                    if (navType === 'prevYear' || navType === 'nextYear') {
+                        const ystep = navType === 'prevYear' ? -1 : 1;
+                        views[pair.field.id] = new Date(cur.getFullYear() + ystep, cur.getMonth(), 1).toISOString().slice(0, 10);
+                    } else {
+                        const step = navType === 'prev' ? -1 : 1;
+                        views[pair.field.id] = new Date(cur.getFullYear(), cur.getMonth() + step, 1).toISOString().slice(0, 10);
+                    }
                     renderCal(pair);
                     return;
                 }
@@ -2577,7 +2560,7 @@ syncChecklistAssigneesWithTask(assigneeList);
         });
 
         document.addEventListener('click', function (e) {
-            if (e.target.closest('.task-date-field')) return;
+            if (e.target.closest('.task-date-field') || e.target.closest('.task-date-popover') || e.target.closest('[data-cal-nav]') || e.target.closest('[data-cal-date]')) return;
             closeAll();
         });
     }
