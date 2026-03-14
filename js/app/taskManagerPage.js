@@ -892,15 +892,14 @@
     }
 
     function syncChecklistAssigneesWithTask(assigneeList) {
-        const base = removeAssignerFromAssignees(Array.isArray(assigneeList) ? assigneeList.filter(Boolean) : [], getChecklistAssignerName());
         let changed = false;
         for (let i = 0; i < state.checklistDraft.length; i++) {
             const item = state.checklistDraft[i];
             if (!item) continue;
             const existing = parseChecklistAssignees(item.assignees, '');
-            const merged = Array.from(new Set(existing.concat(base))).filter(Boolean);
-            if (merged.length && serializeAssignees(existing) !== serializeAssignees(merged)) {
-                item.assignees = serializeAssignees(merged);
+            const normalized = removeAssignerFromAssignees(existing, getChecklistAssignerName());
+            if (serializeAssignees(existing) !== serializeAssignees(normalized)) {
+                item.assignees = serializeAssignees(normalized);
                 changed = true;
             }
         }
