@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assigner','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -273,9 +273,12 @@
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
         out.colorKey = String(out.colorKey || 'teal');
-        const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(out.assignee);
+        const sourceAssignee = source.assignee != null ? source.assignee : keyMap.assignee;
+        const sourceTracks = source.assigneeTracks != null ? source.assigneeTracks : keyMap.assigneetracks;
+        const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(sourceAssignee);
         out.assignees = assigneeList;
-        out.assignee = String((assigneeList[0] || out.assignee || '')).trim();
+        out.assignee = String((assigneeList[0] || sourceAssignee || '')).trim();
+        out.assigneeTracks = sourceTracks || '';
         if (!Array.isArray(out.checklistItems)) {
             try {
                 const parsedChecklist = JSON.parse(String(out.checklistItems || '[]'));
@@ -583,7 +586,7 @@
         byId('taskPriority').value = parent.priority || 'Medium';
         syncPriorityToggleUi();
         byId('taskColor').value = parent.colorKey || 'teal';
-        byId('taskAssignee').value = parent.assignee || '';
+        byId('taskAssignee').value = Array.isArray(parent.assignees) ? parent.assignees.join(', ') : (parent.assignee || '');
         byId('taskAssigner').value = parent.assigner || '';
         byId('taskStartDate').value = parent.startDate || toISODate(new Date());
         byId('taskDueDate').value = parent.dueDate || shiftIsoDate(byId('taskStartDate').value, 1);
@@ -1575,9 +1578,8 @@ loadChecklist(task ? task.taskId : null);
             status: byId('taskStatus').value,
             priority: byId('taskPriority').value,
             colorKey: byId('taskColor').value,
-            assignee: byId('taskAssignee').value.trim(),
             assigner: byId('taskAssigner').value.trim(),
-            assignees: '[]',
+            assignees: [],
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
             percentComplete: clamp(Number((byId('taskPercent') && byId('taskPercent').value) || 0), 0, 100),
@@ -1993,14 +1995,14 @@ syncChecklistAssigneesWithTask(assigneeList);
             taskAction: action,
             sheetId: sheetId,
             tabName: 'tasks',
-            payload: JSON.stringify(taskPayload)
+            payload: JSON.stringify((function(){ var cp=Object.assign({}, taskPayload||{}); delete cp.assignee; delete cp.assigneeTracks; return cp; })())
         };
         const wrappedPayload = {
             action: 'taskWrite',
             taskAction: action,
             sheetId: sheetId,
             tabName: 'tasks',
-            payload: JSON.stringify(taskPayload)
+            payload: JSON.stringify((function(){ var cp=Object.assign({}, taskPayload||{}); delete cp.assignee; delete cp.assigneeTracks; return cp; })())
         };
         try {
             await postForm(webAppUrl, wrappedPayload);
@@ -2630,7 +2632,13 @@ syncChecklistAssigneesWithTask(assigneeList);
                 const cls = iso === selected ? 'task-cal-day active' : 'task-cal-day';
                 cells.push('<button type="button" class="' + cls + '" data-cal-date="' + iso + '">' + d + '</button>');
             }
-            pair.host.innerHTML = '<div class=\"task-cal-pop-head\"><button type=\"button\" data-cal-nav=\"prev\">‹</button><button type=\"button\" data-cal-nav=\"prevYear\"><<</button><span class=\"task-cal-pop-title\">' + monthNames[month] + ' ' + year + '</span><button type=\"button\" data-cal-nav=\"nextYear\">>></button><button type=\"button\" data-cal-nav=\"next\">›</button></div><div class=\"task-cal-grid\">' + cells.join('') + '</div>';
+            pair.host.innerHTML = '<div class=\"task-cal-pop-head\">' +
+                '<button type=\"button\" data-cal-nav=\"prevYear\" aria-label=\"Previous year\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M18 6l-6 6 6 6\"></path><path d=\"M12 6l-6 6 6 6\"></path></svg></button>' +
+                '<button type=\"button\" data-cal-nav=\"prev\" aria-label=\"Previous month\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M15 18l-6-6 6-6\"></path></svg></button>' +
+                '<span class=\"task-cal-pop-title\">' + monthNames[month] + ' ' + year + '</span>' +
+                '<button type=\"button\" data-cal-nav=\"next\" aria-label=\"Next month\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M9 6l6 6-6 6\"></path></svg></button>' +
+                '<button type=\"button\" data-cal-nav=\"nextYear\" aria-label=\"Next year\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M6 6l6 6-6 6\"></path><path d=\"M12 6l6 6-6 6\"></path></svg></button>' +
+                '</div><div class=\"task-cal-grid\">' + cells.join('') + '</div>';
         }
 
         function closeAll() { pairs.forEach(function (p) { if (p && p.pop) p.pop.classList.remove('open'); }); }
