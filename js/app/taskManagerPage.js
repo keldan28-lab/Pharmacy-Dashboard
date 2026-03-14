@@ -50,7 +50,8 @@
         autosaveTimer: null,
         autosaveSaving: false,
         autosaveQueued: false,
-        autosaveSignature: ''
+        autosaveSignature: '',
+        checklistPersistSignatureByTask: {}
     };
 
     const els = {};
@@ -1250,7 +1251,15 @@
                 progressStatus: normalizeChecklistStatus(item.progressStatus, item.done)
             };
         });
-        await writeTask('saveChecklist', { taskId: taskId, items: checklistPayload });
+        const sig = JSON.stringify(checklistPayload);
+        if (state.checklistPersistSignatureByTask[taskId] === sig) return;
+        state.checklistPersistSignatureByTask[taskId] = sig;
+        try {
+            await writeTask('saveChecklist', { taskId: taskId, items: checklistPayload });
+        } catch (err) {
+            if (state.checklistPersistSignatureByTask[taskId] === sig) delete state.checklistPersistSignatureByTask[taskId];
+            throw err;
+        }
         const savedTask = state.tasks.find(function (t) { return t.taskId === taskId; });
         if (savedTask) savedTask.checklistItems = checklistPayload;
     }
