@@ -46,7 +46,8 @@
         printView: false,
         checklistLoading: false,
         ganttRenderQueued: false,
-        checklistProgressOpenIdx: -1
+        checklistProgressOpenIdx: -1,
+        lastAssignerValue: ''
     };
 
     const els = {};
@@ -1081,6 +1082,59 @@
 
     function checklistProgressList() { return ['Not Started', 'In Progress', 'Blocked', 'Done']; }
 
+    function checklistStatusClass(status) {
+        const s = String(status || '').toLowerCase();
+        if (s === 'done') return 'status-done';
+        if (s === 'in progress') return 'status-in-progress';
+        if (s === 'blocked') return 'status-blocked';
+        return 'status-not-started';
+    }
+
+    function normalizeChecklistStatus(status, done) {
+        const raw = String(status || '').trim();
+        if (raw) return raw;
+        return done ? 'Done' : 'Not Started';
+    }
+
+    function getChecklistAssignerName() {
+        return String((byId('taskAssigner') && byId('taskAssigner').value) || '').trim();
+    }
+
+    function syncChecklistAssignerBadges(previousValue, nextValue) {
+        const prev = String(previousValue || '').trim();
+        const next = String(nextValue || '').trim();
+        if (!Array.isArray(state.checklistDraft) || !state.checklistDraft.length) return;
+        state.checklistDraft.forEach(function (item) {
+            if (!item) return;
+            const names = parseChecklistAssignees(item.assignees, prev);
+            if (!names.length) {
+                item.assignees = serializeAssignees(next ? [next] : []);
+                return;
+            }
+            if (names.length === 1 && (!prev || names[0] === prev)) {
+                item.assignees = serializeAssignees(next ? [next] : []);
+            }
+        });
+    }
+
+    async function persistChecklistForTask(taskId) {
+        if (!taskId) return;
+        const checklistPayload = state.checklistDraft.map(function (item) {
+            return {
+                done: !!item.done,
+                text: item.text || '',
+                assignees: item.assignees || '',
+                startDate: item.startDate || '',
+                dueDate: item.dueDate || '',
+                handoffMode: item.handoffMode || '',
+                progressStatus: normalizeChecklistStatus(item.progressStatus, item.done)
+            };
+        });
+        await writeTask('saveChecklist', { taskId: taskId, items: checklistPayload });
+        const savedTask = state.tasks.find(function (t) { return t.taskId === taskId; });
+        if (savedTask) savedTask.checklistItems = checklistPayload;
+    }
+
     function checklistOverallProgressStatus(items) {
         const list = Array.isArray(items) ? items : [];
         if (!list.length) return 'Not Started';
@@ -1143,7 +1197,10 @@
             wrap.innerHTML = '<div class="tasks-empty" style="padding:8px 6px;">Loading checklist…</div>';
             return;
         }
-        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '', progressStatus: 'Not Started' }];
+        if (!state.checklistDraft.length) {
+            const assignerName = getChecklistAssignerName();
+            state.checklistDraft = [{ done: false, selected: false, text: '', assignees: serializeAssignees(assignerName ? [assignerName] : []), progressStatus: 'Not Started' }];
+        }
         const selectedCount = state.checklistDraft.filter(function (it) { return !!(it && it.selected); }).length;
         const title = panel ? panel.querySelector('.task-checklist-title') : null;
         if (title) title.setAttribute('data-selected-count', String(selectedCount));
@@ -1153,11 +1210,21 @@
         });
         wrap.innerHTML = state.checklistDraft.map(function (item, idx) {
             const badges = [];
-            const assigned = parseChecklistAssignees(item && item.assignees, '');
-            assigned.forEach(function (name) { badges.push('<span class="checklist-badge">' + esc(name) + '</span>'); });
-            const progressStatus = String((item && item.progressStatus) || (item && item.done ? 'Done' : 'Not Started'));
-            badges.push('<button type="button" class="checklist-badge progress" data-check-progress-idx="' + idx + '">' + esc(progressStatus) + '</button>');
-            if (item && item.handoffMode === 'handoff' && assigned.length > 1) badges.push('<span class="checklist-badge"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>' + esc(assigned[assigned.length - 1]) + '</span>');
+            const assigned = parseChecklistAssignees(item && item.assignees, getChecklistAssignerName());
+            const progressStatus = normalizeChecklistStatus(item && item.progressStatus, item && item.done);
+            const statusCls = checklistStatusClass(progressStatus);
+            assigned.forEach(function (name) {
+                const isAssigner = String(name || '').trim() && String(name || '').trim() === getChecklistAssignerName();
+                const cls = 'checklist-badge assignee ' + statusCls + (isAssigner ? ' assigner' : '');
+                badges.push('<button type="button" class="' + cls + '" data-check-progress-idx="' + idx + '">' + esc(name || 'Assigner') + '</button>');
+            });
+            if (!assigned.length) {
+                const label = getChecklistAssignerName() || 'Assigner';
+                badges.push('<button type="button" class="checklist-badge assignee assigner ' + statusCls + '" data-check-progress-idx="' + idx + '">' + esc(label) + '</button>');
+            }
+            if (item && item.handoffMode === 'handoff' && assigned.length > 1) {
+                badges.push('<svg class="checklist-handoff-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
+            }
             if (item && item.done) badges.push('<span class="checklist-badge done">Done</span>');
             return '<div class="checklist-row">' +
                 '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item && item.selected ? 'checked' : '') + ' />' +
@@ -1168,6 +1235,7 @@
             '</div>';
         }).join('');
     }
+
 
     function syncChecklistDraftFromUi() {
         const wrap = byId('taskChecklistRows');
@@ -1239,6 +1307,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
+        if (state.editingId) persistChecklistForTask(state.editingId);
     }
 
     function openChecklistAssignMenu(mode) {
@@ -1299,6 +1368,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
+        if (state.editingId) persistChecklistForTask(state.editingId);
     }
 
     async function loadChecklist(taskId) {
@@ -1354,6 +1424,7 @@
         byId('taskDescription').value = task ? task.description : '';
         byId('taskAssignee').value = task ? task.assignee : '';
         byId('taskAssigner').value = task ? task.assigner : '';
+        state.lastAssignerValue = byId('taskAssigner').value || ''; 
         byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
         byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
 
@@ -1475,20 +1546,7 @@ syncChecklistAssigneesWithTask(assigneeList);
             await writeTask('createTask', payload);
         }
 
-        const checklistPayload = state.checklistDraft.map(function (item) {
-            return {
-                done: !!item.done,
-                text: item.text || '',
-                assignees: item.assignees || '',
-                startDate: item.startDate || '',
-                dueDate: item.dueDate || '',
-                handoffMode: item.handoffMode || '',
-                progressStatus: item.progressStatus || (item.done ? 'Done' : 'Not Started')
-            };
-        });
-        await writeTask('saveChecklist', { taskId: payload.taskId, items: checklistPayload });
-        const savedTask = state.tasks.find(function (t) { return t.taskId === payload.taskId; });
-        if (savedTask) savedTask.checklistItems = checklistPayload;
+        await persistChecklistForTask(payload.taskId);
         closeModal();
         applyFilters();
     }
@@ -1989,11 +2047,18 @@ syncChecklistAssigneesWithTask(assigneeList);
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
+        byId('taskAssigner').addEventListener('input', function () {
+            const next = String(byId('taskAssigner').value || '').trim();
+            syncChecklistAssignerBadges(state.lastAssignerValue, next);
+            state.lastAssignerValue = next;
+            renderChecklistDraft();
+        });
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
         byId('taskChecklistAdd').addEventListener('click', function () {
             if (state.checklistLoading) return;
             syncChecklistDraftFromUi();
-            state.checklistDraft.push({ done: false, selected: false, text: '', progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
+            const assignerName = getChecklistAssignerName();
+            state.checklistDraft.push({ done: false, selected: false, text: '', assignees: serializeAssignees(assignerName ? [assignerName] : []), progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
             renderChecklistDraft();
         });
         byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });

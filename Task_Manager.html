@@ -580,6 +580,14 @@
         .checklist-item-main { min-width: 0; display: grid; gap: 4px; }
         .checklist-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
         .checklist-badge { font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 999px; border: 1px solid rgba(126,154,188,0.4); background: rgba(126,154,188,0.14); color: var(--text-secondary); }
+        .checklist-badge.assignee { cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
+        .checklist-badge.assignee:hover { border-color: rgba(79,142,247,0.6); }
+        .checklist-badge.assigner { border-color: rgba(79,142,247,0.76); background: rgba(79,142,247,0.24); color: #eaf2ff; }
+        .checklist-badge.status-not-started { border-color: rgba(79,142,247,0.66); background: rgba(79,142,247,0.2); color: #e8f1ff; }
+        .checklist-badge.status-in-progress { border-color: rgba(242,201,76,0.66); background: rgba(242,201,76,0.18); color: #fff6d7; }
+        .checklist-badge.status-blocked { border-color: rgba(226,79,79,0.66); background: rgba(226,79,79,0.2); color: #ffe3e3; }
+        .checklist-badge.status-done { border-color: rgba(17,153,142,0.7); background: rgba(17,153,142,0.24); color: #dffffa; }
+        .checklist-handoff-arrow { width: 11px; height: 11px; color: var(--text-secondary); margin: 0 1px 0 2px; vertical-align: -1px; }
         .checklist-badge.done { border-color: rgba(17,153,142,0.55); color: #dffffa; background: rgba(17,153,142,0.2); }
         .task-checklist-assignee-menu { position: absolute; top: 32px; right: 0; width: min(320px, 88vw); border: 1px solid var(--card-border); border-radius: 10px; background: var(--card-bg); box-shadow: 0 8px 20px rgba(0,0,0,0.2); padding: 8px; display: none; z-index: 40; }
         .task-checklist-assignee-menu.open { display: block; }
@@ -601,8 +609,6 @@
         .task-title-row { display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; }
         .task-link-section-grid { margin-top: 8px; display:grid; grid-template-columns: repeat(2,minmax(170px,1fr)); gap:8px; }
         .task-link-lookup { position: relative; }
-        .checklist-badge.progress { cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
-        .checklist-badge.progress:hover { background: rgba(79,142,247,0.22); border-color: rgba(79,142,247,0.66); }
         .checklist-progress-menu { position: fixed; z-index: 420; width: 160px; border-radius: 10px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: 0 10px 24px rgba(0,0,0,0.25); padding: 6px; display:none; }
         .checklist-progress-menu.open { display:block; }
         .checklist-progress-btn { width:100%; text-align:left; min-height:30px; border-radius:8px; border:0; background:transparent; color:var(--text-primary); padding:4px 8px; cursor:pointer; }
@@ -767,11 +773,11 @@
                                         <div id="taskItemLookup" class="dropdown-options" role="listbox" aria-label="Item matches"></div>
                                     </div>
                                     <input id="taskItemName" class="tasks-input" placeholder="Item Name" />
-                                    <div class="task-link-lookup">
+                                    <div class="task-link-lookup task-itemcode-lookup">
                                         <input id="taskLocation" class="tasks-input" placeholder="Location" autocomplete="off" />
                                         <div id="taskLocationLookup" class="dropdown-options" role="listbox" aria-label="Location matches"></div>
                                     </div>
-                                    <div class="task-link-lookup">
+                                    <div class="task-link-lookup task-itemcode-lookup">
                                         <input id="taskSublocation" class="tasks-input" placeholder="Sublocation" autocomplete="off" />
                                         <div id="taskSublocationLookup" class="dropdown-options" role="listbox" aria-label="Sublocation matches"></div>
                                     </div>
