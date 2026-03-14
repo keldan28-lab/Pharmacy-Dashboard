@@ -322,14 +322,24 @@
     function parseTaskRowsPayload(payload) {
         if (!payload) return [];
 
+        if (typeof payload === 'string') {
+            const text = payload.trim();
+            if (!text) return [];
+            try { return parseTaskRowsPayload(JSON.parse(text)); } catch (_) { return []; }
+        }
+
+        function keyNorm(v) {
+            return String(v || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+
         function rowsToObjects(rows) {
             if (!Array.isArray(rows) || !rows.length) return [];
             const first = rows[0];
             if (!Array.isArray(first)) return rows;
             const headers = first.map(function (h) { return String(h || '').trim(); });
-            const hasHeader = headers.some(function (h) {
-                const k = h.toLowerCase();
-                return k === 'taskid' || k === 'title' || k === 'status' || k === 'duedate';
+            const headerNorm = headers.map(keyNorm);
+            const hasHeader = headerNorm.some(function (k) {
+                return k === 'taskid' || k === 'title' || k === 'status' || k === 'duedate' || k === 'taskname';
             });
             if (!hasHeader) return rows;
             return rows.slice(1).map(function (row) {
@@ -348,14 +358,21 @@
             if (Array.isArray(payload.data.tasks)) return rowsToObjects(payload.data.tasks);
             if (Array.isArray(payload.data.rows)) return rowsToObjects(payload.data.rows);
             if (Array.isArray(payload.data.values)) return rowsToObjects(payload.data.values);
+            if (Array.isArray(payload.data.data)) return rowsToObjects(payload.data.data);
         }
         if (payload.result && typeof payload.result === 'object') {
             if (Array.isArray(payload.result.tasks)) return rowsToObjects(payload.result.tasks);
             if (Array.isArray(payload.result.rows)) return rowsToObjects(payload.result.rows);
             if (Array.isArray(payload.result.values)) return rowsToObjects(payload.result.values);
+            if (payload.result.data && typeof payload.result.data === 'object') {
+                if (Array.isArray(payload.result.data.tasks)) return rowsToObjects(payload.result.data.tasks);
+                if (Array.isArray(payload.result.data.rows)) return rowsToObjects(payload.result.data.rows);
+                if (Array.isArray(payload.result.data.values)) return rowsToObjects(payload.result.data.values);
+            }
         }
         return [];
     }
+
 
     async function loadTasks() {
         state.loading = true;
