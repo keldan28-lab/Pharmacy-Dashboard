@@ -308,12 +308,10 @@
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
         out.colorKey = String(out.colorKey || 'teal');
-        const sourceAssignee = source.assignee != null ? source.assignee : keyMap.assignee;
-        const sourceTracks = source.assigneeTracks != null ? source.assigneeTracks : keyMap.assigneetracks;
-        const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(sourceAssignee);
+        const assigneeList = parseAssignees(out.assignees);
         out.assignees = removeAssignerFromAssignees(assigneeList, out.assigner);
-        out.assignee = String((assigneeList[0] || sourceAssignee || '')).trim();
-        out.assigneeTracks = sourceTracks || '';
+        out.assignee = String((out.assignees[0] || '')).trim();
+        out.assigneeTracks = '';
         if (!Array.isArray(out.checklistItems)) {
             try {
                 const parsedChecklist = JSON.parse(String(out.checklistItems || '[]'));
@@ -1376,7 +1374,8 @@
         renderIndexes.forEach(function (idx, pos) { indexPos[idx] = pos; });
         const canHandoff = selectedRows.length > 0 && selectedRows.every(function (it) { return hasChecklistAssignees(it); }) && selectedChecklistIndexes().every(function (idx) {
             const pos = Object.prototype.hasOwnProperty.call(indexPos, idx) ? indexPos[idx] : -1;
-            if (pos <= 0) return false;
+            if (pos < 0) return false;
+            if (pos === 0) return true;
             const prev = state.checklistDraft[renderIndexes[pos - 1]];
             return hasChecklistAssignees(prev);
         });

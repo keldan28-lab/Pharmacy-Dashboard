@@ -474,7 +474,7 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assigner','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
 }
 
 function parseAssignees_(value) {
@@ -499,10 +499,8 @@ function parseAssignees_(value) {
 }
 
 function normalizeAssigneeFields_(obj) {
-  var hasAssignees = obj && obj.assignees != null && String(obj.assignees).trim() !== '';
-  var list = hasAssignees ? parseAssignees_(obj.assignees) : parseAssignees_(obj.assignee);
+  var list = parseAssignees_(obj && obj.assignees);
   obj.assignees = JSON.stringify(list);
-  obj.assignee = list.length ? list[0] : '';
   return obj;
 }
 
