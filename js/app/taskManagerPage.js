@@ -150,26 +150,52 @@
     }
 
     function jsonp(url, timeoutMs) {
-        timeoutMs = timeoutMs || 10000;
+        timeoutMs = timeoutMs || 20000;
         return new Promise(function (resolve, reject) {
             const cb = '__pbTaskCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
             const script = document.createElement('script');
             const sep = url.indexOf('?') >= 0 ? '&' : '?';
-            let done = false;
-            const timer = setTimeout(function () { cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
-            function cleanup() {
-                if (done) return;
-                done = true;
+            let settled = false;
+
+            function cleanup(removeCallback) {
                 clearTimeout(timer);
-                try { delete window[cb]; } catch (_) { window[cb] = null; }
                 if (script.parentNode) script.parentNode.removeChild(script);
+                if (removeCallback) {
+                    try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+                }
             }
-            window[cb] = function (payload) { cleanup(); resolve(payload || {}); };
-            script.onerror = function () { cleanup(); reject(new Error('JSONP failed')); };
+
+            const timer = setTimeout(function () {
+                if (settled) return;
+                settled = true;
+                // Keep a harmless callback to avoid "ReferenceError: <cb> is not defined" if response arrives late.
+                window[cb] = function () {};
+                cleanup(false);
+                reject(new Error('JSONP timeout'));
+                setTimeout(function () {
+                    try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+                }, 15000);
+            }, timeoutMs);
+
+            window[cb] = function (payload) {
+                if (settled) return;
+                settled = true;
+                cleanup(true);
+                resolve(payload || {});
+            };
+
+            script.onerror = function () {
+                if (settled) return;
+                settled = true;
+                cleanup(true);
+                reject(new Error('JSONP failed'));
+            };
+
             script.src = url + sep + 'callback=' + encodeURIComponent(cb);
             document.head.appendChild(script);
         });
     }
+
 
     function postForm(webAppUrl, payload) {
         return new Promise(function (resolve) {
@@ -338,7 +364,7 @@
         const sheetId = getSheetId();
         if (!webAppUrl || !sheetId) {
             state.usingMock = true;
-            state.tasks = emptyFallbackTasks().map(normalizeTask);
+            state.tasks = [];
             state.loading = false;
             applyFilters();
             return;
@@ -346,16 +372,16 @@
 
         try {
             const readTasksUrl = webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
-            const legacyPayload = await jsonp(readTasksUrl, 12000);
+            const legacyPayload = await jsonp(readTasksUrl, 25000);
             let rows = parseTaskRowsPayload(legacyPayload);
             if (!rows.length) {
                 const readUrl = webAppUrl + '?action=read&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
-                const payload = await jsonp(readUrl, 12000);
+                const payload = await jsonp(readUrl, 25000);
                 rows = parseTaskRowsPayload(payload);
             }
             if (!rows.length) {
                 const altUrl = webAppUrl + '?fn=tasks&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent('tasks');
-                const altPayload = await jsonp(altUrl, 12000);
+                const altPayload = await jsonp(altUrl, 25000);
                 rows = parseTaskRowsPayload(altPayload);
             }
             if (!rows.length) throw new Error('No task rows returned');
@@ -364,7 +390,7 @@
         } catch (e) {
             console.warn('Task load failed, using empty fallback', e);
             state.usingMock = true;
-            state.tasks = emptyFallbackTasks().map(normalizeTask);
+            state.tasks = [];
         }
 
         state.loading = false;
