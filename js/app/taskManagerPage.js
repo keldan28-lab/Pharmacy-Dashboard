@@ -1296,6 +1296,40 @@
         if (menu) menu.classList.remove('open');
     }
 
+    function checklistTextKey(item) {
+        return String((item && item.text) || '').trim().toLowerCase();
+    }
+
+    function buildChecklistAssigneeStages(idx, item, assignerName) {
+        const stages = [];
+        const seen = {};
+
+        function addStage(list) {
+            const names = (Array.isArray(list) ? list : []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+            if (!names.length) return;
+            const key = names.join('|').toLowerCase();
+            if (seen[key]) return;
+            seen[key] = true;
+            stages.push(names);
+        }
+
+        const base = parseChecklistAssignees(item && item.assignees, '').filter(function (n) {
+            return String(n || '').trim() && String(n || '').trim() !== assignerName;
+        });
+        addStage(base);
+
+        const key = checklistTextKey(item);
+        for (let i = idx + 1; i < state.checklistDraft.length; i++) {
+            const next = state.checklistDraft[i];
+            if (!next || String(next.handoffMode || '') !== 'handoff') continue;
+            if (!key || checklistTextKey(next) !== key) continue;
+            addStage(parseChecklistAssignees(next.assignees, '').filter(function (n) {
+                return String(n || '').trim() && String(n || '').trim() !== assignerName;
+            }));
+        }
+        return stages;
+    }
+
 
     function renderChecklistDraft() {
         const wrap = byId('taskChecklistRows');
@@ -1327,19 +1361,20 @@
             const progressStatus = normalizeChecklistStatus(item && item.progressStatus, item && item.done);
             const statusCls = checklistStatusClass(progressStatus);
             const assignerName = getChecklistAssignerName();
-            const assigned = parseChecklistAssignees(item && item.assignees, '').filter(function (n) {
-                return String(n || '').trim() && String(n || '').trim() !== assignerName;
-            });
+            const assigneeStages = buildChecklistAssigneeStages(idx, item, assignerName);
+            const assigned = assigneeStages.length ? assigneeStages[0] : [];
             if (assignerName) {
                 badges.push('<button type="button" class="checklist-badge assignee assigner" data-check-progress-idx="' + idx + '">' + esc(assignerName) + '</button>');
                 badges.push('<svg class="checklist-handoff-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:' + (assigned.length ? '1' : '0.35') + ';"><circle cx="8" cy="8" r="3"></circle><path d="M3 18c0-2.8 2.2-4.8 5-4.8"></path><path d="M11.5 12h8"></path><path d="M16.5 9l3 3-3 3"></path></svg>');
             }
-            assigned.forEach(function (name) {
-                badges.push('<button type="button" class="checklist-badge assignee ' + statusCls + '" data-check-progress-idx="' + idx + '">' + esc(name) + '</button>');
+            assigneeStages.forEach(function (stage, stageIdx) {
+                if (stageIdx > 0) {
+                    badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
+                }
+                stage.forEach(function (name) {
+                    badges.push('<button type="button" class="checklist-badge assignee ' + statusCls + '" data-check-progress-idx="' + idx + '">' + esc(name) + '</button>');
+                });
             });
-            if (item && item.handoffMode === 'handoff') {
-                badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
-            }
             if (item && item.done) badges.push('<span class="checklist-badge done"><svg class="checklist-done-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg></span>');
             return '<div class="checklist-row">' +
                 '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item && item.selected ? 'checked' : '') + ' />' +
