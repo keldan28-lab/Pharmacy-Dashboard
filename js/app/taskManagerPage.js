@@ -1433,6 +1433,11 @@
                 if (stageIdx > 0) {
                     badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
                 }
+                const prevStage = stageIdx > 0 ? assigneeStages[stageIdx - 1] : null;
+                const isDuplicateStage = !!prevStage && prevStage.length === stage.length && prevStage.every(function (prevName, nameIdx) {
+                    return String(prevName || '').trim().toLowerCase() === String(stage[nameIdx] || '').trim().toLowerCase();
+                });
+                if (isDuplicateStage) return;
                 stage.forEach(function (name) {
                     badges.push('<button type="button" class="checklist-badge assignee ' + statusCls + '" data-check-progress-idx="' + idx + '" data-check-assignee="' + esc(name) + '">' + esc(name) + '</button>');
                 });
