@@ -671,7 +671,7 @@
         byId('taskPriority').value = parent.priority || 'Medium';
         syncPriorityToggleUi();
         byId('taskColor').value = parent.colorKey || 'teal';
-        byId('taskAssignee').value = Array.isArray(parent.assignees) ? parent.assignees.join(', ') : (parent.assignee || '');
+        byId('taskAssignee').value = '';
         byId('taskAssigner').value = parent.assigner || '';
         byId('taskStartDate').value = parent.startDate || toISODate(new Date());
         byId('taskDueDate').value = parent.dueDate || shiftIsoDate(byId('taskStartDate').value, 1);
