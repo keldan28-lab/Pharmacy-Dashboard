@@ -1532,6 +1532,22 @@
         return false;
     }
 
+    function hasChecklistHandoffStage(idx) {
+        const item = state.checklistDraft[idx];
+        if (!item) return false;
+        const key = checklistItemKey(item, idx);
+        const textKey = checklistTextKey(item);
+        for (let i = 0; i < state.checklistDraft.length; i++) {
+            const prev = state.checklistDraft[i];
+            if (!prev || String(prev.handoffMode || '') !== 'handoff') continue;
+            const prevKey = checklistItemKey(prev, i);
+            const sameItem = prevKey === key;
+            const sameText = !!textKey && checklistTextKey(prev) === textKey;
+            if (sameItem || sameText) return true;
+        }
+        return false;
+    }
+
     function syncEditingTaskChecklistToState() {
         if (!state.editingId) return;
         const task = state.tasks.find(function (t) { return t.taskId === state.editingId; });
@@ -1640,17 +1656,18 @@
         const appended = [];
         selected.forEach(function (idx) {
             const item = state.checklistDraft[idx];
-            const assignees = parseChecklistAssignees(item.assignees, '');
-            if (!assignees.length) return;
+            if (!item) return;
+            const hasHandoff = hasChecklistHandoffStage(idx);
             item.handoffMode = 'handoff';
             item.selected = false;
             item.done = false;
             item.progressStatus = normalizeChecklistStatus(item.progressStatus, false);
+            if (hasHandoff) return;
             const clone = {
                 done: false,
                 selected: false,
                 text: String(item.text || '').trim(),
-                assignees: serializeAssignees(assignees),
+                assignees: '',
                 startDate: item.startDate || byId('taskStartDate').value || '',
                 dueDate: item.dueDate || byId('taskDueDate').value || '',
                 handoffMode: '',
