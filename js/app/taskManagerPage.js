@@ -1295,8 +1295,19 @@
         }
         menu.innerHTML = progressButtons.join('');
         const r = anchor.getBoundingClientRect();
-        menu.style.left = Math.round(r.left) + 'px';
-        menu.style.top = Math.round(r.bottom + 6) + 'px';
+        const menuRect = menu.getBoundingClientRect();
+        const viewportW = window.innerWidth || document.documentElement.clientWidth || 0;
+        const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
+        const gutter = 8;
+        let left = Math.round(r.left);
+        let top = Math.round(r.bottom + 6);
+        if (left + menuRect.width > viewportW - gutter) left = Math.max(gutter, Math.round(viewportW - menuRect.width - gutter));
+        if (top + menuRect.height > viewportH - gutter) {
+            top = Math.round(r.top - menuRect.height - 6);
+        }
+        if (top < gutter) top = gutter;
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
         menu.classList.add('open');
     }
 
@@ -1349,27 +1360,18 @@
 
     function buildChecklistAssigneeStages(idx, item, assignerName) {
         const stages = [];
-        const seen = {};
 
         function addStage(list) {
             const names = (Array.isArray(list) ? list : []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
             if (!names.length) return;
-            const key = names.join('|').toLowerCase();
-            if (seen[key]) return;
-            seen[key] = true;
             stages.push(names);
         }
 
-        const base = parseChecklistAssignees(item && item.assignees, '').filter(function (n) {
-            return String(n || '').trim() && String(n || '').trim() !== assignerName;
-        });
-        addStage(base);
-
         const key = checklistItemKey(item, idx);
         const textKey = checklistTextKey(item);
-        for (let i = idx + 1; i < state.checklistDraft.length; i++) {
+        for (let i = 0; i < state.checklistDraft.length; i++) {
             const next = state.checklistDraft[i];
-            if (!next || String(next.handoffMode || '') !== 'handoff') continue;
+            if (!next) continue;
             const nextKey = checklistItemKey(next, i);
             const sameItem = nextKey === key;
             const sameText = !!textKey && checklistTextKey(next) === textKey;
@@ -1616,14 +1618,18 @@
             const item = state.checklistDraft[idx];
             const assignees = parseChecklistAssignees(item.assignees, '');
             if (!assignees.length) return;
+            item.handoffMode = 'handoff';
+            item.selected = false;
+            item.done = false;
+            item.progressStatus = normalizeChecklistStatus(item.progressStatus, false);
             const clone = {
                 done: false,
                 selected: false,
-                text: String(item.text || 'Handoff').trim() || 'Handoff',
+                text: String(item.text || '').trim(),
                 assignees: serializeAssignees(assignees),
                 startDate: item.startDate || byId('taskStartDate').value || '',
                 dueDate: item.dueDate || byId('taskDueDate').value || '',
-                handoffMode: 'handoff',
+                handoffMode: '',
                 progressStatus: 'Not Started',
                 itemId: String(item.itemId || '')
             };
