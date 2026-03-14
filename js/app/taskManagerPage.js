@@ -41,6 +41,7 @@
         checklistDraft: [],
         checklistAssignMode: '',
         taskAssignStages: [],
+        taskAssignProgressByName: {},
         focusTaskId: '',
         tracksUnlocked: false,
         dragDeleteHot: false,
@@ -1187,6 +1188,42 @@
         return String((byId('taskAssigner') && byId('taskAssigner').value) || '').trim();
     }
 
+    function checklistProgressList() { return ['Not Started', 'In Progress', 'Blocked', 'Done']; }
+
+    function checklistStatusClass(status) {
+        const s = String(status || '').toLowerCase();
+        if (s === 'done') return 'status-done';
+        if (s === 'in progress') return 'status-in-progress';
+        if (s === 'blocked') return 'status-blocked';
+        return 'status-not-started';
+    }
+
+    function normalizeChecklistStatus(status, done) {
+        const raw = String(status || '').trim();
+        if (raw) return raw;
+        return done ? 'Done' : 'Not Started';
+    }
+
+    function openAssignProgressMenu(name, anchor) {
+        const menu = byId('checklistProgressMenu');
+        if (!menu || !anchor) return;
+        const target = String(name || '').trim();
+        if (!target) return;
+        const current = normalizeChecklistStatus((state.taskAssignProgressByName || {})[target], false);
+        menu.innerHTML = checklistProgressList().map(function (status) {
+            return '<button class="checklist-progress-btn" type="button" data-assign-progress-name="' + esc(target) + '" data-assign-progress-status="' + esc(status) + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
+        }).join('');
+        const r = anchor.getBoundingClientRect();
+        menu.style.left = Math.round(r.left) + 'px';
+        menu.style.top = Math.round(r.bottom + 6) + 'px';
+        menu.classList.add('open');
+    }
+
+    function closeAssignProgressMenu() {
+        const menu = byId('checklistProgressMenu');
+        if (menu) menu.classList.remove('open');
+    }
+
     async function persistChecklistForTask(taskId, opts) {
         if (!taskId) return;
         ensureChecklistItemIds();
@@ -1410,7 +1447,9 @@
                 badges.push('<svg class="checklist-handoff-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"></circle><path d="M3 18c0-2.8 2.2-4.8 5-4.8"></path><path d="M11.5 12h8"></path><path d="M16.5 9l3 3-3 3"></path></svg>');
             }
             names.forEach(function (name) {
-                badges.push('<span class="checklist-badge assignee status-in-progress">' + esc(name) + '</span>');
+                const status = normalizeChecklistStatus((state.taskAssignProgressByName || {})[name], false);
+                const statusCls = checklistStatusClass(status);
+                badges.push('<button type="button" class="checklist-badge assignee ' + statusCls + '" data-assign-progress-name="' + esc(name) + '">' + esc(name) + '</button>');
             });
         });
         if (!badges.length) badges.push('<span class="tasks-empty" style="padding:2px 0;">No assignees</span>');
@@ -1427,6 +1466,7 @@
     function initializeTaskAssignStages(task) {
         const base = removeAssignerFromAssignees(parseAssignees(task ? task.assignee : byId('taskAssignee').value), String(byId('taskAssigner') && byId('taskAssigner').value || '').trim());
         state.taskAssignStages = [base.filter(Boolean)];
+        state.taskAssignProgressByName = state.taskAssignProgressByName || {};
         const inp = byId('taskAssignInput');
         if (inp) inp.value = '';
         syncTaskAssignFieldFromStages();
@@ -2258,6 +2298,30 @@ loadChecklist(task ? task.taskId : null);
         if (assignBtn) assignBtn.addEventListener('click', function () { applyTaskAssignAction('assign'); });
         const handoffBtn = byId('taskAssignHandoffBtn');
         if (handoffBtn) handoffBtn.addEventListener('click', function () { applyTaskAssignAction('handoff'); });
+        const assignBadges = byId('taskAssignBadges');
+        if (assignBadges) {
+            assignBadges.addEventListener('click', function (e) {
+                const badge = e.target.closest('[data-assign-progress-name]');
+                if (!badge) return;
+                const name = badge.getAttribute('data-assign-progress-name') || '';
+                openAssignProgressMenu(name, badge);
+            });
+        }
+        document.addEventListener('click', function (e) {
+            const btn = e.target.closest('[data-assign-progress-name][data-assign-progress-status]');
+            if (btn) {
+                const name = String(btn.getAttribute('data-assign-progress-name') || '').trim();
+                const status = String(btn.getAttribute('data-assign-progress-status') || '').trim();
+                if (name) {
+                    state.taskAssignProgressByName[name] = status;
+                    renderTaskAssignBadges();
+                    queueModalAutosave();
+                }
+                closeAssignProgressMenu();
+                return;
+            }
+            if (!e.target.closest('#checklistProgressMenu,[data-assign-progress-name]')) closeAssignProgressMenu();
+        });
         const pr = byId('taskPriorityToggleRow');
         if (pr) {
             pr.addEventListener('click', function (e) {
