@@ -639,30 +639,45 @@ function checklistWrite_(sheetId, tabName, payload) {
   const pack = ensureChecklistSheet_(sheetId, tabName);
   const sh = pack.sh;
   const header = pack.header;
-  const lastRow = sh.getLastRow();
-  if (lastRow >= 2) {
-    const values = sh.getRange(2, 1, lastRow - 1, header.length).getValues();
-    const keep = [];
-    for (let i = 0; i < values.length; i++) {
-      if (String(values[i][0] || '').trim() === taskId) continue;
-      keep.push(values[i]);
-    }
-    sh.getRange(2, 1, Math.max(lastRow - 1, 1), header.length).clearContent();
-    if (keep.length) sh.getRange(2, 1, keep.length, header.length).setValues(keep);
-  }
-  const rows = [];
   const now = new Date().toISOString();
+
+  const incomingByKey = {};
   for (let i = 0; i < items.length; i++) {
+    const itemId = String((items[i] && items[i].itemId) || (i + 1)).trim();
     const text = String((items[i] && items[i].text) || '').trim();
-    if (!text) continue;
+    if (!itemId || !text) continue;
     const assignees = String((items[i] && items[i].assignees) || '').trim();
     const startDate = String((items[i] && items[i].startDate) || '').trim();
     const dueDate = String((items[i] && items[i].dueDate) || '').trim();
     const handoffMode = String((items[i] && items[i].handoffMode) || '').trim();
-    rows.push([taskId, String(i + 1), items[i].done ? 'true' : 'false', text, assignees, startDate, dueDate, handoffMode, now]);
+    const key = taskId + '||' + itemId;
+    incomingByKey[key] = [taskId, itemId, items[i].done ? 'true' : 'false', text, assignees, startDate, dueDate, handoffMode, now];
   }
-  if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, header.length).setValues(rows);
-  return { ok: true, taskId: taskId, written: rows.length, taskAction: 'saveChecklist' };
+
+  const lastRow = sh.getLastRow();
+  const values = lastRow >= 2 ? sh.getRange(2, 1, lastRow - 1, header.length).getValues() : [];
+  const merged = [];
+  for (let i = 0; i < values.length; i++) {
+    const rowTaskId = String(values[i][0] || '').trim();
+    const rowItemId = String(values[i][1] || '').trim();
+    if (rowTaskId !== taskId) {
+      merged.push(values[i]);
+      continue;
+    }
+    const key = rowTaskId + '||' + rowItemId;
+    if (Object.prototype.hasOwnProperty.call(incomingByKey, key)) {
+      merged.push(incomingByKey[key]);
+      delete incomingByKey[key];
+    }
+  }
+
+  Object.keys(incomingByKey).forEach(function (key) {
+    merged.push(incomingByKey[key]);
+  });
+
+  if (lastRow >= 2) sh.getRange(2, 1, Math.max(lastRow - 1, 1), header.length).clearContent();
+  if (merged.length) sh.getRange(2, 1, merged.length, header.length).setValues(merged);
+  return { ok: true, taskId: taskId, written: merged.filter(function (row) { return String(row[0] || '').trim() === taskId; }).length, taskAction: 'saveChecklist' };
 }
 
 function parsePostBody_(e) {
