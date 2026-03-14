@@ -72,8 +72,7 @@ function doGet(e) {
   if (action === "tasksRead") {
     try {
       const sheetId = requireString_(p.sheetId, "sheetId");
-      const tabName = String(p.tabName || 'tasks').trim() || 'tasks';
-      const result = tasksRead_(sheetId, tabName);
+      const result = tasksRead_(sheetId, 'tasks');
       return jsonOrJsonp_(result, callback);
     } catch (err) {
       return jsonOrJsonp_({ ok: false, action, error: String((err && err.message) || err || "Unknown error") }, callback);
@@ -608,9 +607,10 @@ function ensureChecklistSheet_(sheetId, tabName) {
 }
 
 function checklistRead_(sheetId, tabName, taskId) {
-  const pack = ensureChecklistSheet_(sheetId, tabName);
-  const sh = pack.sh;
-  const header = pack.header;
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sh = ss.getSheetByName(tabName);
+  const header = checklistColumns_();
+  if (!sh) return { ok: true, items: [], taskId: taskId };
   const idxTask = header.indexOf('taskId');
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return { ok: true, items: [], taskId: taskId };

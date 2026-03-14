@@ -51,7 +51,8 @@
         autosaveSaving: false,
         autosaveQueued: false,
         autosaveSignature: '',
-        checklistPersistSignatureByTask: {}
+        checklistPersistMemoByTask: {},
+        taskPersistMemoByTask: {}
     };
 
     const els = {};
@@ -415,30 +416,15 @@
         }
 
         try {
-            const tabNames = ['tasks', 'Tasks', 'task_manager', 'Task_Manager'];
+            const url = webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=tasks';
             let rows = [];
-
-            for (let t = 0; t < tabNames.length && !rows.length; t++) {
-                const tabName = tabNames[t];
-                const urls = [
-                    webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
-                    webAppUrl + '?fn=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
-                    webAppUrl + '?action=read&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
-                    webAppUrl + '?fn=tasks&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName)
-                ];
-
-                for (let i = 0; i < urls.length && !rows.length; i++) {
-                    try {
-                        const payload = await jsonp(urls[i], 25000);
-                        rows = parseTaskRowsPayload(payload);
-                    } catch (_) {
-                        rows = [];
-                    }
-                    if (!rows.length) {
-                        rows = await fetchTasksViaHttp(urls[i]);
-                    }
-                }
+            try {
+                const payload = await jsonp(url, 25000);
+                rows = parseTaskRowsPayload(payload);
+            } catch (_) {
+                rows = [];
             }
+            if (!rows.length) rows = await fetchTasksViaHttp(url);
 
             if (rows.length) {
                 state.tasks = rows.map(normalizeTask);
@@ -1252,12 +1238,11 @@
             };
         });
         const sig = JSON.stringify(checklistPayload);
-        if (state.checklistPersistSignatureByTask[taskId] === sig) return;
-        state.checklistPersistSignatureByTask[taskId] = sig;
+        if (state.checklistPersistMemoByTask[taskId] === sig) return;
         try {
             await writeTask('saveChecklist', { taskId: taskId, items: checklistPayload });
+            state.checklistPersistMemoByTask[taskId] = sig;
         } catch (err) {
-            if (state.checklistPersistSignatureByTask[taskId] === sig) delete state.checklistPersistSignatureByTask[taskId];
             throw err;
         }
         const savedTask = state.tasks.find(function (t) { return t.taskId === taskId; });
@@ -1819,12 +1804,14 @@ loadChecklist(task ? task.taskId : null);
         const payload = buildTaskPayloadFromModal();
         const signature = JSON.stringify({ task: payload, checklist: state.checklistDraft });
         if (signature === state.autosaveSignature) return;
+        if (state.taskPersistMemoByTask[payload.taskId] === signature) return;
         state.autosaveSaving = true;
         try {
             state.tasks[idx] = normalizeTask(payload, idx);
             await writeTask('updateTask', payload);
             await persistChecklistForTask(payload.taskId);
             state.autosaveSignature = signature;
+            state.taskPersistMemoByTask[payload.taskId] = signature;
             applyFilters();
         } finally {
             state.autosaveSaving = false;
@@ -1849,6 +1836,7 @@ loadChecklist(task ? task.taskId : null);
 
         await persistChecklistForTask(payload.taskId);
         state.autosaveSignature = JSON.stringify({ task: payload, checklist: state.checklistDraft });
+        state.taskPersistMemoByTask[payload.taskId] = state.autosaveSignature;
         closeModal();
         applyFilters();
     }
@@ -2216,13 +2204,6 @@ loadChecklist(task ? task.taskId : null);
         const webAppUrl = getWebAppUrl();
         if (!webAppUrl) return;
         const sheetId = getSheetId();
-        const directPayload = {
-            action: action,
-            taskAction: action,
-            sheetId: sheetId,
-            tabName: 'tasks',
-            payload: JSON.stringify((function(){ var cp=Object.assign({}, taskPayload||{}); delete cp.assignee; delete cp.assigneeTracks; return cp; })())
-        };
         const wrappedPayload = {
             action: 'taskWrite',
             taskAction: action,
@@ -2233,11 +2214,7 @@ loadChecklist(task ? task.taskId : null);
         try {
             await postForm(webAppUrl, wrappedPayload);
         } catch (e1) {
-            try {
-                await postForm(webAppUrl, directPayload);
-            } catch (e2) {
-                console.warn('Task write failed', e1 || e2);
-            }
+            console.warn('Task write failed', e1);
         }
     }
 
