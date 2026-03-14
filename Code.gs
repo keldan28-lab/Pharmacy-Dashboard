@@ -585,7 +585,7 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
 
 
 function checklistColumns_() {
-  return ['taskId', 'itemId', 'done', 'text', 'assignees', 'startDate', 'dueDate', 'handoffMode', 'updatedAt'];
+  return ['taskId', 'itemId', 'done', 'text', 'assignees', 'startDate', 'dueDate', 'notes', 'handoffMode', 'updatedAt'];
 }
 
 function ensureChecklistSheet_(sheetId, tabName) {
@@ -626,8 +626,9 @@ function checklistRead_(sheetId, tabName, taskId) {
       assignees: String(values[i][4] || ''),
       startDate: String(values[i][5] || ''),
       dueDate: String(values[i][6] || ''),
-      handoffMode: String(values[i][7] || ''),
-      updatedAt: values[i][8]
+      notes: String(values[i][7] || ''),
+      handoffMode: String(values[i][8] || ''),
+      updatedAt: values[i][9]
     });
   }
   return { ok: true, items: out, taskId: taskId };
@@ -649,9 +650,10 @@ function checklistWrite_(sheetId, tabName, payload) {
     const assignees = String((items[i] && items[i].assignees) || '').trim();
     const startDate = String((items[i] && items[i].startDate) || '').trim();
     const dueDate = String((items[i] && items[i].dueDate) || '').trim();
+    const notes = String((items[i] && items[i].notes) || '').trim();
     const handoffMode = String((items[i] && items[i].handoffMode) || '').trim();
     const key = taskId + '||' + itemId;
-    incomingByKey[key] = [taskId, itemId, items[i].done ? 'true' : 'false', text, assignees, startDate, dueDate, handoffMode, now];
+    incomingByKey[key] = [taskId, itemId, items[i].done ? 'true' : 'false', text, assignees, startDate, dueDate, notes, handoffMode, now];
   }
 
   const lastRow = sh.getLastRow();

@@ -1183,43 +1183,8 @@
         if (els.listBody && els.ganttWrap) els.ganttWrap.scrollTop = els.listBody.scrollTop;
     }
 
-
-
-    function checklistProgressList() { return ['Not Started', 'In Progress', 'Blocked', 'Done']; }
-
-    function checklistStatusClass(status) {
-        const s = String(status || '').toLowerCase();
-        if (s === 'done') return 'status-done';
-        if (s === 'in progress') return 'status-in-progress';
-        if (s === 'blocked') return 'status-blocked';
-        return 'status-not-started';
-    }
-
-    function normalizeChecklistStatus(status, done) {
-        const raw = String(status || '').trim();
-        if (raw) return raw;
-        return done ? 'Done' : 'Not Started';
-    }
-
     function getChecklistAssignerName() {
         return String((byId('taskAssigner') && byId('taskAssigner').value) || '').trim();
-    }
-
-    function syncChecklistAssignerBadges(previousValue, nextValue) {
-        const prev = String(previousValue || '').trim();
-        const next = String(nextValue || '').trim();
-        if (!Array.isArray(state.checklistDraft) || !state.checklistDraft.length) return;
-        state.checklistDraft.forEach(function (item) {
-            if (!item) return;
-            const names = parseChecklistAssignees(item.assignees, prev);
-            if (!names.length) {
-                item.assignees = serializeAssignees(next ? [next] : []);
-                return;
-            }
-            if (names.length === 1 && (!prev || names[0] === prev)) {
-                item.assignees = serializeAssignees(next ? [next] : []);
-            }
-        });
     }
 
     async function persistChecklistForTask(taskId, opts) {
@@ -1234,6 +1199,7 @@
                 done: !!item.done,
                 text: item.text || '',
                 assignees: options.includeAssignees ? serializeAssignees(cleanAssignees) : '',
+                notes: item.notes || '',
                 startDate: item.startDate || '',
                 dueDate: item.dueDate || '',
                 handoffMode: item.handoffMode || '',
@@ -1282,42 +1248,6 @@
             if (!latest || (item.dueDate && item.dueDate > latest)) latest = item.dueDate;
         });
     }
-
-    function openChecklistProgressMenu(idx, anchor, assigneeName) {
-        const menu = byId('checklistProgressMenu');
-        if (!menu || !anchor) return;
-        const item = state.checklistDraft[idx] || {};
-        const current = normalizeChecklistStatus(item.progressStatus, item.done);
-        const targetAssignee = String(assigneeName || '').trim();
-        const progressButtons = checklistProgressList().map(function (status) {
-            return '<button class="checklist-progress-btn" type="button" data-progress-status="' + esc(status) + '" data-progress-idx="' + idx + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
-        });
-        if (targetAssignee) {
-            progressButtons.unshift('<button class="checklist-progress-btn unassign" type="button" data-progress-action="unassign" data-progress-idx="' + idx + '" data-progress-assignee="' + esc(targetAssignee) + '">Unassign</button>');
-        }
-        menu.innerHTML = progressButtons.join('');
-        const r = anchor.getBoundingClientRect();
-        const menuRect = menu.getBoundingClientRect();
-        const viewportW = window.innerWidth || document.documentElement.clientWidth || 0;
-        const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
-        const gutter = 8;
-        let left = Math.round(r.left);
-        let top = Math.round(r.bottom + 6);
-        if (left + menuRect.width > viewportW - gutter) left = Math.max(gutter, Math.round(viewportW - menuRect.width - gutter));
-        if (top + menuRect.height > viewportH - gutter) {
-            top = Math.round(r.top - menuRect.height - 6);
-        }
-        if (top < gutter) top = gutter;
-        menu.style.left = left + 'px';
-        menu.style.top = top + 'px';
-        menu.classList.add('open');
-    }
-
-    function closeChecklistProgressMenu() {
-        const menu = byId('checklistProgressMenu');
-        if (menu) menu.classList.remove('open');
-    }
-
     function checklistTextKey(item) {
         return String((item && item.text) || '').trim().toLowerCase();
     }
@@ -1360,31 +1290,11 @@
         return visible;
     }
 
-    function buildChecklistAssigneeStages(idx, item, assignerName) {
-        const stages = [];
-
-        function addStage(list) {
-            const names = (Array.isArray(list) ? list : []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
-            if (!names.length) return;
-            stages.push(names);
-        }
-
-        const key = checklistItemKey(item, idx);
-        const textKey = checklistTextKey(item);
-        for (let i = 0; i < state.checklistDraft.length; i++) {
-            const next = state.checklistDraft[i];
-            if (!next) continue;
-            const nextKey = checklistItemKey(next, i);
-            const sameItem = nextKey === key;
-            const sameText = !!textKey && checklistTextKey(next) === textKey;
-            if (!sameItem && !sameText) continue;
-            addStage(parseChecklistAssignees(next.assignees, '').filter(function (n) {
-                return String(n || '').trim() && String(n || '').trim() !== assignerName;
-            }));
-        }
-        return stages;
+    function toggleChecklistNotes(idx) {
+        if (!Number.isFinite(idx) || !state.checklistDraft[idx]) return;
+        state.checklistDraft[idx].notesOpen = !state.checklistDraft[idx].notesOpen;
+        renderChecklistDraft();
     }
-
 
     function renderChecklistDraft() {
         const wrap = byId('taskChecklistRows');
@@ -1396,60 +1306,28 @@
             return;
         }
         if (!state.checklistDraft.length) {
-            state.checklistDraft = [{ done: false, selected: false, text: '', assignees: '', progressStatus: 'Not Started', itemId: '' }];
+            state.checklistDraft = [{ done: false, selected: false, text: '', assignees: '', notes: '', notesOpen: false, progressStatus: 'Not Started', itemId: '' }];
         }
         const renderIndexes = visibleChecklistIndexes();
         const selectedCount = state.checklistDraft.filter(function (it) { return !!(it && it.selected); }).length;
-        const selectedRows = state.checklistDraft.filter(function (it) { return !!(it && it.selected); });
-        const indexPos = {};
-        renderIndexes.forEach(function (idx, pos) { indexPos[idx] = pos; });
-        const canHandoff = selectedRows.length > 0 && selectedRows.every(function (it) { return hasChecklistAssignees(it); }) && selectedChecklistIndexes().every(function (idx) {
-            const pos = Object.prototype.hasOwnProperty.call(indexPos, idx) ? indexPos[idx] : -1;
-            if (pos < 0) return false;
-            if (pos === 0) return true;
-            const prev = state.checklistDraft[renderIndexes[pos - 1]];
-            return hasChecklistAssignees(prev);
-        });
         const title = panel ? panel.querySelector('.task-checklist-title') : null;
         if (title) title.setAttribute('data-selected-count', String(selectedCount));
-        ['taskChecklistDelete','taskChecklistDone','taskChecklistCollaborate'].forEach(function (id) {
+        ['taskChecklistDelete','taskChecklistDone'].forEach(function (id) {
             const btn = byId(id);
             if (btn) btn.disabled = selectedCount < 1;
         });
-        const handoffBtn = byId('taskChecklistHandoff');
-        if (handoffBtn) handoffBtn.disabled = !canHandoff;
 
         wrap.innerHTML = renderIndexes.map(function (idx) {
-            const item = state.checklistDraft[idx];
-            const badges = [];
-            const progressStatus = normalizeChecklistStatus(item && item.progressStatus, item && item.done);
-            const statusCls = checklistStatusClass(progressStatus);
-            const assignerName = getChecklistAssignerName();
-            const assigneeStages = buildChecklistAssigneeStages(idx, item, assignerName);
-            const assigned = assigneeStages.length ? assigneeStages[0] : [];
-            if (assignerName) {
-                badges.push('<button type="button" class="checklist-badge assignee assigner" data-check-progress-idx="' + idx + '">' + esc(assignerName) + '</button>');
-                badges.push('<svg class="checklist-handoff-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:' + (assigned.length ? '1' : '0.35') + ';"><circle cx="8" cy="8" r="3"></circle><path d="M3 18c0-2.8 2.2-4.8 5-4.8"></path><path d="M11.5 12h8"></path><path d="M16.5 9l3 3-3 3"></path></svg>');
-            }
-            assigneeStages.forEach(function (stage, stageIdx) {
-                if (stageIdx > 0) {
-                    badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
-                }
-                const prevStage = stageIdx > 0 ? assigneeStages[stageIdx - 1] : null;
-                const isDuplicateStage = !!prevStage && prevStage.length === stage.length && prevStage.every(function (prevName, nameIdx) {
-                    return String(prevName || '').trim().toLowerCase() === String(stage[nameIdx] || '').trim().toLowerCase();
-                });
-                if (isDuplicateStage) return;
-                stage.forEach(function (name) {
-                    badges.push('<button type="button" class="checklist-badge assignee ' + statusCls + '" data-check-progress-idx="' + idx + '" data-check-assignee="' + esc(name) + '">' + esc(name) + '</button>');
-                });
-            });
-            if (item && item.done) badges.push('<span class="checklist-badge done"><svg class="checklist-done-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg></span>');
+            const item = state.checklistDraft[idx] || {};
+            const notesOpen = !!item.notesOpen;
             return '<div class="checklist-row">' +
-                '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item && item.selected ? 'checked' : '') + ' />' +
+                '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item.selected ? 'checked' : '') + ' />' +
                 '<div class="checklist-item-main">' +
-                    '<input class="tasks-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
-                    '<div class="checklist-badges">' + badges.join('') + '</div>' +
+                    '<div class="checklist-text-frame">' +
+                        '<input class="tasks-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
+                        '<button type="button" class="checklist-notes-toggle" data-check-notes-toggle-idx="' + idx + '" aria-label="Toggle notes">…</button>' +
+                    '</div>' +
+                    '<textarea class="tasks-input checklist-notes-input ' + (notesOpen ? 'open' : '') + '" data-check-notes-idx="' + idx + '" placeholder="Notes">' + esc(item.notes || '') + '</textarea>' +
                 '</div>' +
             '</div>';
         }).join('');
@@ -1465,6 +1343,8 @@
                 selected: !!item.selected,
                 text: item.text || '',
                 assignees: item.assignees || '',
+                notes: item.notes || '',
+                notesOpen: !!item.notesOpen,
                 startDate: item.startDate || '',
                 dueDate: item.dueDate || '',
                 handoffMode: item.handoffMode || '',
@@ -1485,6 +1365,8 @@
                 selected: !!(cb && cb.checked),
                 text: text,
                 assignees: prev.assignees || '',
+                notes: String((rows[i].querySelector('[data-check-notes-idx]') || {}).value || prev.notes || '').trim(),
+                notesOpen: !!prev.notesOpen,
                 startDate: prev.startDate || '',
                 dueDate: prev.dueDate || '',
                 handoffMode: prev.handoffMode || '',
@@ -1495,7 +1377,7 @@
         state.checklistDraft = next.filter(function (item) {
             if (!item) return false;
             if (String(item.handoffMode || '') === 'handoff') return true;
-            return !!(String(item.text || '').trim()) || !!item.done || !!item.selected;
+            return !!(String(item.text || '').trim()) || !!(String(item.notes || '').trim()) || !!item.done || !!item.selected;
         });
         syncEditingTaskChecklistToState();
     }
@@ -1505,49 +1387,12 @@
         return parseAssignees(String(raw || '').replace(/\n/g, ',').replace(/\|/g, ','));
     }
 
-    function hasChecklistAssignees(item) {
-        return parseChecklistAssignees(item && item.assignees, '').length > 0;
-    }
-
     function selectedChecklistIndexes() {
         const out = [];
         for (let i = 0; i < state.checklistDraft.length; i++) {
             if (state.checklistDraft[i] && state.checklistDraft[i].selected) out.push(i);
         }
         return out;
-    }
-
-    function hasPriorChecklistHandoffStage(idx) {
-        const item = state.checklistDraft[idx];
-        if (!item) return false;
-        const key = checklistItemKey(item, idx);
-        const textKey = checklistTextKey(item);
-        for (let i = 0; i < state.checklistDraft.length; i++) {
-            if (i === idx) continue;
-            const prev = state.checklistDraft[i];
-            if (!prev || String(prev.handoffMode || '') !== 'handoff') continue;
-            const prevKey = checklistItemKey(prev, i);
-            const sameItem = prevKey === key;
-            const sameText = !!textKey && checklistTextKey(prev) === textKey;
-            if (sameItem || sameText) return true;
-        }
-        return false;
-    }
-
-    function hasChecklistHandoffStage(idx) {
-        const item = state.checklistDraft[idx];
-        if (!item) return false;
-        const key = checklistItemKey(item, idx);
-        const textKey = checklistTextKey(item);
-        for (let i = 0; i < state.checklistDraft.length; i++) {
-            const prev = state.checklistDraft[i];
-            if (!prev || String(prev.handoffMode || '') !== 'handoff') continue;
-            const prevKey = checklistItemKey(prev, i);
-            const sameItem = prevKey === key;
-            const sameText = !!textKey && checklistTextKey(prev) === textKey;
-            if (sameItem || sameText) return true;
-        }
-        return false;
     }
 
     function renderTaskAssignBadges() {
@@ -1621,6 +1466,8 @@
                 done: !!item.done,
                 text: item.text || '',
                 assignees: item.assignees || '',
+                notes: item.notes || '',
+                notesOpen: !!item.notesOpen,
                 startDate: item.startDate || '',
                 dueDate: item.dueDate || '',
                 handoffMode: item.handoffMode || '',
@@ -1643,104 +1490,7 @@
                 state.checklistDraft[idx].selected = false;
             });
         }
-        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '', progressStatus: 'Not Started', itemId: '' }];
-        syncEditingTaskChecklistToState();
-        syncChecklistMasterDates();
-        renderChecklistDraft();
-        queueRenderGantt();
-        if (state.editingId) queueModalAutosave();
-    }
-
-    function openChecklistAssignMenu(mode) {
-        syncChecklistDraftFromUi();
-        if (!selectedChecklistIndexes().length) return;
-        state.checklistAssignMode = mode;
-        const menu = byId('taskChecklistAssigneeMenu');
-        if (!menu) return;
-        byId('taskChecklistAssignName').value = '';
-        byId('taskChecklistAssignStart').value = '';
-        byId('taskChecklistAssignDue').value = '';
-        const saveLabel = byId('taskChecklistAssignSaveLabel');
-        if (saveLabel) saveLabel.textContent = 'Assign';
-        menu.classList.add('open');
-        byId('taskChecklistAssignName').focus();
-    }
-
-    function closeChecklistAssignMenu() {
-        const menu = byId('taskChecklistAssigneeMenu');
-        if (menu) menu.classList.remove('open');
-        state.checklistAssignMode = '';
-    }
-
-    function saveChecklistAssignMenu() {
-        syncChecklistDraftFromUi();
-        const selected = selectedChecklistIndexes();
-        if (!selected.length) { closeChecklistAssignMenu(); return; }
-        const assigneeNames = parseAssigneeInputList(byId('taskChecklistAssignName').value || '');
-        const masterStart = String(byId('taskStartDate').value || '').trim();
-        const masterDue = String(byId('taskDueDate').value || '').trim() || masterStart;
-        const rawStart = String(byId('taskChecklistAssignStart').value || '').trim() || masterStart;
-        const rawDue = String(byId('taskChecklistAssignDue').value || '').trim() || rawStart || masterDue;
-        const startDate = clampIsoRange(rawStart, masterStart, masterDue);
-        const dueDate = clampIsoRange(rawDue, startDate || masterStart, masterDue);
-
-        selected.forEach(function (idx) {
-            const item = state.checklistDraft[idx];
-            const current = parseChecklistAssignees(item.assignees, getChecklistAssignerName());
-            const nextAssignees = (state.checklistAssignMode === 'assign' && hasPriorChecklistHandoffStage(idx))
-                ? assigneeNames.slice()
-                : Array.from(new Set(current.concat(assigneeNames))).filter(Boolean);
-            item.assignees = serializeAssignees(nextAssignees);
-            item.handoffMode = '';
-            item.startDate = startDate;
-            item.dueDate = dueDate;
-            item.selected = false;
-        });
-
-        const checklistAssignees = [];
-        state.checklistDraft.forEach(function (item) {
-            parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
-        });
-        const mergedForField = removeAssignerFromAssignees(Array.from(new Set(parseAssignees(byId('taskAssignee').value).concat(checklistAssignees))).filter(Boolean), getChecklistAssignerName());
-        byId('taskAssignee').value = mergedForField.join(', ');
-
-        syncEditingTaskChecklistToState();
-        closeChecklistAssignMenu();
-        syncChecklistMasterDates();
-        renderChecklistDraft();
-        queueRenderGantt();
-        if (state.editingId) queueModalAutosave();
-    }
-
-    function createChecklistHandoffEntries() {
-        syncChecklistDraftFromUi();
-        const selected = selectedChecklistIndexes();
-        if (!selected.length) return;
-        const appended = [];
-        selected.forEach(function (idx) {
-            const item = state.checklistDraft[idx];
-            if (!item) return;
-            const hasHandoff = hasChecklistHandoffStage(idx);
-            item.handoffMode = 'handoff';
-            item.selected = false;
-            item.done = false;
-            item.progressStatus = normalizeChecklistStatus(item.progressStatus, false);
-            if (hasHandoff) return;
-            const clone = {
-                done: false,
-                selected: false,
-                text: String(item.text || '').trim(),
-                assignees: '',
-                startDate: item.startDate || byId('taskStartDate').value || '',
-                dueDate: item.dueDate || byId('taskDueDate').value || '',
-                handoffMode: '',
-                progressStatus: 'Not Started',
-                itemId: String(item.itemId || '')
-            };
-            appended.push(clone);
-        });
-        if (!appended.length) return;
-        state.checklistDraft = state.checklistDraft.concat(appended);
+        if (!state.checklistDraft.length) state.checklistDraft = [{ done: false, selected: false, text: '', notes: '', notesOpen: false, progressStatus: 'Not Started', itemId: '' }];
         syncEditingTaskChecklistToState();
         syncChecklistMasterDates();
         renderChecklistDraft();
@@ -1775,6 +1525,8 @@
                         selected: false,
                         text: String(it.text || ''),
                         assignees: String(it.assignees || ''),
+                        notes: String(it.notes || ''),
+                        notesOpen: false,
                         startDate: String(it.startDate || ''),
                         dueDate: String(it.dueDate || ''),
                         handoffMode: String(it.handoffMode || ''),
@@ -1793,7 +1545,6 @@
     }
 
     function openModal(taskId) {
-        closeChecklistAssignMenu();
         state.tracksUnlocked = false;
         syncTrackLockUi();
         const task = state.tasks.find(function (t) { return t.taskId === taskId; });
@@ -1867,7 +1618,6 @@ loadChecklist(task ? task.taskId : null);
 
     function closeModal() {
         byId('taskModal').classList.remove('open');
-        closeChecklistAssignMenu();
         if (state.autosaveTimer) {
             clearTimeout(state.autosaveTimer);
             state.autosaveTimer = null;
@@ -2475,9 +2225,7 @@ loadChecklist(task ? task.taskId : null);
         });
         byId('taskAssigner').addEventListener('input', function () {
             const next = String(byId('taskAssigner').value || '').trim();
-            syncChecklistAssignerBadges(state.lastAssignerValue, next);
             state.lastAssignerValue = next;
-            renderChecklistDraft();
             renderTaskAssignBadges();
             queueModalAutosave();
         });
@@ -2485,16 +2233,16 @@ loadChecklist(task ? task.taskId : null);
         byId('taskChecklistAdd').addEventListener('click', function () {
             if (state.checklistLoading) return;
             syncChecklistDraftFromUi();
-            state.checklistDraft.push({ done: false, selected: false, text: '', assignees: '', progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '', itemId: '' });
+            state.checklistDraft.push({ done: false, selected: false, text: '', assignees: '', notes: '', notesOpen: false, progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '', itemId: '' });
             renderChecklistDraft();
         });
         byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); queueModalAutosave(); } });
         byId('taskChecklistRows').addEventListener('change', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); queueModalAutosave(); } });
         byId('taskChecklistRows').addEventListener('click', function (e) {
-            const progressBtn = e.target.closest('[data-check-progress-idx]');
-            if (progressBtn) {
-                const idx = Number(progressBtn.getAttribute('data-check-progress-idx'));
-                if (Number.isFinite(idx)) openChecklistProgressMenu(idx, progressBtn, progressBtn.getAttribute('data-check-assignee') || '');
+            const notesToggle = e.target.closest('[data-check-notes-toggle-idx]');
+            if (notesToggle) {
+                const idx = Number(notesToggle.getAttribute('data-check-notes-toggle-idx'));
+                if (Number.isFinite(idx)) toggleChecklistNotes(idx);
                 return;
             }
             const selectCb = e.target.closest('[data-check-select-idx]');
@@ -2517,38 +2265,6 @@ loadChecklist(task ? task.taskId : null);
                 syncPriorityToggleUi();
             });
         }
-
-
-        document.addEventListener('click', function (e) {
-            const menu = byId('checklistProgressMenu');
-            if (!menu || !menu.classList.contains('open')) return;
-            const btn = e.target.closest('[data-progress-idx][data-progress-status], [data-progress-idx][data-progress-action]');
-            if (btn) {
-                const idx = Number(btn.getAttribute('data-progress-idx'));
-                const action = String(btn.getAttribute('data-progress-action') || '').trim();
-                const next = String(btn.getAttribute('data-progress-status') || 'Not Started');
-                if (Number.isFinite(idx) && state.checklistDraft[idx]) {
-                    if (action === 'unassign') {
-                        const removeName = String(btn.getAttribute('data-progress-assignee') || '').trim().toLowerCase();
-                        const currentNames = parseChecklistAssignees(state.checklistDraft[idx].assignees, '');
-                        const kept = currentNames.filter(function (name) {
-                            return String(name || '').trim().toLowerCase() !== removeName;
-                        });
-                        state.checklistDraft[idx].assignees = serializeAssignees(kept);
-                    } else {
-                        state.checklistDraft[idx].progressStatus = next;
-                        state.checklistDraft[idx].done = next === 'Done';
-                    }
-                    syncChecklistMasterDates();
-                    renderChecklistDraft();
-                    syncEditingTaskChecklistToState();
-                    if (state.editingId) queueModalAutosave();
-                }
-                closeChecklistProgressMenu();
-                return;
-            }
-            if (!e.target.closest('#checklistProgressMenu,[data-check-progress-idx]')) closeChecklistProgressMenu();
-        });
 
         byId('taskStartDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); queueModalAutosave(); });
         byId('taskDueDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); queueModalAutosave(); });
