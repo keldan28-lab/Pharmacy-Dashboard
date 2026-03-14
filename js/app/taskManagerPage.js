@@ -40,6 +40,7 @@
         syncingScroll: false,
         checklistDraft: [],
         checklistAssignMode: '',
+        taskAssignStages: [],
         focusTaskId: '',
         tracksUnlocked: false,
         dragDeleteHot: false,
@@ -1549,6 +1550,67 @@
         return false;
     }
 
+    function renderTaskAssignBadges() {
+        const wrap = byId('taskAssignBadges');
+        if (!wrap) return;
+        const badges = [];
+        const assignerName = String(byId('taskAssigner') && byId('taskAssigner').value || '').trim();
+        if (assignerName) {
+            badges.push('<span class="checklist-badge assigner">' + esc(assignerName) + '</span>');
+        }
+        const stages = Array.isArray(state.taskAssignStages) ? state.taskAssignStages : [];
+        stages.forEach(function (stage, idx) {
+            if (idx > 0) {
+                badges.push('<svg class="checklist-handoff-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"></circle><path d="M3 18c0-2.8 2.2-4.8 5-4.8"></path><path d="M11.5 12h8"></path><path d="M16.5 9l3 3-3 3"></path></svg>');
+            }
+            (Array.isArray(stage) ? stage : []).forEach(function (name) {
+                badges.push('<span class="checklist-badge assignee status-in-progress">' + esc(name) + '</span>');
+            });
+        });
+        if (!badges.length) badges.push('<span class="tasks-empty" style="padding:2px 0;">No assignees</span>');
+        wrap.innerHTML = badges.join('');
+    }
+
+    function syncTaskAssignFieldFromStages() {
+        const stages = Array.isArray(state.taskAssignStages) ? state.taskAssignStages : [];
+        const latest = stages.length ? stages[stages.length - 1] : [];
+        const clean = removeAssignerFromAssignees((Array.isArray(latest) ? latest : []).filter(Boolean), String(byId('taskAssigner') && byId('taskAssigner').value || '').trim());
+        byId('taskAssignee').value = clean.join(', ');
+    }
+
+    function initializeTaskAssignStages(task) {
+        const base = removeAssignerFromAssignees(parseAssignees(task ? task.assignee : byId('taskAssignee').value), String(byId('taskAssigner') && byId('taskAssigner').value || '').trim());
+        state.taskAssignStages = [base.filter(Boolean)];
+        const inp = byId('taskAssignInput');
+        if (inp) inp.value = '';
+        syncTaskAssignFieldFromStages();
+        renderTaskAssignBadges();
+    }
+
+    function applyTaskAssignAction(action) {
+        const input = byId('taskAssignInput');
+        const names = parseAssigneeInputList(input ? input.value : '');
+        const stages = Array.isArray(state.taskAssignStages) ? state.taskAssignStages.slice() : [];
+        if (!stages.length) stages.push(removeAssignerFromAssignees(parseAssignees(byId('taskAssignee').value), String(byId('taskAssigner') && byId('taskAssigner').value || '').trim()));
+        if (action === 'handoff') {
+            if (stages.length < 2) {
+                stages.push(names.slice());
+            } else {
+                stages[1] = names.slice();
+            }
+        } else {
+            if (stages.length > 1) {
+                stages[1] = names.slice();
+            } else {
+                stages[0] = Array.from(new Set((stages[0] || []).concat(names))).filter(Boolean);
+            }
+        }
+        state.taskAssignStages = stages;
+        syncTaskAssignFieldFromStages();
+        renderTaskAssignBadges();
+        queueModalAutosave();
+    }
+
     function syncEditingTaskChecklistToState() {
         if (!state.editingId) return;
         const task = state.tasks.find(function (t) { return t.taskId === state.editingId; });
@@ -1743,6 +1805,7 @@
         byId('taskAssignee').value = task ? task.assignee : '';
         byId('taskAssigner').value = task ? task.assigner : '';
         state.lastAssignerValue = byId('taskAssigner').value || ''; 
+        initializeTaskAssignStages(task || null);
         byId('taskStartDate').value = task ? task.startDate : toISODate(new Date());
         byId('taskDueDate').value = task ? task.dueDate : shiftIsoDate(toISODate(new Date()), 2);
 
@@ -1845,17 +1908,13 @@ loadChecklist(task ? task.taskId : null);
             createdBy: 'dashboard'
         };
         syncChecklistDraftFromUi();
-        const checklistAssignees = [];
-        state.checklistDraft.forEach(function (item) {
-            parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
-        });
+        syncTaskAssignFieldFromStages();
         const assigneeInputList = parseAssignees(byId('taskAssignee').value);
-        const assigneeList = removeAssignerFromAssignees(Array.from(new Set(assigneeInputList.concat(checklistAssignees))).filter(Boolean), payload.assigner);
+        const assigneeList = removeAssignerFromAssignees(Array.from(new Set(assigneeInputList)).filter(Boolean), payload.assigner);
         byId('taskAssignee').value = assigneeList.join(', ');
         payload.assignees = assigneeList.slice();
         payload.assignee = assigneeList[0] || '';
         modalTracksToPayload(payload, assigneeList);
-        syncChecklistAssigneesWithTask(assigneeList);
         payload.status = checklistOverallProgressStatus(state.checklistDraft);
 
         if (parentTask) {
@@ -2407,7 +2466,7 @@ loadChecklist(task ? task.taskId : null);
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
-        ['taskTitle','taskDescription','taskStatus','taskPriority','taskColor','taskAssignee','taskPercent','taskItemCode','taskItemName','taskLocation','taskSublocation','taskParentId','taskAssigneeTracks'].forEach(function (id) {
+        ['taskTitle','taskDescription','taskStatus','taskPriority','taskColor','taskPercent','taskItemCode','taskItemName','taskLocation','taskSublocation','taskParentId','taskAssigneeTracks'].forEach(function (id) {
             const field = byId(id);
             if (!field) return;
             const evt = (field.tagName === 'SELECT' || field.type === 'date' || field.type === 'range') ? 'change' : 'input';
@@ -2419,6 +2478,7 @@ loadChecklist(task ? task.taskId : null);
             syncChecklistAssignerBadges(state.lastAssignerValue, next);
             state.lastAssignerValue = next;
             renderChecklistDraft();
+            renderTaskAssignBadges();
             queueModalAutosave();
         });
         byId('taskArchiveBtn').addEventListener('click', archiveEditingTask);
@@ -2444,10 +2504,10 @@ loadChecklist(task ? task.taskId : null);
         });
         byId('taskChecklistDelete').addEventListener('click', function () { if (!state.checklistLoading) applyChecklistSelectionAction('delete'); });
         byId('taskChecklistDone').addEventListener('click', function () { if (!state.checklistLoading) applyChecklistSelectionAction('done'); });
-        byId('taskChecklistHandoff').addEventListener('click', function () { if (!state.checklistLoading) createChecklistHandoffEntries(); });
-        byId('taskChecklistCollaborate').addEventListener('click', function () { if (!state.checklistLoading) openChecklistAssignMenu('assign'); });
-        byId('taskChecklistAssignSave').addEventListener('click', function () { if (!state.checklistLoading) saveChecklistAssignMenu(); });
-        byId('taskChecklistAssignCancel').addEventListener('click', closeChecklistAssignMenu);
+        const assignBtn = byId('taskAssignAddBtn');
+        if (assignBtn) assignBtn.addEventListener('click', function () { applyTaskAssignAction('assign'); });
+        const handoffBtn = byId('taskAssignHandoffBtn');
+        if (handoffBtn) handoffBtn.addEventListener('click', function () { applyTaskAssignAction('handoff'); });
         const pr = byId('taskPriorityToggleRow');
         if (pr) {
             pr.addEventListener('click', function (e) {
