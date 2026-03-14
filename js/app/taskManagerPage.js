@@ -237,10 +237,7 @@
     }
 
     function emptyFallbackTasks() {
-        return [
-            { taskId: 'TASK-MOCK-1', parentId: '', sortOrder: 10, level: 'group', title: 'Cycle Count Prep', description: 'Prepare cycle count sheet', status: 'In Progress', priority: 'High', assignee: 'Ops', startDate: toISODate(new Date()), dueDate: shiftIsoDate(toISODate(new Date()), 4), percentComplete: 45, itemCode: '', itemName: '', location: 'Main', sublocation: 'Pharmacy', dependencyIds: '', archived: false, createdAt: isoNow(), updatedAt: isoNow(), createdBy: 'mock', colorKey: 'teal' },
-            { taskId: 'TASK-MOCK-2', parentId: 'TASK-MOCK-1', sortOrder: 20, level: 'child', title: 'Verify Pyxis variances', description: '', status: 'Not Started', priority: 'Medium', assignee: 'Tech 1', startDate: shiftIsoDate(toISODate(new Date()), 1), dueDate: shiftIsoDate(toISODate(new Date()), 2), percentComplete: 0, itemCode: '', itemName: '', location: 'ED', sublocation: 'Pyxis', dependencyIds: '', archived: false, createdAt: isoNow(), updatedAt: isoNow(), createdBy: 'mock', colorKey: 'teal' }
-        ];
+        return [];
     }
 
     function parseAssignees(value) {
@@ -275,6 +272,14 @@
         return f ? [f] : [];
     }
 
+    function removeAssignerFromAssignees(list, assignerName) {
+        const assigner = String(assignerName || '').trim().toLowerCase();
+        return (Array.isArray(list) ? list : []).map(function (v) { return String(v || '').trim(); }).filter(function (name) {
+            if (!name) return false;
+            return !assigner || name.toLowerCase() !== assigner;
+        });
+    }
+
     function normalizeTask(raw, idx) {
         const out = {};
         const source = raw && typeof raw === 'object' ? raw : {};
@@ -302,7 +307,7 @@
         const sourceAssignee = source.assignee != null ? source.assignee : keyMap.assignee;
         const sourceTracks = source.assigneeTracks != null ? source.assigneeTracks : keyMap.assigneetracks;
         const assigneeList = out.assignees != null && String(out.assignees).trim() ? parseAssignees(out.assignees) : parseAssignees(sourceAssignee);
-        out.assignees = assigneeList;
+        out.assignees = removeAssignerFromAssignees(assigneeList, out.assigner);
         out.assignee = String((assigneeList[0] || sourceAssignee || '')).trim();
         out.assigneeTracks = sourceTracks || '';
         if (!Array.isArray(out.checklistItems)) {
@@ -704,7 +709,7 @@
             return;
         }
         if (!state.flatRows.length) {
-            els.listBody.innerHTML = '<div class="tasks-empty">No tasks match the current filters.</div>';
+            els.listBody.innerHTML = '<div class="tasks-empty">' + (state.tasks.length ? 'No tasks match the current filters.' : 'No current task. Click "+ Task" to add a new task.') + '</div>';
             return;
         }
 
@@ -898,7 +903,7 @@
     }
 
     function syncChecklistAssigneesWithTask(assigneeList) {
-        const base = Array.isArray(assigneeList) ? assigneeList.filter(Boolean) : [];
+        const base = removeAssignerFromAssignees(Array.isArray(assigneeList) ? assigneeList.filter(Boolean) : [], getChecklistAssignerName());
         let changed = false;
         for (let i = 0; i < state.checklistDraft.length; i++) {
             const item = state.checklistDraft[i];
@@ -1038,7 +1043,7 @@
     function renderGantt() {
         const rows = state.flatRows;
         if (!rows.length) {
-            els.ganttWrap.innerHTML = '<div class="tasks-empty">No scheduled tasks to display.</div>';
+            els.ganttWrap.innerHTML = '<div class="tasks-empty">' + (state.tasks.length ? 'No tasks match the current filters.' : 'No current task. Click "+ Task" to add a new task.') + '</div>';
             return;
         }
 
@@ -1230,11 +1235,13 @@
 
     async function persistChecklistForTask(taskId) {
         if (!taskId) return;
+        const assignerName = getChecklistAssignerName();
         const checklistPayload = state.checklistDraft.map(function (item) {
+            const cleanAssignees = removeAssignerFromAssignees(parseChecklistAssignees(item && item.assignees, ''), assignerName);
             return {
                 done: !!item.done,
                 text: item.text || '',
-                assignees: item.assignees || '',
+                assignees: serializeAssignees(cleanAssignees),
                 startDate: item.startDate || '',
                 dueDate: item.dueDate || '',
                 handoffMode: item.handoffMode || '',
@@ -1300,6 +1307,21 @@
         return String((item && item.text) || '').trim().toLowerCase();
     }
 
+    function visibleChecklistIndexes() {
+        const visible = [];
+        const seenText = {};
+        for (let i = 0; i < state.checklistDraft.length; i++) {
+            const item = state.checklistDraft[i];
+            if (!item) continue;
+            if (String(item.handoffMode || '') === 'handoff') continue;
+            const key = checklistTextKey(item);
+            if (key && seenText[key]) continue;
+            if (key) seenText[key] = true;
+            visible.push(i);
+        }
+        return visible;
+    }
+
     function buildChecklistAssigneeStages(idx, item, assignerName) {
         const stages = [];
         const seen = {};
@@ -1341,9 +1363,9 @@
             return;
         }
         if (!state.checklistDraft.length) {
-            const assignerName = getChecklistAssignerName();
-            state.checklistDraft = [{ done: false, selected: false, text: '', assignees: serializeAssignees(assignerName ? [assignerName] : []), progressStatus: 'Not Started' }];
+            state.checklistDraft = [{ done: false, selected: false, text: '', assignees: '', progressStatus: 'Not Started' }];
         }
+        const renderIndexes = visibleChecklistIndexes();
         const selectedCount = state.checklistDraft.filter(function (it) { return !!(it && it.selected); }).length;
         const selectedRows = state.checklistDraft.filter(function (it) { return !!(it && it.selected); });
         const canHandoff = selectedRows.length > 0 && selectedRows.every(function (it) { return hasChecklistAssignees(it); });
@@ -1356,7 +1378,8 @@
         const handoffBtn = byId('taskChecklistHandoff');
         if (handoffBtn) handoffBtn.disabled = !canHandoff;
 
-        wrap.innerHTML = state.checklistDraft.map(function (item, idx) {
+        wrap.innerHTML = renderIndexes.map(function (idx) {
+            const item = state.checklistDraft[idx];
             const badges = [];
             const progressStatus = normalizeChecklistStatus(item && item.progressStatus, item && item.done);
             const statusCls = checklistStatusClass(progressStatus);
@@ -1390,15 +1413,27 @@
     function syncChecklistDraftFromUi() {
         const wrap = byId('taskChecklistRows');
         if (!wrap) return;
-        const next = [];
+        const next = state.checklistDraft.map(function (item) {
+            return item ? {
+                done: !!item.done,
+                selected: !!item.selected,
+                text: item.text || '',
+                assignees: item.assignees || '',
+                startDate: item.startDate || '',
+                dueDate: item.dueDate || '',
+                handoffMode: item.handoffMode || '',
+                progressStatus: item.progressStatus || (item.done ? 'Done' : 'Not Started')
+            } : null;
+        }).filter(Boolean);
         const rows = wrap.querySelectorAll('.checklist-row');
         for (let i = 0; i < rows.length; i++) {
             const cb = rows[i].querySelector('input[type="checkbox"]');
             const tx = rows[i].querySelector('input[data-check-text-idx]');
+            const idx = Number(tx ? tx.getAttribute('data-check-text-idx') : NaN);
+            if (!Number.isFinite(idx) || !next[idx]) continue;
             const text = String((tx && tx.value) || '').trim();
-            const prev = state.checklistDraft[i] || {};
-            if (!text && !prev.done && !(cb && cb.checked)) continue;
-            next.push({
+            const prev = next[idx] || {};
+            next[idx] = {
                 done: !!prev.done,
                 selected: !!(cb && cb.checked),
                 text: text,
@@ -1407,9 +1442,13 @@
                 dueDate: prev.dueDate || '',
                 handoffMode: prev.handoffMode || '',
                 progressStatus: prev.progressStatus || (prev.done ? 'Done' : 'Not Started')
-            });
+            };
         }
-        state.checklistDraft = next;
+        state.checklistDraft = next.filter(function (item) {
+            if (!item) return false;
+            if (String(item.handoffMode || '') === 'handoff') return true;
+            return !!(String(item.text || '').trim()) || !!item.done || !!item.selected;
+        });
         syncEditingTaskChecklistToState();
     }
 
@@ -1517,7 +1556,7 @@
         state.checklistDraft.forEach(function (item) {
             parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
         });
-        const mergedForField = Array.from(new Set(parseAssignees(byId('taskAssignee').value).concat(checklistAssignees))).filter(Boolean);
+        const mergedForField = removeAssignerFromAssignees(Array.from(new Set(parseAssignees(byId('taskAssignee').value).concat(checklistAssignees))).filter(Boolean), getChecklistAssignerName());
         byId('taskAssignee').value = mergedForField.join(', ');
 
         syncEditingTaskChecklistToState();
@@ -1711,12 +1750,13 @@ loadChecklist(task ? task.taskId : null);
         state.checklistDraft.forEach(function (item) {
             parseChecklistAssignees(item.assignees, '').forEach(function (name) { checklistAssignees.push(name); });
         });
-        const assigneeList = Array.from(new Set(parseAssignees(payload.assignee).concat(checklistAssignees))).filter(Boolean);
-        if (assigneeList.length) byId('taskAssignee').value = assigneeList.join(', ');
+        const assigneeInputList = parseAssignees(byId('taskAssignee').value);
+        const assigneeList = removeAssignerFromAssignees(Array.from(new Set(assigneeInputList.concat(checklistAssignees))).filter(Boolean), payload.assigner);
+        byId('taskAssignee').value = assigneeList.join(', ');
         payload.assignees = assigneeList.slice();
         payload.assignee = assigneeList[0] || '';
         modalTracksToPayload(payload, assigneeList);
-syncChecklistAssigneesWithTask(assigneeList);
+        syncChecklistAssigneesWithTask(assigneeList);
         payload.status = checklistOverallProgressStatus(state.checklistDraft);
 
         if (parentTask) {
@@ -2258,8 +2298,7 @@ syncChecklistAssigneesWithTask(assigneeList);
         byId('taskChecklistAdd').addEventListener('click', function () {
             if (state.checklistLoading) return;
             syncChecklistDraftFromUi();
-            const assignerName = getChecklistAssignerName();
-            state.checklistDraft.push({ done: false, selected: false, text: '', assignees: serializeAssignees(assignerName ? [assignerName] : []), progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
+            state.checklistDraft.push({ done: false, selected: false, text: '', assignees: '', progressStatus: 'Not Started', startDate: byId('taskStartDate').value || '', dueDate: byId('taskDueDate').value || '' });
             renderChecklistDraft();
         });
         byId('taskChecklistRows').addEventListener('input', function () { if (!state.checklistLoading) { syncChecklistDraftFromUi(); syncChecklistMasterDates(); } });
