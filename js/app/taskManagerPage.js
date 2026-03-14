@@ -1366,10 +1366,14 @@
         addStage(base);
 
         const key = checklistItemKey(item, idx);
+        const textKey = checklistTextKey(item);
         for (let i = idx + 1; i < state.checklistDraft.length; i++) {
             const next = state.checklistDraft[i];
             if (!next || String(next.handoffMode || '') !== 'handoff') continue;
-            if (checklistItemKey(next, i) !== key) continue;
+            const nextKey = checklistItemKey(next, i);
+            const sameItem = nextKey === key;
+            const sameText = !!textKey && checklistTextKey(next) === textKey;
+            if (!sameItem && !sameText) continue;
             addStage(parseChecklistAssignees(next.assignees, '').filter(function (n) {
                 return String(n || '').trim() && String(n || '').trim() !== assignerName;
             }));
@@ -2864,7 +2868,9 @@ loadChecklist(task ? task.taskId : null);
         const views = { taskStartDate: null, taskDueDate: null };
 
         function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
-        function toIso(y, m, d) { return new Date(y, m, d).toISOString().slice(0, 10); }
+        function toIso(y, m, d) {
+            return String(y) + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        }
 
         function renderCal(pair) {
             if (!pair || !pair.host || !pair.field) return;
@@ -2916,10 +2922,10 @@ loadChecklist(task ? task.taskId : null);
                     const navType = nav.getAttribute('data-cal-nav');
                     if (navType === 'prevYear' || navType === 'nextYear') {
                         const ystep = navType === 'prevYear' ? -1 : 1;
-                        views[pair.field.id] = new Date(cur.getFullYear() + ystep, cur.getMonth(), 1).toISOString().slice(0, 10);
+                        views[pair.field.id] = toIso(cur.getFullYear() + ystep, cur.getMonth(), 1);
                     } else {
                         const step = navType === 'prev' ? -1 : 1;
-                        views[pair.field.id] = new Date(cur.getFullYear(), cur.getMonth() + step, 1).toISOString().slice(0, 10);
+                        views[pair.field.id] = toIso(cur.getFullYear(), cur.getMonth() + step, 1);
                     }
                     renderCal(pair);
                     return;
