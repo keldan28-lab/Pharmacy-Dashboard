@@ -1323,11 +1323,11 @@
             return '<div class="checklist-row">' +
                 '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item.selected ? 'checked' : '') + ' />' +
                 '<div class="checklist-item-main">' +
-                    '<div class="checklist-text-frame">' +
-                        '<input class="tasks-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
-                        '<button type="button" class="checklist-notes-toggle" data-check-notes-toggle-idx="' + idx + '" aria-label="Toggle notes">…</button>' +
+                    '<div class="checklist-text-frame ' + (notesOpen ? 'notes-open' : '') + '">' +
+                        '<input class="tasks-input checklist-text-input" data-check-text-idx="' + idx + '" placeholder="Checklist item" value="' + esc(item.text || '') + '" />' +
+                        '<button type="button" class="checklist-notes-toggle" data-check-notes-toggle-idx="' + idx + '" aria-label="Toggle notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="1.3"></circle><circle cx="12" cy="12" r="1.3"></circle><circle cx="18" cy="12" r="1.3"></circle></svg></button>' +
+                        '<textarea class="tasks-input checklist-notes-input" data-check-notes-idx="' + idx + '" placeholder="Notes">' + esc(item.notes || '') + '</textarea>' +
                     '</div>' +
-                    '<textarea class="tasks-input checklist-notes-input ' + (notesOpen ? 'open' : '') + '" data-check-notes-idx="' + idx + '" placeholder="Notes">' + esc(item.notes || '') + '</textarea>' +
                 '</div>' +
             '</div>';
         }).join('');
@@ -1400,15 +1400,16 @@
         if (!wrap) return;
         const badges = [];
         const assignerName = String(byId('taskAssigner') && byId('taskAssigner').value || '').trim();
-        if (assignerName) {
-            badges.push('<span class="checklist-badge assigner">' + esc(assignerName) + '</span>');
-        }
         const stages = Array.isArray(state.taskAssignStages) ? state.taskAssignStages : [];
+        if (assignerName) badges.push('<span class="checklist-badge assigner">' + esc(assignerName) + '</span>');
         stages.forEach(function (stage, idx) {
-            if (idx > 0) {
+            const names = (Array.isArray(stage) ? stage : []).filter(Boolean);
+            if (idx === 0) {
+                if (assignerName && names.length) badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
+            } else {
                 badges.push('<svg class="checklist-handoff-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"></circle><path d="M3 18c0-2.8 2.2-4.8 5-4.8"></path><path d="M11.5 12h8"></path><path d="M16.5 9l3 3-3 3"></path></svg>');
             }
-            (Array.isArray(stage) ? stage : []).forEach(function (name) {
+            names.forEach(function (name) {
                 badges.push('<span class="checklist-badge assignee status-in-progress">' + esc(name) + '</span>');
             });
         });
