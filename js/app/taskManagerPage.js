@@ -1515,6 +1515,23 @@
         return out;
     }
 
+    function hasPriorChecklistHandoffStage(idx) {
+        const item = state.checklistDraft[idx];
+        if (!item) return false;
+        const key = checklistItemKey(item, idx);
+        const textKey = checklistTextKey(item);
+        for (let i = 0; i < state.checklistDraft.length; i++) {
+            if (i === idx) continue;
+            const prev = state.checklistDraft[i];
+            if (!prev || String(prev.handoffMode || '') !== 'handoff') continue;
+            const prevKey = checklistItemKey(prev, i);
+            const sameItem = prevKey === key;
+            const sameText = !!textKey && checklistTextKey(prev) === textKey;
+            if (sameItem || sameText) return true;
+        }
+        return false;
+    }
+
     function syncEditingTaskChecklistToState() {
         if (!state.editingId) return;
         const task = state.tasks.find(function (t) { return t.taskId === state.editingId; });
@@ -1591,8 +1608,10 @@
         selected.forEach(function (idx) {
             const item = state.checklistDraft[idx];
             const current = parseChecklistAssignees(item.assignees, getChecklistAssignerName());
-            const merged = Array.from(new Set(current.concat(assigneeNames))).filter(Boolean);
-            item.assignees = serializeAssignees(merged);
+            const nextAssignees = (state.checklistAssignMode === 'assign' && hasPriorChecklistHandoffStage(idx))
+                ? assigneeNames.slice()
+                : Array.from(new Set(current.concat(assigneeNames))).filter(Boolean);
+            item.assignees = serializeAssignees(nextAssignees);
             item.handoffMode = '';
             item.startDate = startDate;
             item.dueDate = dueDate;
