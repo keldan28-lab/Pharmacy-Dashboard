@@ -309,6 +309,7 @@
         .task-assignee-avatar.status-done { border-color: rgba(17, 153, 142, 0.68); }
         .task-assignee-avatar .assignee-check { width: 14px; height: 14px; display: block; }
         .task-assignee-avatar:hover { background: rgba(42,184,173,0.16); border-color: rgba(42,184,173,0.46); color: var(--text-primary); }
+        body:not(.dark-mode) .task-assignee-avatar { color: #374151; }
         .assignee-focus { border-color: rgba(42,184,173,0.9) !important; box-shadow: 0 0 0 3px rgba(42,184,173,0.2); }
         .task-color-badge { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 7px; vertical-align: middle; }
         .task-connector {
@@ -583,16 +584,15 @@
         .checklist-badge.assignee { cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
         .checklist-badge.assignee:hover { border-color: rgba(79,142,247,0.6); }
         .checklist-badge.assigner { border-color: rgba(79,142,247,0.76); background: rgba(79,142,247,0.24); color: var(--text-primary); }
-        .checklist-badge.status-not-started { border-color: rgba(79,142,247,0.66); background: rgba(79,142,247,0.2); color: #e8f1ff; }
-        .checklist-badge.status-in-progress { border-color: rgba(242,201,76,0.66); background: rgba(242,201,76,0.18); color: #fff6d7; }
-        .checklist-badge.status-blocked { border-color: rgba(226,79,79,0.66); background: rgba(226,79,79,0.2); color: #ffe3e3; }
-        .checklist-badge.status-done { border-color: rgba(17,153,142,0.7); background: rgba(17,153,142,0.24); color: #dffffa; }
+        .checklist-badge.status-not-started { border-color: rgba(126,154,188,0.58); background: rgba(126,154,188,0.18); color: var(--text-primary); }
+        .checklist-badge.status-in-progress { border-color: rgba(17,153,142,0.7); background: rgba(17,153,142,0.22); color: var(--text-primary); }
+        .checklist-badge.status-blocked { border-color: rgba(226,79,79,0.72); background: rgba(226,79,79,0.22); color: var(--text-primary); }
+        .checklist-badge.status-done { border-color: rgba(17,153,142,0.72); background: rgba(17,153,142,0.24); color: var(--text-primary); }
         .checklist-handoff-arrow { width: 11px; height: 11px; color: var(--text-secondary); margin: 0 1px 0 2px; vertical-align: -1px; }
         .checklist-badge.done { border-color: rgba(17,153,142,0.55); color: #dffffa; background: rgba(17,153,142,0.2); }
         .task-checklist-assignee-menu { position: absolute; top: 32px; right: 0; width: min(320px, 88vw); border: 1px solid var(--card-border); border-radius: 10px; background: var(--card-bg); box-shadow: 0 8px 20px rgba(0,0,0,0.2); padding: 8px; display: none; z-index: 40; }
         .task-checklist-assignee-menu.open { display: block; }
-        .task-checklist-assignee-menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .task-checklist-assignee-menu-grid .tasks-input:first-child { grid-column: 1 / -1; }
+        .task-checklist-assignee-menu-grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
         .task-checklist-assignee-save { margin-top: 0; width: auto; }
         .task-modal-actions { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
         .task-checklist-delete:hover { border-color: rgba(220,80,80,0.5); background: rgba(220,80,80,0.18); color: #ffd8d8; }
@@ -609,12 +609,18 @@
         .task-title-row { display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; }
         .task-link-section-grid { margin-top: 8px; display:grid; grid-template-columns: repeat(2,minmax(170px,1fr)); gap:8px; }
         .task-link-lookup { position: relative; }
+        .checklist-handoff-icon { width: 14px; height: 14px; color: var(--text-secondary); margin: 0 2px; vertical-align: -2px; }
+        .checklist-done-icon { width: 14px; height: 14px; color: #1d9d66; margin-left: 2px; vertical-align: -2px; }
         .checklist-assign-arrow { width: 12px; height: 12px; color: var(--text-secondary); margin: 0 2px; vertical-align: -1px; }
         body:not(.dark-mode) .checklist-badge.assigner,
         body:not(.dark-mode) .checklist-badge.status-not-started,
         body:not(.dark-mode) .checklist-badge.status-in-progress,
         body:not(.dark-mode) .checklist-badge.status-blocked,
         body:not(.dark-mode) .checklist-badge.status-done { color: #1f2937; }
+        .checklist-progress-menu { position: fixed; z-index: 420; width: 170px; border-radius: 10px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: 0 10px 24px rgba(0,0,0,0.25); padding: 6px; display:none; }
+        .checklist-progress-menu.open { display:block; }
+        .checklist-progress-btn { width:100%; text-align:left; min-height:30px; border-radius:8px; border:0; background:transparent; color:var(--text-primary); padding:4px 8px; cursor:pointer; }
+        .checklist-progress-btn:hover { background: rgba(42,184,173,0.14); }
         input.tasks-input[type="date"] { transition: box-shadow 180ms ease, transform 180ms ease; }
         input.tasks-input[type="date"]:focus { transform: translateY(1px); }
 
@@ -677,6 +683,7 @@
             <div id="tasksFiltersPanel" class="tasks-filter-panel">
                 <select id="tasksStatusFilter" class="tasks-select"></select>
                 <select id="tasksAssigneeFilter" class="tasks-select"></select>
+                <select id="tasksAssignerFilter" class="tasks-select"></select>
                 <input id="tasksItemFilter" class="tasks-input" placeholder="Item code / name" />
                 <input id="tasksLocationFilter" class="tasks-input" placeholder="Location / sublocation" />
                 <button id="tasksClearFilters" class="tasks-button" type="button">Clear</button>
@@ -756,7 +763,7 @@
                                         <input id="taskChecklistAssignStart" type="text" class="tasks-input" placeholder="YYYY-MM-DD" autocomplete="off" />
                                         <input id="taskChecklistAssignDue" type="text" class="tasks-input" placeholder="YYYY-MM-DD" autocomplete="off" />
                                     </div>
-                                    <div class="task-checklist-assignee-actions"><button id="taskChecklistAssignCancel" class="tasks-button task-checklist-assignee-save" type="button">Cancel</button><button id="taskChecklistAssignSave" class="tasks-button task-checklist-assignee-save" type="button">Assign</button></div>
+                                    <div class="task-checklist-assignee-actions"><button id="taskChecklistAssignCancel" class="tasks-button task-checklist-assignee-save" type="button">Cancel</button><button id="taskChecklistAssignSave" class="tasks-button task-checklist-assignee-save" type="button"><span id="taskChecklistAssignSaveLabel">Assign</span></button></div>
                                 </div>
                             </span>
                         </div>
@@ -808,6 +815,8 @@
         </div>
     </div>
 
+
+    <div id="checklistProgressMenu" class="checklist-progress-menu" role="dialog" aria-label="Checklist progress"></div>
 
     <script src="items_details_mockdata.js"></script>
     <script src="location_ref_mockdata.js"></script>

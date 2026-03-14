@@ -96,6 +96,7 @@
         let c = 0;
         if ((els.statusFilter && els.statusFilter.value && els.statusFilter.value !== 'all')) c++;
         if ((els.assigneeFilter && els.assigneeFilter.value && els.assigneeFilter.value !== 'all')) c++;
+        if ((els.assignerFilter && els.assignerFilter.value && els.assignerFilter.value !== 'all')) c++;
         if ((els.itemFilter && (els.itemFilter.value || '').trim())) c++;
         if ((els.locationFilter && (els.locationFilter.value || '').trim())) c++;
         return c;
@@ -250,7 +251,15 @@
 
     function normalizeTask(raw, idx) {
         const out = {};
-        TASK_COLUMNS.forEach(function (k) { out[k] = raw[k] != null ? raw[k] : ''; });
+        const source = raw && typeof raw === 'object' ? raw : {};
+        const keyMap = {};
+        Object.keys(source).forEach(function (k) { keyMap[String(k).trim().toLowerCase().replace(/[^a-z0-9]/g, '')] = source[k]; });
+        TASK_COLUMNS.forEach(function (k) {
+            const direct = source[k];
+            if (direct != null) { out[k] = direct; return; }
+            const alt = keyMap[String(k).toLowerCase().replace(/[^a-z0-9]/g, '')];
+            out[k] = alt != null ? alt : '';
+        });
         out.taskId = String(out.taskId || ('TASK-' + Date.now() + '-' + idx));
         out.parentId = String(out.parentId || '');
         out.sortOrder = Number(out.sortOrder || ((idx + 1) * 10));
@@ -409,6 +418,7 @@
         const q = (els.search.value || '').toLowerCase();
         const status = els.statusFilter.value;
         const assignee = els.assigneeFilter.value;
+        const assigner = els.assignerFilter.value;
         const itemTerm = (els.itemFilter.value || '').toLowerCase();
         const locTerm = (els.locationFilter.value || '').toLowerCase();
 
@@ -416,6 +426,7 @@
             if (!state.showArchived && task.archived) return false;
             if (status !== 'all' && task.status !== status) return false;
             if (assignee !== 'all' && (!Array.isArray(task.assignees) || task.assignees.indexOf(assignee) === -1)) return false;
+            if (assigner !== 'all' && String(task.assigner || '').trim() !== assigner) return false;
             const hay = [task.title, task.description, task.itemCode, task.itemName, task.location, task.sublocation].join(' ').toLowerCase();
             if (q && hay.indexOf(q) === -1) return false;
             if (itemTerm && (String(task.itemCode).toLowerCase().indexOf(itemTerm) === -1 && String(task.itemName).toLowerCase().indexOf(itemTerm) === -1)) return false;
@@ -448,11 +459,18 @@
         const assignees = ['all'].concat(Array.from(new Set(state.tasks.reduce(function (acc, t) {
             return acc.concat(Array.isArray(t.assignees) ? t.assignees : []);
         }, []).filter(Boolean))).sort());
+        const currentAssigner = els.assignerFilter.value || 'all';
+        const assigners = ['all'].concat(Array.from(new Set(state.tasks.map(function (t) { return String(t.assigner || '').trim(); }).filter(Boolean))).sort());
 
         els.assigneeFilter.innerHTML = assignees.map(function (a) {
             return '<option value="' + esc(a) + '">' + esc(a === 'all' ? 'All Assignees' : a) + '</option>';
         }).join('');
         if (assignees.indexOf(currentAssignee) >= 0) els.assigneeFilter.value = currentAssignee;
+
+        els.assignerFilter.innerHTML = assigners.map(function (a) {
+            return '<option value= + esc(a) + >' + esc(a === 'all' ? 'All Assigners' : a) + '</option>';
+        }).join('');
+        if (assigners.indexOf(currentAssigner) >= 0) els.assignerFilter.value = currentAssigner;
 
         if (!els.statusFilter.options.length) {
             els.statusFilter.innerHTML = DEFAULT_STATUS.map(function (s) {
@@ -493,18 +511,26 @@
     }
 
     function assigneeStackForTask(task, avatarClass) {
-        const assignees = Array.isArray(task.assignees) && task.assignees.length
+        const assignerName = String(task.assigner || '').trim().toLowerCase();
+        const assigneesRaw = Array.isArray(task.assignees) && task.assignees.length
             ? task.assignees.slice()
             : [task.assignee || 'Unassigned'];
+        const assignees = assigneesRaw.filter(function (n) {
+            const v = String(n || '').trim();
+            if (!v) return false;
+            if (assignerName && v.toLowerCase() === assignerName) return false;
+            return true;
+        });
         const progressPct = Math.max(0, Math.min(100, Number(taskProgressForBar(task) || 0)));
         const total = Math.max(1, assignees.length);
-        return '<div class="task-assignee-stack" style="--avatar-count:' + assignees.length + '" role="group" aria-label="Task assignees">' + assignees.map(function (assigneeName, idx) {
+        const displayAssignees = assignees.length ? assignees : ['Unassigned'];
+        return '<div class="task-assignee-stack" style="--avatar-count:' + displayAssignees.length + '" role="group" aria-label="Task assignees">' + displayAssignees.map(function (assigneeName, idx) {
             const avatar = assigneeAvatarContent(task, assigneeName);
             const assigneeKey = String(assigneeName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || ('assignee-' + idx);
             const fade = Math.max(0.16, 0.32 - (idx * 0.08));
             const fill = Math.max(0.42, 0.78 - (idx * (0.2 / total)));
             const shadow = Math.max(1, 3 - idx);
-            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + assignees.length + ';--avatar-progress:' + progressPct + '%;--avatar-fill-alpha:' + fill.toFixed(2) + ';--avatar-back-alpha:' + fade.toFixed(2) + ';--avatar-shadow:0 ' + shadow + 'px ' + (shadow + 2) + 'px rgba(15,32,40,' + (0.2 - (idx * 0.04)).toFixed(2) + ')" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
+            return '<button class="task-assignee-avatar ' + avatarClass + '" style="--avatar-index:' + idx + ';--avatar-count:' + displayAssignees.length + ';--avatar-progress:' + progressPct + '%;--avatar-fill-alpha:' + fill.toFixed(2) + ';--avatar-back-alpha:' + fade.toFixed(2) + ';--avatar-shadow:0 ' + shadow + 'px ' + (shadow + 2) + 'px rgba(15,32,40,' + (0.2 - (idx * 0.04)).toFixed(2) + ')" type="button" data-assignee-open="' + esc(task.taskId) + '" data-assignee-key="' + esc(assigneeKey) + '" aria-label="Edit task assignee: ' + esc(assigneeName || 'Unassigned') + '" title="' + esc(assigneeName || 'Unassigned') + '">' + avatar + '</button>';
         }).join('') + '</div>';
     }
 
@@ -1165,19 +1191,23 @@
         });
     }
 
-    function advanceChecklistStatus(idx) {
-        const item = state.checklistDraft[idx];
-        if (!item) return;
-        const list = checklistProgressList();
-        const cur = normalizeChecklistStatus(item.progressStatus, item.done);
-        const at = Math.max(0, list.indexOf(cur));
-        const next = list[(at + 1) % list.length];
-        item.progressStatus = next;
-        item.done = next === 'Done';
-        syncChecklistMasterDates();
-        renderChecklistDraft();
-        syncEditingTaskChecklistToState();
-        if (state.editingId) persistChecklistForTask(state.editingId);
+    function openChecklistProgressMenu(idx, anchor) {
+        const menu = byId('checklistProgressMenu');
+        if (!menu || !anchor) return;
+        const item = state.checklistDraft[idx] || {};
+        const current = normalizeChecklistStatus(item.progressStatus, item.done);
+        menu.innerHTML = checklistProgressList().map(function (status) {
+            return '<button class="checklist-progress-btn" type="button" data-progress-status="' + esc(status) + '" data-progress-idx="' + idx + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
+        }).join('');
+        const r = anchor.getBoundingClientRect();
+        menu.style.left = Math.round(r.left) + 'px';
+        menu.style.top = Math.round(r.bottom + 6) + 'px';
+        menu.classList.add('open');
+    }
+
+    function closeChecklistProgressMenu() {
+        const menu = byId('checklistProgressMenu');
+        if (menu) menu.classList.remove('open');
     }
 
 
@@ -1207,18 +1237,18 @@
             const progressStatus = normalizeChecklistStatus(item && item.progressStatus, item && item.done);
             const statusCls = checklistStatusClass(progressStatus);
             assigned.forEach(function (name, nameIdx) {
-                if (nameIdx > 0) {
-                    badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
-                }
                 const isAssigner = String(name || '').trim() && String(name || '').trim() === getChecklistAssignerName();
-                const cls = 'checklist-badge assignee ' + statusCls + (isAssigner ? ' assigner' : '');
+                if (nameIdx > 0 && item && item.handoffMode === 'handoff') {
+                    badges.push('<svg class="checklist-handoff-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"></circle><path d="M3 18c0-2.8 2.2-4.8 5-4.8"></path><path d="M11.5 12h8"></path><path d="M16.5 9l3 3-3 3"></path></svg>');
+                }
+                const cls = isAssigner ? 'checklist-badge assignee assigner' : ('checklist-badge assignee ' + statusCls);
                 badges.push('<button type="button" class="' + cls + '" data-check-progress-idx="' + idx + '">' + esc(name || 'Assigner') + '</button>');
             });
             if (!assigned.length) {
                 const label = getChecklistAssignerName() || 'Assigner';
-                badges.push('<button type="button" class="checklist-badge assignee assigner ' + statusCls + '" data-check-progress-idx="' + idx + '">' + esc(label) + '</button>');
+                badges.push('<button type="button" class="checklist-badge assignee assigner" data-check-progress-idx="' + idx + '">' + esc(label) + '</button>');
             }
-            if (item && item.done) badges.push('<span class="checklist-badge done">Done</span>');
+            if (item && item.done) badges.push('<span class="checklist-badge done"><svg class="checklist-done-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg></span>');
             return '<div class="checklist-row">' +
                 '<input type="checkbox" data-check-select-idx="' + idx + '" ' + (item && item.selected ? 'checked' : '') + ' />' +
                 '<div class="checklist-item-main">' +
@@ -1310,8 +1340,10 @@
         const menu = byId('taskChecklistAssigneeMenu');
         if (!menu) return;
         byId('taskChecklistAssignName').value = '';
-        byId('taskChecklistAssignStart').value = byId('taskStartDate').value;
-        byId('taskChecklistAssignDue').value = byId('taskDueDate').value;
+        byId('taskChecklistAssignStart').value = '';
+        byId('taskChecklistAssignDue').value = '';
+        const saveLabel = byId('taskChecklistAssignSaveLabel');
+        if (saveLabel) saveLabel.textContent = mode === 'handoff' ? 'Handoff' : 'Assign';
         menu.classList.add('open');
         byId('taskChecklistAssignName').focus();
     }
@@ -1519,7 +1551,7 @@ loadChecklist(task ? task.taskId : null);
         });
         const assigneeList = Array.from(new Set(parseAssignees(payload.assignee).concat(checklistAssignees))).filter(Boolean);
         if (assigneeList.length) byId('taskAssignee').value = assigneeList.join(', ');
-        payload.assignees = serializeAssignees(assigneeList);
+        payload.assignees = assigneeList.slice();
         payload.assignee = assigneeList[0] || '';
         modalTracksToPayload(payload, assigneeList);
 syncChecklistAssigneesWithTask(assigneeList);
@@ -1954,8 +1986,8 @@ syncChecklistAssigneesWithTask(assigneeList);
     }
 
     function bindEvents() {
-        ['search','statusFilter','assigneeFilter','itemFilter','locationFilter'].forEach(function (k) {
-            const ev = (k === 'statusFilter' || k === 'assigneeFilter') ? 'change' : 'input';
+        ['search','statusFilter','assigneeFilter','assignerFilter','itemFilter','locationFilter'].forEach(function (k) {
+            const ev = (k === 'statusFilter' || k === 'assigneeFilter' || k === 'assignerFilter') ? 'change' : 'input';
             els[k].addEventListener(ev, debounce(applyFilters, 120));
         });
 
@@ -2008,6 +2040,7 @@ syncChecklistAssigneesWithTask(assigneeList);
         els.clearFiltersBtn.addEventListener('click', function () {
             els.statusFilter.value = 'all';
             els.assigneeFilter.value = 'all';
+            els.assignerFilter.value = 'all';
             els.itemFilter.value = '';
             els.locationFilter.value = '';
             applyFilters();
@@ -2062,7 +2095,7 @@ syncChecklistAssigneesWithTask(assigneeList);
             const progressBtn = e.target.closest('[data-check-progress-idx]');
             if (progressBtn) {
                 const idx = Number(progressBtn.getAttribute('data-check-progress-idx'));
-                if (Number.isFinite(idx)) advanceChecklistStatus(idx);
+                if (Number.isFinite(idx)) openChecklistProgressMenu(idx, progressBtn);
                 return;
             }
             const selectCb = e.target.closest('[data-check-select-idx]');
@@ -2085,6 +2118,28 @@ syncChecklistAssigneesWithTask(assigneeList);
                 syncPriorityToggleUi();
             });
         }
+
+
+        document.addEventListener('click', function (e) {
+            const menu = byId('checklistProgressMenu');
+            if (!menu || !menu.classList.contains('open')) return;
+            const btn = e.target.closest('[data-progress-status][data-progress-idx]');
+            if (btn) {
+                const idx = Number(btn.getAttribute('data-progress-idx'));
+                const next = String(btn.getAttribute('data-progress-status') || 'Not Started');
+                if (Number.isFinite(idx) && state.checklistDraft[idx]) {
+                    state.checklistDraft[idx].progressStatus = next;
+                    state.checklistDraft[idx].done = next === 'Done';
+                    syncChecklistMasterDates();
+                    renderChecklistDraft();
+                    syncEditingTaskChecklistToState();
+                    if (state.editingId) persistChecklistForTask(state.editingId);
+                }
+                closeChecklistProgressMenu();
+                return;
+            }
+            if (!e.target.closest('#checklistProgressMenu,[data-check-progress-idx]')) closeChecklistProgressMenu();
+        });
 
         byId('taskStartDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
         byId('taskDueDate').addEventListener('change', function () { syncChecklistMasterDates(); renderChecklistDraft(); });
@@ -2219,6 +2274,7 @@ syncChecklistAssigneesWithTask(assigneeList);
         els.search = byId('tasksSearch');
         els.statusFilter = byId('tasksStatusFilter');
         els.assigneeFilter = byId('tasksAssigneeFilter');
+        els.assignerFilter = byId('tasksAssignerFilter');
         els.itemFilter = byId('tasksItemFilter');
         els.locationFilter = byId('tasksLocationFilter');
         els.zoomInBtn = byId('tasksZoomInBtn');
@@ -2538,6 +2594,8 @@ syncChecklistAssigneesWithTask(assigneeList);
             pair.host.addEventListener('click', function (e) {
                 const nav = e.target.closest('[data-cal-nav]');
                 if (nav) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const cur = toDate(views[pair.field.id] || pair.field.value || new Date()) || new Date();
                     const navType = nav.getAttribute('data-cal-nav');
                     if (navType === 'prevYear' || navType === 'nextYear') {
