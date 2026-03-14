@@ -1286,14 +1286,19 @@
         });
     }
 
-    function openChecklistProgressMenu(idx, anchor) {
+    function openChecklistProgressMenu(idx, anchor, assigneeName) {
         const menu = byId('checklistProgressMenu');
         if (!menu || !anchor) return;
         const item = state.checklistDraft[idx] || {};
         const current = normalizeChecklistStatus(item.progressStatus, item.done);
-        menu.innerHTML = checklistProgressList().map(function (status) {
+        const targetAssignee = String(assigneeName || '').trim();
+        const progressButtons = checklistProgressList().map(function (status) {
             return '<button class="checklist-progress-btn" type="button" data-progress-status="' + esc(status) + '" data-progress-idx="' + idx + '">' + (status === current ? '✓ ' : '') + esc(status) + '</button>';
-        }).join('');
+        });
+        if (targetAssignee) {
+            progressButtons.unshift('<button class="checklist-progress-btn unassign" type="button" data-progress-action="unassign" data-progress-idx="' + idx + '" data-progress-assignee="' + esc(targetAssignee) + '">Unassign</button>');
+        }
+        menu.innerHTML = progressButtons.join('');
         const r = anchor.getBoundingClientRect();
         menu.style.left = Math.round(r.left) + 'px';
         menu.style.top = Math.round(r.bottom + 6) + 'px';
@@ -1405,7 +1410,7 @@
                     badges.push('<svg class="checklist-assign-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path></svg>');
                 }
                 stage.forEach(function (name) {
-                    badges.push('<button type="button" class="checklist-badge assignee ' + statusCls + '" data-check-progress-idx="' + idx + '">' + esc(name) + '</button>');
+                    badges.push('<button type="button" class="checklist-badge assignee ' + statusCls + '" data-check-progress-idx="' + idx + '" data-check-assignee="' + esc(name) + '">' + esc(name) + '</button>');
                 });
             });
             if (item && item.done) badges.push('<span class="checklist-badge done"><svg class="checklist-done-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg></span>');
@@ -2374,7 +2379,7 @@ loadChecklist(task ? task.taskId : null);
             const progressBtn = e.target.closest('[data-check-progress-idx]');
             if (progressBtn) {
                 const idx = Number(progressBtn.getAttribute('data-check-progress-idx'));
-                if (Number.isFinite(idx)) openChecklistProgressMenu(idx, progressBtn);
+                if (Number.isFinite(idx)) openChecklistProgressMenu(idx, progressBtn, progressBtn.getAttribute('data-check-assignee') || '');
                 return;
             }
             const selectCb = e.target.closest('[data-check-select-idx]');
@@ -2402,13 +2407,23 @@ loadChecklist(task ? task.taskId : null);
         document.addEventListener('click', function (e) {
             const menu = byId('checklistProgressMenu');
             if (!menu || !menu.classList.contains('open')) return;
-            const btn = e.target.closest('[data-progress-status][data-progress-idx]');
+            const btn = e.target.closest('[data-progress-idx][data-progress-status], [data-progress-idx][data-progress-action]');
             if (btn) {
                 const idx = Number(btn.getAttribute('data-progress-idx'));
+                const action = String(btn.getAttribute('data-progress-action') || '').trim();
                 const next = String(btn.getAttribute('data-progress-status') || 'Not Started');
                 if (Number.isFinite(idx) && state.checklistDraft[idx]) {
-                    state.checklistDraft[idx].progressStatus = next;
-                    state.checklistDraft[idx].done = next === 'Done';
+                    if (action === 'unassign') {
+                        const removeName = String(btn.getAttribute('data-progress-assignee') || '').trim().toLowerCase();
+                        const currentNames = parseChecklistAssignees(state.checklistDraft[idx].assignees, '');
+                        const kept = currentNames.filter(function (name) {
+                            return String(name || '').trim().toLowerCase() !== removeName;
+                        });
+                        state.checklistDraft[idx].assignees = serializeAssignees(kept);
+                    } else {
+                        state.checklistDraft[idx].progressStatus = next;
+                        state.checklistDraft[idx].done = next === 'Done';
+                    }
                     syncChecklistMasterDates();
                     renderChecklistDraft();
                     syncEditingTaskChecklistToState();
