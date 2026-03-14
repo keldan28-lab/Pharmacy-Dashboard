@@ -351,6 +351,7 @@
         }
 
         if (Array.isArray(payload)) return rowsToObjects(payload);
+        if (payload && typeof payload === 'object' && payload.task && typeof payload.task === 'object') return rowsToObjects([payload.task]);
         if (Array.isArray(payload.tasks)) return rowsToObjects(payload.tasks);
         if (Array.isArray(payload.rows)) return rowsToObjects(payload.rows);
         if (Array.isArray(payload.values)) return rowsToObjects(payload.values);
@@ -360,6 +361,7 @@
             if (Array.isArray(payload.data.values)) return rowsToObjects(payload.data.values);
             if (Array.isArray(payload.data.data)) return rowsToObjects(payload.data.data);
         }
+        if (Array.isArray(payload.result)) return rowsToObjects(payload.result);
         if (payload.result && typeof payload.result === 'object') {
             if (Array.isArray(payload.result.tasks)) return rowsToObjects(payload.result.tasks);
             if (Array.isArray(payload.result.rows)) return rowsToObjects(payload.result.rows);
@@ -405,13 +407,14 @@
         }
 
         try {
-            const tabNames = ['tasks', 'Tasks'];
+            const tabNames = ['tasks', 'Tasks', 'task_manager', 'Task_Manager'];
             let rows = [];
 
             for (let t = 0; t < tabNames.length && !rows.length; t++) {
                 const tabName = tabNames[t];
                 const urls = [
                     webAppUrl + '?action=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
+                    webAppUrl + '?fn=tasksRead&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
                     webAppUrl + '?action=read&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName),
                     webAppUrl + '?fn=tasks&sheetId=' + encodeURIComponent(sheetId) + '&tabName=' + encodeURIComponent(tabName)
                 ];
@@ -429,13 +432,17 @@
                 }
             }
 
-            if (!rows.length) throw new Error('No task rows returned');
-            state.tasks = rows.map(normalizeTask);
-            state.usingMock = false;
+            if (rows.length) {
+                state.tasks = rows.map(normalizeTask);
+                state.usingMock = false;
+            } else {
+                state.tasks = emptyFallbackTasks().map(normalizeTask);
+                state.usingMock = true;
+            }
         } catch (e) {
             console.warn('Task load failed, using empty fallback', e);
             state.usingMock = true;
-            state.tasks = [];
+            state.tasks = emptyFallbackTasks().map(normalizeTask);
         }
 
         state.loading = false;
@@ -547,7 +554,7 @@
         if (assignees.indexOf(currentAssignee) >= 0) els.assigneeFilter.value = currentAssignee;
 
         els.assignerFilter.innerHTML = assigners.map(function (a) {
-            return '<option value= + esc(a) + >' + esc(a === 'all' ? 'All Assigners' : a) + '</option>';
+            return '<option value="' + esc(a) + '">' + esc(a === 'all' ? 'All Assigners' : a) + '</option>';
         }).join('');
         if (assigners.indexOf(currentAssigner) >= 0) els.assignerFilter.value = currentAssigner;
 
