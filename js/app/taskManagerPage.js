@@ -1221,17 +1221,18 @@
         });
     }
 
-    async function persistChecklistForTask(taskId) {
+    async function persistChecklistForTask(taskId, opts) {
         if (!taskId) return;
         ensureChecklistItemIds();
         const assignerName = getChecklistAssignerName();
+        const options = opts || {};
         const checklistPayload = state.checklistDraft.map(function (item) {
             const cleanAssignees = removeAssignerFromAssignees(parseChecklistAssignees(item && item.assignees, ''), assignerName);
             return {
                 itemId: String(item.itemId || ''),
                 done: !!item.done,
                 text: item.text || '',
-                assignees: serializeAssignees(cleanAssignees),
+                assignees: options.includeAssignees ? serializeAssignees(cleanAssignees) : '',
                 startDate: item.startDate || '',
                 dueDate: item.dueDate || '',
                 handoffMode: item.handoffMode || '',
@@ -1239,7 +1240,7 @@
             };
         });
         const sig = JSON.stringify(checklistPayload);
-        if (state.checklistPersistMemoByTask[taskId] === sig) return;
+        if (!options.force && state.checklistPersistMemoByTask[taskId] === sig) return;
         try {
             await writeTask('saveChecklist', { taskId: taskId, items: checklistPayload });
             state.checklistPersistMemoByTask[taskId] = sig;
@@ -1900,7 +1901,7 @@ loadChecklist(task ? task.taskId : null);
             await writeTask('createTask', payload);
         }
 
-        await persistChecklistForTask(payload.taskId);
+        await persistChecklistForTask(payload.taskId, { force: true, includeAssignees: false });
         const savedIdx = state.tasks.findIndex(function (t) { return t.taskId === payload.taskId; });
         if (savedIdx >= 0) state.tasks[savedIdx].checklistItems = state.checklistDraft.slice();
         state.autosaveSignature = JSON.stringify({ task: payload, checklist: state.checklistDraft });
