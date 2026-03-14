@@ -1547,7 +1547,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
-        if (state.editingId) { persistChecklistForTask(state.editingId); queueModalAutosave(); }
+        if (state.editingId) queueModalAutosave();
     }
 
     function openChecklistAssignMenu(mode) {
@@ -1606,7 +1606,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
-        if (state.editingId) { persistChecklistForTask(state.editingId); queueModalAutosave(); }
+        if (state.editingId) queueModalAutosave();
     }
 
     function createChecklistHandoffEntries() {
@@ -1641,7 +1641,7 @@
         syncChecklistMasterDates();
         renderChecklistDraft();
         queueRenderGantt();
-        if (state.editingId) { persistChecklistForTask(state.editingId); queueModalAutosave(); }
+        if (state.editingId) queueModalAutosave();
     }
 
 
@@ -1825,41 +1825,26 @@ loadChecklist(task ? task.taskId : null);
         return payload;
     }
 
-    function queueModalAutosave() {
+    function refreshEditingTaskFromModal() {
         if (!state.editingId || !byId('taskModal').classList.contains('open')) return;
-        if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
-        state.autosaveTimer = setTimeout(function () {
-            state.autosaveTimer = null;
-            autosaveEditingTaskNow();
-        }, 300);
-    }
-
-    async function autosaveEditingTaskNow() {
-        if (!state.editingId || state.autosaveSaving) {
-            if (state.editingId) state.autosaveQueued = true;
-            return;
-        }
         const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
         if (idx < 0) return;
         const payload = buildTaskPayloadFromModal();
         const signature = JSON.stringify({ task: payload, checklist: state.checklistDraft });
         if (signature === state.autosaveSignature) return;
-        if (state.taskPersistMemoByTask[payload.taskId] === signature) return;
-        state.autosaveSaving = true;
-        try {
-            state.tasks[idx] = normalizeTask(payload, idx);
-            await writeTask('updateTask', payload);
-            await persistChecklistForTask(payload.taskId);
-            state.autosaveSignature = signature;
-            state.taskPersistMemoByTask[payload.taskId] = signature;
-            applyFilters();
-        } finally {
-            state.autosaveSaving = false;
-            if (state.autosaveQueued) {
-                state.autosaveQueued = false;
-                queueModalAutosave();
-            }
-        }
+        state.tasks[idx] = normalizeTask(payload, idx);
+        state.tasks[idx].checklistItems = state.checklistDraft.slice();
+        state.autosaveSignature = signature;
+        applyFilters();
+    }
+
+    function queueModalAutosave() {
+        if (!state.editingId || !byId('taskModal').classList.contains('open')) return;
+        if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
+        state.autosaveTimer = setTimeout(function () {
+            state.autosaveTimer = null;
+            refreshEditingTaskFromModal();
+        }, 100);
     }
 
     async function saveTask() {
@@ -1875,6 +1860,8 @@ loadChecklist(task ? task.taskId : null);
         }
 
         await persistChecklistForTask(payload.taskId);
+        const savedIdx = state.tasks.findIndex(function (t) { return t.taskId === payload.taskId; });
+        if (savedIdx >= 0) state.tasks[savedIdx].checklistItems = state.checklistDraft.slice();
         state.autosaveSignature = JSON.stringify({ task: payload, checklist: state.checklistDraft });
         state.taskPersistMemoByTask[payload.taskId] = state.autosaveSignature;
         closeModal();
@@ -2453,7 +2440,7 @@ loadChecklist(task ? task.taskId : null);
                     syncChecklistMasterDates();
                     renderChecklistDraft();
                     syncEditingTaskChecklistToState();
-                    if (state.editingId) { persistChecklistForTask(state.editingId); queueModalAutosave(); }
+                    if (state.editingId) queueModalAutosave();
                 }
                 closeChecklistProgressMenu();
                 return;
