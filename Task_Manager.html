@@ -587,13 +587,13 @@
         .checklist-row input[type="checkbox"]:checked { background: rgba(79,142,247,0.95); border-color: rgba(79,142,247,1); }
         .checklist-item-main { min-width: 0; display: grid; gap: 4px; }
         .checklist-text-frame { position: relative; border: 1px solid var(--card-border); border-radius: 10px; background: rgba(255,255,255,0.03); min-height: 38px; overflow: hidden; transition: min-height 180ms ease; }
-        .checklist-text-frame .checklist-text-input { width: 100%; border: 0; background: transparent; min-height: 38px; padding-right: 38px; }
+        .checklist-text-frame .checklist-text-input { width: 100%; border: 0; border-radius: 0; background: transparent; min-height: 38px; padding-right: 38px; }
         .checklist-text-frame .checklist-text-input:focus { box-shadow:none; }
         .checklist-notes-toggle { position:absolute; right:4px; top:4px; width:30px; height:30px; border-radius:8px; border:1px solid var(--card-border); background: rgba(255,255,255,0.04); color: var(--text-secondary); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; z-index:2; }
         .checklist-notes-toggle svg { width:14px; height:14px; }
-        .checklist-notes-input { border:0; border-top: 1px solid transparent; resize:none; background: transparent; max-height:0; min-height:0; padding:0 10px; opacity:0; pointer-events:none; transition: max-height 180ms ease, opacity 180ms ease, padding 180ms ease, border-color 180ms ease; }
+        .checklist-notes-input { display:none; border:0; border-radius:0; resize:none; background: transparent; min-height:0 !important; height:0; padding:0 10px; opacity:0; pointer-events:none; }
         .checklist-text-frame.notes-open { min-height: 96px; }
-        .checklist-text-frame.notes-open .checklist-notes-input { border-top-color: var(--card-border); max-height: 72px; min-height: 56px; padding:8px 10px; opacity:1; pointer-events:auto; }
+        .checklist-text-frame.notes-open .checklist-notes-input { display:block; border-top: 1px solid var(--card-border); min-height: 56px !important; height: 56px; padding:8px 10px; opacity:1; pointer-events:auto; }
         .checklist-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
         .checklist-badge { font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 999px; border: 1px solid rgba(126,154,188,0.4); background: rgba(126,154,188,0.14); color: var(--text-secondary); }
         .checklist-badge.assignee { cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
