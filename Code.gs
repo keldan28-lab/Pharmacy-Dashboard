@@ -513,6 +513,114 @@ function normalizeDependencyRules_(obj) {
   return obj;
 }
 
+function parseDependencyRulesStrict_(rawValue) {
+  var text = '';
+  if (Array.isArray(rawValue)) text = JSON.stringify(rawValue);
+  else text = String(rawValue == null ? '' : rawValue).trim();
+  if (!text) return { ok: true, rules: [] };
+  var parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    return { ok: false, error: 'dependencyRules must be valid JSON array' };
+  }
+  if (!Array.isArray(parsed)) return { ok: false, error: 'dependencyRules must be a JSON array' };
+  var out = [];
+  for (var i = 0; i < parsed.length; i++) {
+    var rule = parsed[i] || {};
+    var predecessorTaskId = String(rule.predecessorTaskId || '').trim();
+    if (!predecessorTaskId) return { ok: false, error: 'Each dependency rule requires predecessorTaskId' };
+    var typeRaw = String(rule.type || 'FS').trim().toUpperCase();
+    if (typeRaw !== 'FS' && typeRaw !== 'SS' && typeRaw !== 'FF') return { ok: false, error: 'Dependency type must be FS, SS, or FF' };
+    var lag = Number(rule.lagDays);
+    if (!isFinite(lag)) return { ok: false, error: 'Dependency lagDays must be numeric' };
+    out.push({ predecessorTaskId: predecessorTaskId, type: typeRaw, lagDays: lag });
+  }
+  return { ok: true, rules: out };
+}
+
+function validateTaskDependenciesForWrite_(values, header, idxTaskId, pendingTaskId, pendingDependencyRules) {
+  var idxArchived = header.indexOf('archived');
+  var idxDepRules = header.indexOf('dependencyRules');
+  var idxTitle = header.indexOf('title');
+  var taskById = {};
+  for (var i = 0; i < values.length; i++) {
+    var row = values[i];
+    var taskId = String(row[idxTaskId] || '').trim();
+    if (!taskId) continue;
+    taskById[taskId] = {
+      taskId: taskId,
+      title: String(row[idxTitle] || '').trim(),
+      archived: String(row[idxArchived] || '').toLowerCase() === 'true',
+      dependencyRules: String(row[idxDepRules] == null ? '' : row[idxDepRules]).trim()
+    };
+  }
+
+  if (!taskById[pendingTaskId]) {
+    taskById[pendingTaskId] = { taskId: pendingTaskId, title: '', archived: false, dependencyRules: '' };
+  }
+  taskById[pendingTaskId].dependencyRules = String(pendingDependencyRules == null ? '' : pendingDependencyRules).trim();
+
+  var activeIds = Object.keys(taskById).filter(function (id) { return !taskById[id].archived; });
+  var graph = {};
+  for (var a = 0; a < activeIds.length; a++) graph[activeIds[a]] = [];
+
+  for (var t = 0; t < activeIds.length; t++) {
+    var taskId = activeIds[t];
+    var parsed = parseDependencyRulesStrict_(taskById[taskId].dependencyRules);
+    if (!parsed.ok) throw new Error('Invalid dependencyRules for task ' + taskId + ': ' + parsed.error);
+    for (var r = 0; r < parsed.rules.length; r++) {
+      var predecessorTaskId = parsed.rules[r].predecessorTaskId;
+      if (!graph[predecessorTaskId]) throw new Error('Task ' + taskId + ' depends on missing task ID ' + predecessorTaskId);
+      graph[predecessorTaskId].push(taskId);
+    }
+  }
+
+  var visiting = {};
+  var visited = {};
+  var stack = [];
+  var cyclePath = null;
+
+  function dfs_(nodeId) {
+    if (cyclePath) return;
+    visiting[nodeId] = true;
+    stack.push(nodeId);
+    var next = graph[nodeId] || [];
+    for (var i = 0; i < next.length; i++) {
+      var targetId = next[i];
+      if (visited[targetId]) continue;
+      if (visiting[targetId]) {
+        var start = stack.indexOf(targetId);
+        cyclePath = stack.slice(start >= 0 ? start : 0).concat(targetId);
+        return;
+      }
+      dfs_(targetId);
+      if (cyclePath) return;
+    }
+    stack.pop();
+    visiting[nodeId] = false;
+    visited[nodeId] = true;
+  }
+
+  for (var c = 0; c < activeIds.length; c++) {
+    var root = activeIds[c];
+    if (visited[root]) continue;
+    dfs_(root);
+    if (cyclePath) break;
+  }
+
+  if (cyclePath) {
+    var labelById = {};
+    for (var li = 0; li < activeIds.length; li++) {
+      var id = activeIds[li];
+      var title = String(taskById[id].title || '').trim();
+      labelById[id] = title ? (title + ' (' + id + ')') : id;
+    }
+    var msg = cyclePath.map(function (id) { return labelById[id] || id; }).join(' -> ');
+    throw new Error('Dependency cycle detected: ' + msg);
+  }
+}
+
 function parseAssignees_(value) {
   function clean_(v) {
     var s = String(v || '').trim();
@@ -608,6 +716,13 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
     normalizedPayload.dependencyRules = typeof payload.dependencyRules === 'string'
       ? payload.dependencyRules
       : JSON.stringify(payload.dependencyRules == null ? [] : payload.dependencyRules);
+  }
+
+  if (taskAction === 'createTask' || taskAction === 'updateTask') {
+    var parsedDepRules = parseDependencyRulesStrict_(normalizedPayload.dependencyRules);
+    if (!parsedDepRules.ok) throw new Error(parsedDepRules.error);
+    normalizedPayload.dependencyRules = JSON.stringify(parsedDepRules.rules);
+    validateTaskDependenciesForWrite_(values, header, idx.taskId, taskId, normalizedPayload.dependencyRules);
   }
 
   header.forEach(function (k) {
