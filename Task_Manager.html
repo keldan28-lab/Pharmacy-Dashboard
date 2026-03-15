@@ -574,6 +574,15 @@
             background: linear-gradient(90deg, rgba(147,157,169,0.86), rgba(102,112,124,0.2));
         }
 
+        .gantt-status-icon { position: absolute; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; pointer-events: none; opacity: 0.95; }
+        .gantt-status-icon.start { left: 4px; }
+        .gantt-status-icon.end { right: 4px; }
+        .gantt-status-icon.blocked { color: #e24f4f; }
+        .gantt-status-icon.done { color: #22a875; }
+        .gantt-blocked-tail { position: absolute; top: 0; bottom: 0; background: rgba(120,130,140,0.18); pointer-events: none; }
+        .gantt-blocked-x { position: absolute; top: 50%; transform: translate(-50%, -50%); color: #e24f4f; font-size: 14px; font-weight: 800; pointer-events: none; }
+        .gantt-dep-line { position: absolute; height: 2px; background: rgba(79,142,247,0.85); top: 50%; transform: translateY(-50%); pointer-events: none; }
+
         .tasks-empty { color: var(--text-secondary); text-align: center; padding: 24px; font-size: 13px; }
 
         .tasks-kanban-board { display: none; height: 100%; overflow: auto; padding: 8px 0 0; gap: 10px; grid-template-columns: repeat(4, minmax(220px, 1fr)); }
@@ -695,7 +704,7 @@
         .checklist-badge.status-done { border-color: rgba(17,153,142,0.72); background: rgba(17,153,142,0.24); color: var(--text-primary); }
         .checklist-badge.resource-warning { border-color: rgba(226,79,79,0.72); background: rgba(226,79,79,0.18); color: var(--text-primary); margin-top: 8px; display: inline-flex; }
         .gantt-bar.resource-conflict { box-shadow: 0 0 0 2px rgba(226,79,79,0.45), 0 10px 16px rgba(17, 153, 142, 0.2) !important; border-color: rgba(255,255,255,0.18); }
-        .gantt-bar.blocked-outline { box-shadow: 0 0 0 2px rgba(226,79,79,0.5), 0 10px 16px rgba(17, 153, 142, 0.2) !important; }
+        .gantt-bar.blocked-outline { box-shadow: 0 3px 10px rgba(17, 153, 142, 0.2); }
         .checklist-handoff-arrow { width: 11px; height: 11px; color: var(--text-secondary); margin: 0 1px 0 2px; vertical-align: -1px; }
         .checklist-badge.done { border-color: rgba(17,153,142,0.55); color: #dffffa; background: rgba(17,153,142,0.2); }
         .task-checklist-assignee-menu { position: absolute; top: 32px; right: 0; width: min(320px, 88vw); border: 1px solid var(--card-border); border-radius: 10px; background: var(--card-bg); box-shadow: 0 8px 20px rgba(0,0,0,0.2); padding: 8px; display: none; z-index: 40; }
@@ -869,12 +878,12 @@
                         <div class="task-form-label">Task dates</div>
                                                 <div class="task-dates-row">
                             <div class="task-date-field">
-                                <input id="taskStartDate" type="text" class="tasks-input" placeholder="YYYY-MM-DD" autocomplete="off" />
+                                <input id="taskStartDate" type="date" class="tasks-input" autocomplete="off" />
                                 <div id="taskStartDatePopover" class="task-date-popover" aria-hidden="true"><div id="taskStartCalendar"></div></div>
                             </div>
                             <span class="task-date-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>
                             <div class="task-date-field">
-                                <input id="taskDueDate" type="text" class="tasks-input" placeholder="YYYY-MM-DD" autocomplete="off" />
+                                <input id="taskDueDate" type="date" class="tasks-input" autocomplete="off" />
                                 <div id="taskDueDatePopover" class="task-date-popover" aria-hidden="true"><div id="taskDueCalendar"></div></div>
                             </div>
                         </div>

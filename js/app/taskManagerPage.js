@@ -65,7 +65,7 @@
 
     function byId(id) { return document.getElementById(id); }
     function isoNow() { return new Date().toISOString(); }
-    function toDate(v) { if (!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d; }
+    function toDate(v) { if (!v) return null; const raw = String(v).trim(); const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/); if (m) { const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])); return isNaN(d.getTime()) ? null : d; } const d = new Date(v); return isNaN(d.getTime()) ? null : d; }
     function toISODate(v) { const d = toDate(v); return d ? d.toISOString().slice(0, 10) : ''; }
     function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]; }); }
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -378,6 +378,10 @@
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) return parsed.map(clean).filter(Boolean);
             } catch (_) {}
+            const handoffBody = raw.slice(1, -1);
+            if (handoffBody.indexOf('>') >= 0) {
+                return handoffBody.replace(/["']/g, '').split('>').join(',').split(/[|,;\n]/).map(clean).filter(Boolean);
+            }
         }
         return raw.split(/[|,;\n]/).map(clean).filter(Boolean);
     }
@@ -414,6 +418,19 @@
         return JSON.stringify((Array.isArray(list) ? list : []).map(function (v) { return String(v || '').trim(); }).filter(Boolean));
     }
 
+
+
+    function serializeAssigneeFlowForSheet(stages, fallbackList) {
+        const cleanStages = (Array.isArray(stages) ? stages : []).map(function (st) {
+            return (Array.isArray(st) ? st : []).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+        }).filter(function (st) { return st.length; });
+        if (cleanStages.length >= 2) {
+            const left = cleanStages[0].map(function (n) { return '\"' + n + '\"'; }).join(',');
+            const right = cleanStages[1].map(function (n) { return '\"' + n + '\"'; }).join(',');
+            return '[' + left + '>' + right + ']';
+        }
+        return JSON.stringify((Array.isArray(fallbackList) ? fallbackList : []).map(function (v) { return String(v || '').trim(); }).filter(Boolean));
+    }
     function parseChecklistAssignees(value, fallbackAssignee) {
         const parsed = parseAssignees(value);
         if (parsed.length) return parsed;
@@ -1944,8 +1961,18 @@
                     const cascade = timeline.hasMultipleTracks
                         ? '<span class="gantt-bar-cascade back" style="background:' + ganttColor(t, row.depth) + ';"></span><span class="gantt-bar-cascade" style="background:' + ganttColor(t, row.depth) + ';"></span>'
                         : '';
-                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + (t.hasResourceConflict ? ' resource-conflict' : '') + (hasBlockingTask(t) ? ' blocked-outline' : '') + criticalPathClass + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                    const statusLower = String(t.status || '').toLowerCase();
+                    const isBlocked = statusLower === 'blocked' || hasBlockingTask(t);
+                    const isDone = statusLower === 'done';
+                    const startIcon = isBlocked
+                        ? '<svg class=\"gantt-status-icon start blocked\" viewBox=\"0 0 24 24\"><path d=\"M6 6l12 12M18 6L6 18\" stroke=\"currentColor\" stroke-width=\"2\" fill=\"none\"/></svg>'
+                        : (isDone ? '<svg class=\"gantt-status-icon start done\" viewBox=\"0 0 24 24\"><path d=\"M5 13l4 4L19 7\" stroke=\"currentColor\" stroke-width=\"2\" fill=\"none\"/></svg>' : '');
+                    const endIcon = isBlocked
+                        ? '<svg class=\"gantt-status-icon end blocked\" viewBox=\"0 0 24 24\"><path d=\"M6 6l12 12M18 6L6 18\" stroke=\"currentColor\" stroke-width=\"2\" fill=\"none\"/></svg>'
+                        : (isDone ? '<svg class=\"gantt-status-icon end done\" viewBox=\"0 0 24 24\"><path d=\"M5 13l4 4L19 7\" stroke=\"currentColor\" stroke-width=\"2\" fill=\"none\"/></svg>' : '');
+                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + (t.hasResourceConflict ? ' resource-conflict' : '') + criticalPathClass + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
                         cascade +
+                        startIcon + endIcon +
                         '<span class="gantt-label">' + esc(t.title) + '</span>' +
                         '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
                         '<button class="gantt-child-btn" type="button" data-task-child="' + esc(t.taskId) + '" aria-label="Add child task">+</button>' +
@@ -1953,6 +1980,23 @@
                         '<span class="gantt-handle left" data-task-id="' + esc(t.taskId) + '" data-drag-type="start"></span>' +
                         '<span class="gantt-handle right" data-task-id="' + esc(t.taskId) + '" data-drag-type="end"></span>' +
                     '</div>';
+                    if (isBlocked) {
+                        const tailLeft = left + width + 2;
+                        const tailWidth = Math.max(0, (cols.length * colPx) - tailLeft);
+                        if (tailWidth > 0) bar += '<div class=\"gantt-blocked-tail\" style=\"left:' + tailLeft + 'px;width:' + tailWidth + 'px\"></div>';
+                        bar += '<div class=\"gantt-blocked-x\" style=\"left:' + (left + width + 10) + 'px\">✕</div>';
+                    }
+                    const depIds = String(t.dependencyIds || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+                    if (depIds.length) {
+                        const pred = state.tasks.find(function (pt) { return depIds.indexOf(String(pt.taskId || '')) >= 0 && String(pt.parentId || '') === String(t.parentId || '') && pt.dueDate; });
+                        if (pred) {
+                            const predEnd = toUnit(toDate(pred.dueDate));
+                            const predPx = ((Math.max(0, Math.min(maxUnit, predEnd)) + 1) * colPx) - 3;
+                            const lineLeft = Math.min(predPx, left);
+                            const lineW = Math.max(6, Math.abs(left - predPx));
+                            bar += '<div class=\"gantt-dep-line\" style=\"left:' + lineLeft + 'px;width:' + lineW + 'px\"></div>';
+                        }
+                    }
                 } else if (timeline.hasMultipleTracks) {
                     bar = timeline.overlaps.map(function (ov) {
                         const left = ov.startUnit * colPx;
@@ -2506,7 +2550,7 @@ loadChecklist(task ? task.taskId : null);
             assignees: [],
             startDate: byId('taskStartDate').value,
             dueDate: byId('taskDueDate').value,
-            percentComplete: clamp(Number((byId('taskPercent') && byId('taskPercent').value) || 0), 0, 100),
+            percentComplete: 0,
             itemCode: byId('taskItemCode').value.trim(),
             itemName: byId('taskItemName').value.trim(),
             location: byId('taskLocation').value.trim(),
@@ -2532,15 +2576,16 @@ loadChecklist(task ? task.taskId : null);
         const assigneeInputList = parseAssignees(byId('taskAssignee').value);
         const assigneeList = removeAssignerFromAssignees(Array.from(new Set(assigneeInputList)).filter(Boolean), payload.assigner);
         byId('taskAssignee').value = assigneeList.join(', ');
-        payload.assignees = assigneeList.slice();
+        payload.assignees = serializeAssigneeFlowForSheet(state.taskAssignStages, assigneeList);
         payload.assignee = assigneeList[0] || '';
         modalTracksToPayload(payload, assigneeList);
         assignmentPanelToPayload(payload);
-        payload.status = checklistOverallProgressStatus(state.checklistDraft);
+        const checklistDone = (state.checklistDraft || []).filter(function (it) { return it && it.done; }).length;
+        const checklistTotal = (state.checklistDraft || []).filter(Boolean).length;
+        payload.percentComplete = checklistTotal ? clamp(Math.round((checklistDone / checklistTotal) * 100), 0, 100) : clamp(Number(existingTask && existingTask.percentComplete || 0), 0, 100);
 
-        if (parentTask) {
-            payload.startDate = parentTask.startDate;
-            if (payload.dueDate && toDate(payload.dueDate) < toDate(payload.startDate)) payload.dueDate = payload.startDate;
+        if (parentTask && payload.startDate && payload.dueDate && toDate(payload.dueDate) < toDate(payload.startDate)) {
+            payload.dueDate = payload.startDate;
         }
 
         syncChecklistDraftFromUi();
@@ -2621,6 +2666,7 @@ loadChecklist(task ? task.taskId : null);
                 return p && String(p.status || '').toLowerCase() === 'done';
             });
             if (!allDone) {
+                if (String(payload.status || '').toLowerCase() !== 'waiting') alert('Previous task not done');
                 payload.status = 'Waiting';
                 payload.blockedByTaskId = predecessorIds[0] || payload.blockedByTaskId;
                 payload.blockReason = payload.blockReason || 'Waiting for predecessor to complete.';
@@ -3713,6 +3759,8 @@ loadChecklist(task ? task.taskId : null);
 
 
     function bindTaskDatePopovers() {
+        // Reverted to native date picker for reliability.
+        return;
         const pairs = [
             { field: byId('taskStartDate'), pop: byId('taskStartDatePopover'), host: byId('taskStartCalendar') },
             { field: byId('taskDueDate'), pop: byId('taskDueDatePopover'), host: byId('taskDueCalendar') }
