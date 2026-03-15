@@ -121,8 +121,7 @@
     }
 
     function syncZoomOutUi() {
-        if (els.zoomOutBtn) els.zoomOutBtn.textContent = '+';
-        if (els.zoomInBtn) els.zoomInBtn.textContent = '-';
+        // Zoom controls use static SVG icons; no dynamic label swap required.
     }
 
     function syncZoomModeButtons() {
@@ -982,6 +981,10 @@
 
     function isDateDragFrozen(task) {
         return !!String((task && task.blockedByTaskId) || '').trim();
+    }
+
+    function hasBlockingTask(task) {
+        return isDateDragFrozen(task);
     }
 
     function getDownstreamDependentTaskIds(rootTaskId) {
