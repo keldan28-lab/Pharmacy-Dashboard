@@ -473,7 +473,44 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','archived','createdAt','updatedAt','createdBy','colorKey'];
+}
+
+function normalizeDependencyRules_(obj) {
+  var depIds = String((obj && obj.dependencyIds) || '').trim();
+  var rawRules = obj && obj.dependencyRules;
+  var parsed = [];
+
+  if (Array.isArray(rawRules)) {
+    parsed = rawRules;
+  } else {
+    var text = String(rawRules == null ? '' : rawRules).trim();
+    if (text) {
+      try {
+        var candidate = JSON.parse(text);
+        if (Array.isArray(candidate)) parsed = candidate;
+      } catch (err) {}
+    }
+  }
+
+  var normalized = [];
+  for (var i = 0; i < parsed.length; i++) {
+    var r = parsed[i] || {};
+    var predecessorTaskId = String(r.predecessorTaskId || '').trim();
+    if (!predecessorTaskId) continue;
+    var typeRaw = String(r.type || 'FS').trim().toUpperCase();
+    var type = (typeRaw === 'SS' || typeRaw === 'FF' || typeRaw === 'FS') ? typeRaw : 'FS';
+    var lag = Number(r.lagDays);
+    normalized.push({ predecessorTaskId: predecessorTaskId, type: type, lagDays: isFinite(lag) ? lag : 0 });
+  }
+
+  if (!normalized.length && depIds) {
+    var ids = depIds.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+    normalized = ids.map(function (id) { return { predecessorTaskId: id, type: 'FS', lagDays: 0 }; });
+  }
+
+  obj.dependencyRules = JSON.stringify(normalized);
+  return obj;
 }
 
 function parseAssignees_(value) {
@@ -532,7 +569,9 @@ function tasksRead_(sheetId, tabName) {
   const tasks = values.map(function (row) {
     const obj = {};
     for (let i = 0; i < header.length; i++) obj[header[i]] = row[i];
-    return normalizeAssigneeFields_(obj);
+    normalizeAssigneeFields_(obj);
+    normalizeDependencyRules_(obj);
+    return obj;
   });
   return { ok: true, tasks: tasks, tabName, schema: header };
 }
@@ -565,6 +604,11 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   const row = existing.slice();
   const now = new Date().toISOString();
   var normalizedPayload = normalizeAssigneeFields_(Object.assign({}, payload));
+  if (Object.prototype.hasOwnProperty.call(payload || {}, 'dependencyRules')) {
+    normalizedPayload.dependencyRules = typeof payload.dependencyRules === 'string'
+      ? payload.dependencyRules
+      : JSON.stringify(payload.dependencyRules == null ? [] : payload.dependencyRules);
+  }
 
   header.forEach(function (k) {
     if (normalizedPayload[k] != null && normalizedPayload[k] !== '') row[idx[k]] = normalizedPayload[k];

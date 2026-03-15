@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','archived','createdAt','updatedAt','createdBy','colorKey'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -288,6 +288,41 @@
         });
     }
 
+
+
+    function normalizeDependencyRulesForTask(out) {
+        const depIds = String(out.dependencyIds || '').trim();
+        let parsed = [];
+        if (Array.isArray(out.dependencyRules)) parsed = out.dependencyRules;
+        else {
+            const raw = String(out.dependencyRules == null ? '' : out.dependencyRules).trim();
+            if (raw) {
+                try {
+                    const candidate = JSON.parse(raw);
+                    if (Array.isArray(candidate)) parsed = candidate;
+                } catch (_) {}
+            }
+        }
+
+        const normalized = parsed.map(function (rule) {
+            const predecessorTaskId = String((rule && rule.predecessorTaskId) || '').trim();
+            if (!predecessorTaskId) return null;
+            const typeRaw = String((rule && rule.type) || 'FS').trim().toUpperCase();
+            const type = (typeRaw === 'SS' || typeRaw === 'FF' || typeRaw === 'FS') ? typeRaw : 'FS';
+            const lagNum = Number(rule && rule.lagDays);
+            return { predecessorTaskId: predecessorTaskId, type: type, lagDays: Number.isFinite(lagNum) ? lagNum : 0 };
+        }).filter(Boolean);
+
+        if (!normalized.length && depIds) {
+            depIds.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean).forEach(function (id) {
+                normalized.push({ predecessorTaskId: id, type: 'FS', lagDays: 0 });
+            });
+        }
+
+        out.dependencyRulesParsed = normalized;
+        out.dependencyRules = JSON.stringify(normalized);
+    }
+
     function normalizeTask(raw, idx) {
         const out = {};
         const source = raw && typeof raw === 'object' ? raw : {};
@@ -312,6 +347,7 @@
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
         out.colorKey = String(out.colorKey || 'teal');
+        normalizeDependencyRulesForTask(out);
         const assigneeList = parseAssignees(out.assignees);
         out.assignees = removeAssignerFromAssignees(assigneeList, out.assigner);
         out.assignee = String((out.assignees[0] || '')).trim();
@@ -1611,6 +1647,7 @@ const pctEl = byId('taskPercent');
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
+        if (byId('taskDependencyRules')) byId('taskDependencyRules').value = task ? String(task.dependencyRules || '') : '';
         syncPriorityToggleUi();
         byId('taskColor').value = task ? task.colorKey : 'teal';
         syncTaskColorPicker();
@@ -1694,6 +1731,7 @@ loadChecklist(task ? task.taskId : null);
             location: byId('taskLocation').value.trim(),
             sublocation: byId('taskSublocation').value.trim(),
             dependencyIds: '',
+            dependencyRules: byId('taskDependencyRules') ? byId('taskDependencyRules').value.trim() : '',
             archived: false,
             createdAt: state.editingId ? (state.tasks.find(function (t) { return t.taskId === state.editingId; }) || {}).createdAt || now : now,
             updatedAt: now,
@@ -2258,7 +2296,7 @@ loadChecklist(task ? task.taskId : null);
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
         byId('taskCancelBtn').addEventListener('click', closeModal);
         byId('taskSaveBtn').addEventListener('click', saveTask);
-        ['taskTitle','taskDescription','taskStatus','taskPriority','taskColor','taskPercent','taskItemCode','taskItemName','taskLocation','taskSublocation','taskParentId','taskAssigneeTracks'].forEach(function (id) {
+        ['taskTitle','taskDescription','taskStatus','taskPriority','taskColor','taskPercent','taskItemCode','taskItemName','taskLocation','taskSublocation','taskParentId','taskAssigneeTracks','taskDependencyRules'].forEach(function (id) {
             const field = byId(id);
             if (!field) return;
             const evt = (field.tagName === 'SELECT' || field.type === 'date' || field.type === 'range') ? 'change' : 'input';
