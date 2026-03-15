@@ -473,7 +473,7 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','assignmentMode','assignmentGroup','requiredSkills','assignmentCursor','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','assignmentMode','assignmentGroup','requiredSkills','assignmentCursor','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag','resourceKey','resourceCapacity','resourceConflictState'];
 }
 
 function parseRequiredSkills_(raw) {
@@ -817,6 +817,69 @@ function normalizeAssigneeFields_(obj) {
   return obj;
 }
 
+
+function normalizeResourceConflictState_(value) {
+  var raw = String(value || '').trim().toLowerCase();
+  if (raw === 'critical' || raw === 'block' || raw === 'blocked' || raw === 'critical_block') return 'critical';
+  if (raw === 'warning' || raw === 'warn') return 'warning';
+  return '';
+}
+
+function normalizeResourceCapacity_(value) {
+  var cap = Number(value);
+  if (!isFinite(cap) || cap < 1) return 1;
+  return Math.max(1, Math.round(cap));
+}
+
+function normalizeTaskResourceFields_(obj) {
+  var out = obj || {};
+  out.resourceKey = String(out.resourceKey || '').trim();
+  out.resourceCapacity = String(normalizeResourceCapacity_(out.resourceCapacity));
+  out.resourceConflictState = normalizeResourceConflictState_(out.resourceConflictState);
+  return out;
+}
+
+function dateRangeOverlaps_(aStart, aDue, bStart, bDue) {
+  var as = new Date(aStart);
+  var ad = new Date(aDue);
+  var bs = new Date(bStart);
+  var bd = new Date(bDue);
+  if (!isFinite(as.getTime()) || !isFinite(ad.getTime()) || !isFinite(bs.getTime()) || !isFinite(bd.getTime())) return false;
+  return as.getTime() <= bd.getTime() && bs.getTime() <= ad.getTime();
+}
+
+function computeResourceConflicts_(taskList) {
+  var list = Array.isArray(taskList) ? taskList : [];
+  var byKey = {};
+  for (var i = 0; i < list.length; i++) {
+    var task = list[i] || {};
+    task.hasResourceConflict = false;
+    task.resourceConflictPeak = 0;
+    var key = String(task.resourceKey || '').trim();
+    if (!key) continue;
+    if (String(task.archived || '').toLowerCase() === 'true') continue;
+    if (!byKey[key]) byKey[key] = [];
+    byKey[key].push(task);
+  }
+  var keys = Object.keys(byKey);
+  for (var k = 0; k < keys.length; k++) {
+    var group = byKey[keys[k]];
+    var capacity = 1;
+    for (var a = 0; a < group.length; a++) {
+      capacity = Math.max(capacity, normalizeResourceCapacity_(group[a].resourceCapacity));
+    }
+    for (var g = 0; g < group.length; g++) {
+      var concurrent = 0;
+      for (var j = 0; j < group.length; j++) {
+        if (dateRangeOverlaps_(group[g].startDate, group[g].dueDate, group[j].startDate, group[j].dueDate)) concurrent += 1;
+      }
+      group[g].resourceConflictPeak = concurrent;
+      group[g].hasResourceConflict = concurrent > capacity;
+    }
+  }
+  return list;
+}
+
 function ensureTaskSheet_(sheetId, tabName) {
   const ss = SpreadsheetApp.openById(sheetId);
   let sh = ss.getSheetByName(tabName);
@@ -851,8 +914,10 @@ function tasksRead_(sheetId, tabName) {
     normalizeTaskBlockFields_(obj);
     normalizeTaskEscalationFields_(obj);
     normalizeTaskAssignmentFields_(obj);
+    normalizeTaskResourceFields_(obj);
     return obj;
   });
+  computeResourceConflicts_(tasks);
   return { ok: true, tasks: tasks, tabName, schema: header };
 }
 
@@ -886,6 +951,7 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   var normalizedPayload = normalizeAssigneeFields_(Object.assign({}, payload));
   normalizedPayload = normalizeTaskBlockFields_(normalizedPayload);
   normalizedPayload = normalizeTaskAssignmentFields_(normalizedPayload);
+  normalizedPayload = normalizeTaskResourceFields_(normalizedPayload);
   if (Object.prototype.hasOwnProperty.call(payload || {}, 'dependencyRules')) {
     normalizedPayload.dependencyRules = typeof payload.dependencyRules === 'string'
       ? payload.dependencyRules
@@ -900,7 +966,11 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   }
 
   header.forEach(function (k) {
-    if (normalizedPayload[k] != null && normalizedPayload[k] !== '') row[idx[k]] = normalizedPayload[k];
+    var hasField = Object.prototype.hasOwnProperty.call(normalizedPayload, k);
+    var allowBlankWrite = k === 'resourceKey' || k === 'resourceConflictState';
+    if (hasField && (normalizedPayload[k] != null) && (allowBlankWrite || normalizedPayload[k] !== '')) {
+      row[idx[k]] = normalizedPayload[k];
+    }
   });
 
   applyAssignmentModeForRow_(row, values, idx, taskId);
@@ -946,13 +1016,33 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   row[idx.updatedAt] = normalizedPayload.updatedAt || now;
   if (taskAction === 'archiveTask') row[idx.archived] = 'true';
 
+  var allRows = values.slice();
   if (foundOffset >= 0) {
     sh.getRange(foundOffset + 2, 1, 1, header.length).setValues([row]);
-    return { ok: true, taskId: taskId, mode: 'update', taskAction: taskAction };
+    allRows[foundOffset] = row.slice();
+  } else {
+    sh.appendRow(row);
+    allRows.push(row.slice());
   }
 
-  sh.appendRow(row);
-  return { ok: true, taskId: taskId, mode: 'create', taskAction: taskAction };
+  var snapshots = allRows.map(function (r) {
+    var obj = {};
+    for (let c = 0; c < header.length; c++) obj[header[c]] = r[c];
+    normalizeTaskResourceFields_(obj);
+    return obj;
+  });
+  computeResourceConflicts_(snapshots);
+  var snapshotMatch = snapshots.find(function (it) { return String(it.taskId || '').trim() === taskId; }) || {};
+
+  return {
+    ok: true,
+    taskId: taskId,
+    mode: foundOffset >= 0 ? 'update' : 'create',
+    taskAction: taskAction,
+    hasResourceConflict: !!snapshotMatch.hasResourceConflict,
+    resourceConflictPeak: Number(snapshotMatch.resourceConflictPeak || 0),
+    resourceConflictState: String(snapshotMatch.resourceConflictState || '')
+  };
 }
 
 function tasksEscalationSweep() {

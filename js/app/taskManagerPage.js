@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','assignmentMode','assignmentGroup','requiredSkills','assignmentCursor','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','assignmentMode','assignmentGroup','requiredSkills','assignmentCursor','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag','resourceKey','resourceCapacity','resourceConflictState'];
     const ASSIGNMENT_MODES = ['manual', 'round_robin', 'queue_claim', 'load_balanced', 'skill_based'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'On Hold', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
@@ -285,6 +285,19 @@
         return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
     }
 
+    function normalizeResourceConflictState(value) {
+        const raw = String(value || '').trim().toLowerCase();
+        if (raw === 'critical' || raw === 'block' || raw === 'blocked' || raw === 'critical_block') return 'critical';
+        if (raw === 'warning' || raw === 'warn') return 'warning';
+        return '';
+    }
+
+    function normalizeResourceCapacity(value) {
+        const cap = Number(value);
+        if (!Number.isFinite(cap) || cap < 1) return 1;
+        return Math.max(1, Math.round(cap));
+    }
+
     function serializeAssignees(list) {
         return JSON.stringify((Array.isArray(list) ? list : []).map(function (v) { return String(v || '').trim(); }).filter(Boolean));
     }
@@ -489,6 +502,11 @@
         out.requiredSkills = parseSkills(out.requiredSkills);
         out.assignmentCursor = String(out.assignmentCursor || '');
         out.colorKey = String(out.colorKey || 'teal');
+        out.resourceKey = String(out.resourceKey || '').trim();
+        out.resourceCapacity = normalizeResourceCapacity(out.resourceCapacity);
+        out.resourceConflictState = normalizeResourceConflictState(out.resourceConflictState);
+        out.hasResourceConflict = String(out.hasResourceConflict || '').toLowerCase() === 'true' || out.hasResourceConflict === true;
+        out.resourceConflictPeak = Number(out.resourceConflictPeak || 0);
         normalizeDependencyRulesForTask(out);
         const assigneeList = parseAssignees(out.assignees);
         out.assignees = removeAssignerFromAssignees(assigneeList, out.assigner);
@@ -505,6 +523,58 @@
         out.children = [];
         ensureTaskDates(out);
         return out;
+    }
+
+    function dateRangeOverlaps(aStart, aDue, bStart, bDue) {
+        const as = toDate(aStart);
+        const ad = toDate(aDue);
+        const bs = toDate(bStart);
+        const bd = toDate(bDue);
+        if (!as || !ad || !bs || !bd) return false;
+        return as <= bd && bs <= ad;
+    }
+
+    function recomputeResourceConflicts(tasks) {
+        const list = Array.isArray(tasks) ? tasks : [];
+        const byKey = {};
+        list.forEach(function (task) {
+            task.hasResourceConflict = false;
+            task.resourceConflictPeak = 0;
+            const key = String(task.resourceKey || '').trim();
+            if (!key || task.archived) return;
+            if (!byKey[key]) byKey[key] = [];
+            byKey[key].push(task);
+        });
+        Object.keys(byKey).forEach(function (key) {
+            const group = byKey[key];
+            const capacity = group.reduce(function (max, t) { return Math.max(max, normalizeResourceCapacity(t.resourceCapacity)); }, 1);
+            group.forEach(function (task) {
+                let concurrent = 0;
+                for (let i = 0; i < group.length; i++) {
+                    if (dateRangeOverlaps(task.startDate, task.dueDate, group[i].startDate, group[i].dueDate)) concurrent += 1;
+                }
+                task.resourceConflictPeak = concurrent;
+                task.hasResourceConflict = concurrent > capacity;
+            });
+        });
+    }
+
+    function getResourceConflictForTask(candidate, sourceTasks) {
+        const key = String((candidate && candidate.resourceKey) || '').trim();
+        if (!key) return { hasConflict: false, peak: 0, capacity: normalizeResourceCapacity(candidate && candidate.resourceCapacity) };
+        const pool = (Array.isArray(sourceTasks) ? sourceTasks : []).filter(function (task) {
+            return !task.archived && String(task.resourceKey || '').trim() === key;
+        });
+        const capacity = Math.max(
+            normalizeResourceCapacity(candidate && candidate.resourceCapacity),
+            pool.reduce(function (max, t) { return Math.max(max, normalizeResourceCapacity(t.resourceCapacity)); }, 1)
+        );
+        let concurrent = 1;
+        for (let i = 0; i < pool.length; i++) {
+            if (candidate && pool[i] && String(pool[i].taskId || '') === String(candidate.taskId || '')) continue;
+            if (dateRangeOverlaps(candidate.startDate, candidate.dueDate, pool[i].startDate, pool[i].dueDate)) concurrent += 1;
+        }
+        return { hasConflict: concurrent > capacity, peak: concurrent, capacity: capacity };
     }
 
     function syncAssignmentPanelVisibility() {
@@ -633,6 +703,7 @@
                 state.tasks = emptyFallbackTasks().map(normalizeTask);
                 state.usingMock = true;
             }
+            recomputeResourceConflicts(state.tasks);
         } catch (e) {
             console.warn('Task load failed, using empty fallback', e);
             state.usingMock = true;
@@ -975,10 +1046,11 @@
             const escalBadge = escalState === 'escalated'
                 ? '<span class="checklist-badge status-blocked" style="margin-left:6px;">Escalated</span>'
                 : (escalState === 'overdue' ? '<span class="checklist-badge status-not-started" style="margin-left:6px;">Overdue</span>' : '');
+            const resourceBadge = task.hasResourceConflict ? '<span class="checklist-badge status-blocked" style="margin-left:6px;">Resource conflict</span>' : '';
             const isFocused = String(state.focusTaskId || '') === String(task.taskId || '');
             return '<div class="tasks-row ' + depthClass + (isFocused ? ' active' : '') + '" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
-                '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + escalBadge + '</span></div>' +
+                '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + escalBadge + resourceBadge + '</span></div>' +
                 assigneeStack +
             '</div>';
         }).join('');
@@ -1400,7 +1472,7 @@
                     const cascade = timeline.hasMultipleTracks
                         ? '<span class="gantt-bar-cascade back" style="background:' + ganttColor(t, row.depth) + ';"></span><span class="gantt-bar-cascade" style="background:' + ganttColor(t, row.depth) + ';"></span>'
                         : '';
-                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + (t.hasResourceConflict ? ' resource-conflict' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
                         cascade +
                         '<span class="gantt-label">' + esc(t.title) + '</span>' +
                         '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
@@ -1878,6 +1950,10 @@ const pctEl = byId('taskPercent');
         if (byId('taskAssignmentGroup')) byId('taskAssignmentGroup').value = task ? task.assignmentGroup : '';
         if (byId('taskRequiredSkills')) byId('taskRequiredSkills').value = task ? (Array.isArray(task.requiredSkills) ? task.requiredSkills.join(', ') : '') : '';
         if (byId('taskAssignmentCursor')) byId('taskAssignmentCursor').value = task ? task.assignmentCursor : '';
+        if (byId('taskResourceKey')) byId('taskResourceKey').value = task ? String(task.resourceKey || '') : '';
+        if (byId('taskResourceCapacity')) byId('taskResourceCapacity').value = task ? String(normalizeResourceCapacity(task.resourceCapacity)) : '1';
+        if (byId('taskResourceConflictState')) byId('taskResourceConflictState').value = task ? normalizeResourceConflictState(task.resourceConflictState) : '';
+        if (byId('taskResourceConflictBadge')) byId('taskResourceConflictBadge').style.display = 'none';
         syncAssignmentPanelVisibility();
         if (byId('taskDependencyRules')) byId('taskDependencyRules').value = task ? String(task.dependencyRules || '') : '';
         syncPriorityToggleUi();
@@ -1965,6 +2041,9 @@ loadChecklist(task ? task.taskId : null);
             sublocation: byId('taskSublocation').value.trim(),
             dependencyIds: '',
             dependencyRules: byId('taskDependencyRules') ? byId('taskDependencyRules').value.trim() : '',
+            resourceKey: byId('taskResourceKey') ? byId('taskResourceKey').value.trim() : '',
+            resourceCapacity: byId('taskResourceCapacity') ? normalizeResourceCapacity(byId('taskResourceCapacity').value) : 1,
+            resourceConflictState: byId('taskResourceConflictState') ? normalizeResourceConflictState(byId('taskResourceConflictState').value) : '',
             blockedByTaskId: existingTask ? String(existingTask.blockedByTaskId || '') : '',
             blockReason: existingTask ? String(existingTask.blockReason || '') : '',
             assignmentMode: existingTask ? String(existingTask.assignmentMode || 'manual') : 'manual',
@@ -2045,6 +2124,17 @@ loadChecklist(task ? task.taskId : null);
 
     async function saveTask() {
         const payload = buildTaskPayloadFromModal();
+        const resourceConflict = getResourceConflictForTask(payload, state.tasks);
+        if (payload.resourceKey && resourceConflict.hasConflict) {
+            if (byId('taskResourceConflictBadge')) {
+                byId('taskResourceConflictBadge').style.display = 'inline-flex';
+                byId('taskResourceConflictBadge').textContent = 'Resource conflict (' + resourceConflict.peak + '/' + resourceConflict.capacity + ')';
+            }
+            if (payload.resourceConflictState === 'critical') {
+                alert('Resource capacity exceeded for key "' + payload.resourceKey + '". Save blocked for critical workflow.');
+                return;
+            }
+        }
         const depValidation = validateTaskDependenciesBeforeSave(payload);
         if (!depValidation.ok) {
             alert(depValidation.error);
@@ -2058,10 +2148,12 @@ loadChecklist(task ? task.taskId : null);
             previousStatus = String((prevTask && prevTask.status) || '').trim().toLowerCase();
             applyStatusTransitionTimestamps(payload, prevTask);
             if (idx >= 0) state.tasks[idx] = normalizeTask(payload, idx);
+            recomputeResourceConflicts(state.tasks);
             await writeTask('updateTask', payload);
         } else {
             applyStatusTransitionTimestamps(payload, null);
             state.tasks.push(normalizeTask(payload, state.tasks.length));
+            recomputeResourceConflicts(state.tasks);
             await writeTask('createTask', payload);
         }
 
@@ -2115,9 +2207,18 @@ loadChecklist(task ? task.taskId : null);
     }
 
     async function updateTaskDatesFromDrag(task, nextStart, nextDue) {
+        const candidate = Object.assign({}, task, { startDate: nextStart, dueDate: nextDue });
+        const resourceConflict = getResourceConflictForTask(candidate, state.tasks);
+        if (candidate.resourceKey && resourceConflict.hasConflict && normalizeResourceConflictState(candidate.resourceConflictState) === 'critical') {
+            alert('Resource capacity exceeded for key "' + candidate.resourceKey + '". Date move blocked for critical workflow.');
+            queueRenderGantt();
+            return;
+        }
         const prevStart = task.startDate;
         task.startDate = nextStart;
         task.dueDate = nextDue;
+        task.hasResourceConflict = resourceConflict.hasConflict;
+        task.resourceConflictPeak = resourceConflict.peak;
         task.updatedAt = isoNow();
         await writeTask('updateTask', {
             taskId: task.taskId,
@@ -2140,6 +2241,7 @@ loadChecklist(task ? task.taskId : null);
                 });
             }
         }
+        recomputeResourceConflicts(state.tasks);
     }
 
 
