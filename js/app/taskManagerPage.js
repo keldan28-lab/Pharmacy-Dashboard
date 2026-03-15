@@ -323,6 +323,119 @@
         out.dependencyRules = JSON.stringify(normalized);
     }
 
+    function parseDependencyRulesStrict(rawValue) {
+        if (Array.isArray(rawValue)) rawValue = JSON.stringify(rawValue);
+        const raw = String(rawValue == null ? '' : rawValue).trim();
+        if (!raw) return { ok: true, rules: [] };
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (_) {
+            return { ok: false, error: 'Dependency Rules must be valid JSON.' };
+        }
+        if (!Array.isArray(parsed)) {
+            return { ok: false, error: 'Dependency Rules must be a JSON array.' };
+        }
+        const rules = [];
+        for (let i = 0; i < parsed.length; i++) {
+            const rule = parsed[i] || {};
+            const predecessorTaskId = String(rule.predecessorTaskId || '').trim();
+            if (!predecessorTaskId) return { ok: false, error: 'Each dependency rule needs a predecessorTaskId.' };
+            const typeRaw = String(rule.type || 'FS').trim().toUpperCase();
+            if (typeRaw !== 'FS' && typeRaw !== 'SS' && typeRaw !== 'FF') {
+                return { ok: false, error: 'Dependency rule type must be FS, SS, or FF.' };
+            }
+            const lagNum = Number(rule.lagDays);
+            if (!Number.isFinite(lagNum)) return { ok: false, error: 'Dependency rule lagDays must be a number.' };
+            rules.push({ predecessorTaskId: predecessorTaskId, type: typeRaw, lagDays: lagNum });
+        }
+        return { ok: true, rules: rules };
+    }
+
+    function detectDependencyCycle(taskList) {
+        const activeTasks = (Array.isArray(taskList) ? taskList : []).filter(function (task) { return !(task && task.archived); });
+        const byId = {};
+        activeTasks.forEach(function (task) { byId[String(task.taskId || '').trim()] = task; });
+
+        const graph = {};
+        Object.keys(byId).forEach(function (taskId) { graph[taskId] = []; });
+        Object.keys(byId).forEach(function (taskId) {
+            const task = byId[taskId] || {};
+            const rules = Array.isArray(task.dependencyRulesParsed) ? task.dependencyRulesParsed : [];
+            rules.forEach(function (rule) {
+                const predecessorTaskId = String((rule && rule.predecessorTaskId) || '').trim();
+                if (!predecessorTaskId) return;
+                if (!byId[predecessorTaskId]) {
+                    const label = String(task.title || taskId).trim() || taskId;
+                    throw new Error('Task "' + label + '" depends on missing task ID "' + predecessorTaskId + '".');
+                }
+                graph[predecessorTaskId].push(taskId);
+            });
+        });
+
+        const visiting = {};
+        const visited = {};
+        const stack = [];
+        let cyclePath = null;
+
+        function dfs(nodeId) {
+            if (cyclePath) return;
+            visiting[nodeId] = true;
+            stack.push(nodeId);
+            const next = graph[nodeId] || [];
+            for (let i = 0; i < next.length; i++) {
+                const targetId = next[i];
+                if (visited[targetId]) continue;
+                if (visiting[targetId]) {
+                    const start = stack.indexOf(targetId);
+                    cyclePath = stack.slice(start >= 0 ? start : 0).concat(targetId);
+                    return;
+                }
+                dfs(targetId);
+                if (cyclePath) return;
+            }
+            stack.pop();
+            visiting[nodeId] = false;
+            visited[nodeId] = true;
+        }
+
+        const ids = Object.keys(graph);
+        for (let i = 0; i < ids.length; i++) {
+            if (visited[ids[i]]) continue;
+            dfs(ids[i]);
+            if (cyclePath) break;
+        }
+
+        return { hasCycle: !!cyclePath, path: cyclePath || [] };
+    }
+
+    function validateTaskDependenciesBeforeSave(payload) {
+        const parsed = parseDependencyRulesStrict(payload.dependencyRules);
+        if (!parsed.ok) return parsed;
+        payload.dependencyRules = JSON.stringify(parsed.rules);
+
+        const taskSnapshot = state.tasks.map(function (task) { return Object.assign({}, task); });
+        const idx = taskSnapshot.findIndex(function (t) { return t.taskId === payload.taskId; });
+        const normalizedPayload = normalizeTask(payload, idx >= 0 ? idx : taskSnapshot.length);
+        if (idx >= 0) taskSnapshot[idx] = normalizedPayload;
+        else taskSnapshot.push(normalizedPayload);
+
+        let cycleCheck;
+        try {
+            cycleCheck = detectDependencyCycle(taskSnapshot);
+        } catch (err) {
+            return { ok: false, error: err && err.message ? err.message : 'Invalid dependency rules.' };
+        }
+        if (!cycleCheck.hasCycle) return { ok: true, rules: parsed.rules };
+
+        const labelById = {};
+        taskSnapshot.forEach(function (task) {
+            labelById[task.taskId] = String(task.title || '').trim() ? (task.title + ' (' + task.taskId + ')') : task.taskId;
+        });
+        const cycleText = cycleCheck.path.map(function (id) { return labelById[id] || id; }).join(' → ');
+        return { ok: false, error: 'Dependency cycle detected. Example cycle: ' + cycleText };
+    }
+
     function normalizeTask(raw, idx) {
         const out = {};
         const source = raw && typeof raw === 'object' ? raw : {};
@@ -1780,6 +1893,11 @@ loadChecklist(task ? task.taskId : null);
 
     async function saveTask() {
         const payload = buildTaskPayloadFromModal();
+        const depValidation = validateTaskDependenciesBeforeSave(payload);
+        if (!depValidation.ok) {
+            alert(depValidation.error);
+            return;
+        }
 
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
