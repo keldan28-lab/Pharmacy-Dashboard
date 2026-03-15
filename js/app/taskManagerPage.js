@@ -247,7 +247,117 @@
     }
 
     function emptyFallbackTasks() {
-        return [];
+        state.usingMock = true;
+        return [
+            {
+                taskId: 'SMPL-1000',
+                parentId: '',
+                sortOrder: 10,
+                title: 'Sample Cycle Count · Aisle A',
+                description: 'Parent task shown when sheet data is unavailable.',
+                status: 'In Progress',
+                priority: 'High',
+                assigner: 'Lead Pharmacist',
+                assignees: 'Jordan Lee, Avery Kim',
+                startDate: '2026-03-11',
+                dueDate: '2026-03-18',
+                percentComplete: 55,
+                itemCode: 'NDC-00011-1111',
+                itemName: 'Amoxicillin 500mg Cap',
+                location: 'Main Store',
+                sublocation: 'Aisle A / Shelf 3',
+                dependencyIds: '',
+                dependencyRules: '[]',
+                colorKey: 'teal'
+            },
+            {
+                taskId: 'SMPL-1001',
+                parentId: 'SMPL-1000',
+                sortOrder: 20,
+                title: 'Count controlled stock',
+                status: 'Not Started',
+                priority: 'Critical',
+                assigner: 'Lead Pharmacist',
+                assignees: 'Jordan Lee',
+                startDate: '2026-03-11',
+                dueDate: '2026-03-13',
+                percentComplete: 0,
+                itemCode: 'NDC-00022-2222',
+                itemName: 'Oxycodone 5mg Tab',
+                location: 'Main Store',
+                sublocation: 'C2 Safe',
+                dependencyIds: '',
+                dependencyRules: '[]',
+                colorKey: 'red'
+            },
+            {
+                taskId: 'SMPL-1002',
+                parentId: 'SMPL-1000',
+                sortOrder: 30,
+                title: 'Reconcile variances',
+                status: 'Blocked',
+                priority: 'High',
+                assigner: 'Lead Pharmacist',
+                assignees: 'Avery Kim',
+                startDate: '2026-03-13',
+                dueDate: '2026-03-16',
+                percentComplete: 25,
+                itemCode: 'NDC-00033-3333',
+                itemName: 'Insulin Glargine Pen',
+                location: 'Main Store',
+                sublocation: 'Cold Chain',
+                dependencyIds: 'SMPL-1001',
+                dependencyRules: '[{"taskId":"SMPL-1001","type":"FS","lagDays":0}]',
+                blockedByTaskId: 'SMPL-1001',
+                blockReason: 'Awaiting controlled stock count sign-off',
+                colorKey: 'orange'
+            },
+            {
+                taskId: 'SMPL-1003',
+                parentId: 'SMPL-1000',
+                sortOrder: 40,
+                title: 'Prepare replenishment transfer',
+                status: 'On Hold',
+                priority: 'Medium',
+                assigner: 'Operations Manager',
+                assignees: 'Noah Patel, Maya Chen',
+                startDate: '2026-03-16',
+                dueDate: '2026-03-18',
+                percentComplete: 10,
+                itemCode: 'NDC-00044-4444',
+                itemName: 'Metformin 1000mg Tab',
+                location: 'Overflow',
+                sublocation: 'Bin 12',
+                dependencyIds: 'SMPL-1002',
+                dependencyRules: '[{"taskId":"SMPL-1002","type":"FS","lagDays":1}]',
+                colorKey: 'purple'
+            },
+            {
+                taskId: 'SMPL-2000',
+                parentId: '',
+                sortOrder: 50,
+                title: 'Satellite Fridge QA Sweep',
+                status: 'Done',
+                priority: 'Low',
+                assigner: 'QA Team',
+                assignees: 'Maya Chen',
+                startDate: '2026-03-08',
+                dueDate: '2026-03-10',
+                percentComplete: 100,
+                itemCode: 'NDC-00055-5555',
+                itemName: 'Shingrix Vaccine',
+                location: 'Satellite Clinic',
+                sublocation: 'Fridge B',
+                dependencyIds: '',
+                dependencyRules: '[]',
+                colorKey: 'green'
+            }
+        ];
+    }
+
+    function syncMockBanner() {
+        if (!els.mockBanner) return;
+        els.mockBanner.style.display = state.usingMock ? 'block' : 'none';
     }
 
     function parseAssignees(value) {
@@ -680,7 +790,7 @@
         const sheetId = getSheetId();
         if (!webAppUrl || !sheetId) {
             state.usingMock = true;
-            state.tasks = [];
+            state.tasks = emptyFallbackTasks().map(normalizeTask);
             state.loading = false;
             applyFilters();
             return;
@@ -803,6 +913,7 @@
         syncShellLayout();
         state.scheduleAnalytics = buildScheduleAnalytics(state.filtered);
         renderTaskInsights(state.scheduleAnalytics);
+        syncMockBanner();
         renderList();
         renderPrintView();
         requestAnimationFrame(renderGantt);
@@ -3114,6 +3225,7 @@ loadChecklist(task ? task.taskId : null);
         els.shell = byId('tasksShell');
         els.splitter = byId('tasksSplitter');
         els.panelToggleBtn = byId('tasksViewToggle');
+        els.mockBanner = byId('tasksMockBanner');
     }
 
     function bootstrapInventoryHint() {
