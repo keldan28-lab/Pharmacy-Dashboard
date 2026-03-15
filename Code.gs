@@ -72,8 +72,7 @@ function doGet(e) {
   if (action === "tasksRead") {
     try {
       const sheetId = requireString_(p.sheetId, "sheetId");
-      const tabName = String(p.tabName || 'tasks').trim() || 'tasks';
-      const result = tasksRead_(sheetId, tabName);
+      const result = tasksRead_(sheetId, 'tasks');
       return jsonOrJsonp_(result, callback);
     } catch (err) {
       return jsonOrJsonp_({ ok: false, action, error: String((err && err.message) || err || "Unknown error") }, callback);
@@ -474,7 +473,7 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assignee','assigner','assignees','assigneeTracks','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','archived','createdAt','updatedAt','createdBy','colorKey'];
 }
 
 function parseAssignees_(value) {
@@ -499,10 +498,8 @@ function parseAssignees_(value) {
 }
 
 function normalizeAssigneeFields_(obj) {
-  var hasAssignees = obj && obj.assignees != null && String(obj.assignees).trim() !== '';
-  var list = hasAssignees ? parseAssignees_(obj.assignees) : parseAssignees_(obj.assignee);
+  var list = parseAssignees_(obj && obj.assignees);
   obj.assignees = JSON.stringify(list);
-  obj.assignee = list.length ? list[0] : '';
   return obj;
 }
 
@@ -525,9 +522,10 @@ function ensureTaskSheet_(sheetId, tabName) {
 }
 
 function tasksRead_(sheetId, tabName) {
-  const pack = ensureTaskSheet_(sheetId, tabName);
-  const sh = pack.sh;
-  const header = pack.header;
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sh = ss.getSheetByName(tabName);
+  const header = taskColumns_();
+  if (!sh) return { ok: true, tasks: [], tabName, schema: header };
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return { ok: true, tasks: [], tabName, schema: header };
   const values = sh.getRange(2, 1, lastRow - 1, header.length).getValues();
@@ -587,7 +585,7 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
 
 
 function checklistColumns_() {
-  return ['taskId', 'itemId', 'done', 'text', 'assignees', 'startDate', 'dueDate', 'handoffMode', 'updatedAt'];
+  return ['taskId', 'itemId', 'done', 'text', 'assignees', 'startDate', 'dueDate', 'notes', 'handoffMode', 'updatedAt'];
 }
 
 function ensureChecklistSheet_(sheetId, tabName) {
@@ -609,9 +607,10 @@ function ensureChecklistSheet_(sheetId, tabName) {
 }
 
 function checklistRead_(sheetId, tabName, taskId) {
-  const pack = ensureChecklistSheet_(sheetId, tabName);
-  const sh = pack.sh;
-  const header = pack.header;
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sh = ss.getSheetByName(tabName);
+  const header = checklistColumns_();
+  if (!sh) return { ok: true, items: [], taskId: taskId };
   const idxTask = header.indexOf('taskId');
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return { ok: true, items: [], taskId: taskId };
@@ -627,8 +626,9 @@ function checklistRead_(sheetId, tabName, taskId) {
       assignees: String(values[i][4] || ''),
       startDate: String(values[i][5] || ''),
       dueDate: String(values[i][6] || ''),
-      handoffMode: String(values[i][7] || ''),
-      updatedAt: values[i][8]
+      notes: String(values[i][7] || ''),
+      handoffMode: String(values[i][8] || ''),
+      updatedAt: values[i][9]
     });
   }
   return { ok: true, items: out, taskId: taskId };
@@ -640,30 +640,46 @@ function checklistWrite_(sheetId, tabName, payload) {
   const pack = ensureChecklistSheet_(sheetId, tabName);
   const sh = pack.sh;
   const header = pack.header;
-  const lastRow = sh.getLastRow();
-  if (lastRow >= 2) {
-    const values = sh.getRange(2, 1, lastRow - 1, header.length).getValues();
-    const keep = [];
-    for (let i = 0; i < values.length; i++) {
-      if (String(values[i][0] || '').trim() === taskId) continue;
-      keep.push(values[i]);
-    }
-    sh.getRange(2, 1, Math.max(lastRow - 1, 1), header.length).clearContent();
-    if (keep.length) sh.getRange(2, 1, keep.length, header.length).setValues(keep);
-  }
-  const rows = [];
   const now = new Date().toISOString();
+
+  const incomingByKey = {};
   for (let i = 0; i < items.length; i++) {
+    const itemId = String((items[i] && items[i].itemId) || (i + 1)).trim();
     const text = String((items[i] && items[i].text) || '').trim();
-    if (!text) continue;
+    if (!itemId || !text) continue;
     const assignees = String((items[i] && items[i].assignees) || '').trim();
     const startDate = String((items[i] && items[i].startDate) || '').trim();
     const dueDate = String((items[i] && items[i].dueDate) || '').trim();
+    const notes = String((items[i] && items[i].notes) || '').trim();
     const handoffMode = String((items[i] && items[i].handoffMode) || '').trim();
-    rows.push([taskId, String(i + 1), items[i].done ? 'true' : 'false', text, assignees, startDate, dueDate, handoffMode, now]);
+    const key = taskId + '||' + itemId;
+    incomingByKey[key] = [taskId, itemId, items[i].done ? 'true' : 'false', text, assignees, startDate, dueDate, notes, handoffMode, now];
   }
-  if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, header.length).setValues(rows);
-  return { ok: true, taskId: taskId, written: rows.length, taskAction: 'saveChecklist' };
+
+  const lastRow = sh.getLastRow();
+  const values = lastRow >= 2 ? sh.getRange(2, 1, lastRow - 1, header.length).getValues() : [];
+  const merged = [];
+  for (let i = 0; i < values.length; i++) {
+    const rowTaskId = String(values[i][0] || '').trim();
+    const rowItemId = String(values[i][1] || '').trim();
+    if (rowTaskId !== taskId) {
+      merged.push(values[i]);
+      continue;
+    }
+    const key = rowTaskId + '||' + rowItemId;
+    if (Object.prototype.hasOwnProperty.call(incomingByKey, key)) {
+      merged.push(incomingByKey[key]);
+      delete incomingByKey[key];
+    }
+  }
+
+  Object.keys(incomingByKey).forEach(function (key) {
+    merged.push(incomingByKey[key]);
+  });
+
+  if (lastRow >= 2) sh.getRange(2, 1, Math.max(lastRow - 1, 1), header.length).clearContent();
+  if (merged.length) sh.getRange(2, 1, merged.length, header.length).setValues(merged);
+  return { ok: true, taskId: taskId, written: merged.filter(function (row) { return String(row[0] || '').trim() === taskId; }).length, taskAction: 'saveChecklist' };
 }
 
 function parsePostBody_(e) {
