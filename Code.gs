@@ -473,7 +473,7 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
 }
 
 function normalizeTaskEscalationFields_(obj) {
@@ -481,6 +481,13 @@ function normalizeTaskEscalationFields_(obj) {
   const state = String(out.escalationState || '').trim();
   out.escalationState = state;
   out.exceptionFlag = String(out.exceptionFlag || '').toLowerCase() === 'true' ? 'true' : '';
+  return out;
+}
+
+function normalizeTaskBlockFields_(obj) {
+  const out = obj || {};
+  out.blockedByTaskId = String(out.blockedByTaskId || '').trim();
+  out.blockReason = String(out.blockReason || '').trim();
   return out;
 }
 
@@ -715,6 +722,7 @@ function tasksRead_(sheetId, tabName) {
     for (let i = 0; i < header.length; i++) obj[header[i]] = row[i];
     normalizeAssigneeFields_(obj);
     normalizeDependencyRules_(obj);
+    normalizeTaskBlockFields_(obj);
     normalizeTaskEscalationFields_(obj);
     return obj;
   });
@@ -749,6 +757,7 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   const row = existing.slice();
   const now = new Date().toISOString();
   var normalizedPayload = normalizeAssigneeFields_(Object.assign({}, payload));
+  normalizedPayload = normalizeTaskBlockFields_(normalizedPayload);
   if (Object.prototype.hasOwnProperty.call(payload || {}, 'dependencyRules')) {
     normalizedPayload.dependencyRules = typeof payload.dependencyRules === 'string'
       ? payload.dependencyRules
