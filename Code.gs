@@ -473,7 +473,133 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','assignmentMode','assignmentGroup','requiredSkills','assignmentCursor','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+}
+
+function parseRequiredSkills_(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+  }
+  var text = String(raw == null ? '' : raw).trim();
+  if (!text) return [];
+  if (text.charAt(0) === '[') {
+    try {
+      var parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+    } catch (err) {}
+  }
+  return text.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+}
+
+function normalizeTaskAssignmentFields_(obj) {
+  var out = obj || {};
+  var mode = String(out.assignmentMode || '').trim().toLowerCase();
+  var allowed = { manual: true, round_robin: true, queue_claim: true, load_balanced: true, skill_based: true };
+  out.assignmentMode = allowed[mode] ? mode : 'manual';
+  out.assignmentGroup = String(out.assignmentGroup || '').trim();
+  out.requiredSkills = JSON.stringify(parseRequiredSkills_(out.requiredSkills));
+  out.assignmentCursor = String(out.assignmentCursor || '').trim();
+  return out;
+}
+
+function deriveAssignmentCandidates_(rows, idx, selfTaskId, groupName, requiredSkills) {
+  var seen = {};
+  var candidates = [];
+  var targetGroup = String(groupName || '').trim().toLowerCase();
+  var required = (Array.isArray(requiredSkills) ? requiredSkills : []).map(function (s) { return String(s || '').trim().toLowerCase(); }).filter(Boolean);
+
+  function includeByGroup_(row) {
+    if (!targetGroup) return true;
+    return String(row[idx.assignmentGroup] || '').trim().toLowerCase() === targetGroup;
+  }
+
+  function includeBySkill_(row) {
+    if (!required.length) return true;
+    var skills = parseRequiredSkills_(row[idx.requiredSkills]).map(function (s) { return String(s || '').trim().toLowerCase(); });
+    for (var i = 0; i < required.length; i++) {
+      if (skills.indexOf(required[i]) >= 0) return true;
+    }
+    return false;
+  }
+
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var taskId = String(row[idx.taskId] || '').trim();
+    if (!taskId || taskId === selfTaskId) continue;
+    if (!includeByGroup_(row)) continue;
+    if (!includeBySkill_(row)) continue;
+    var names = parseAssignees_(row[idx.assignees]);
+    for (var i = 0; i < names.length; i++) {
+      var key = names[i].toLowerCase();
+      if (seen[key]) continue;
+      seen[key] = true;
+      candidates.push(names[i]);
+    }
+  }
+  return candidates;
+}
+
+function applyAssignmentModeForRow_(row, rows, idx, taskId) {
+  var mode = String(row[idx.assignmentMode] || 'manual').trim().toLowerCase();
+  var providedAssignees = parseAssignees_(row[idx.assignees]);
+  var groupName = String(row[idx.assignmentGroup] || '').trim();
+  var requiredSkills = parseRequiredSkills_(row[idx.requiredSkills]);
+  var candidatePool = deriveAssignmentCandidates_(rows, idx, taskId, groupName, mode === 'skill_based' ? requiredSkills : []);
+  if (!candidatePool.length && mode === 'skill_based') {
+    candidatePool = deriveAssignmentCandidates_(rows, idx, taskId, groupName, []);
+  }
+
+  if (mode === 'queue_claim') {
+    row[idx.assignees] = JSON.stringify([]);
+    return;
+  }
+
+  if (mode === 'manual') {
+    row[idx.assignees] = JSON.stringify(providedAssignees);
+    return;
+  }
+
+  if (!candidatePool.length) {
+    row[idx.assignees] = JSON.stringify(providedAssignees);
+    return;
+  }
+
+  if (mode === 'round_robin') {
+    var cursor = Number(row[idx.assignmentCursor]);
+    if (!isFinite(cursor) || cursor < 0) cursor = 0;
+    var pick = candidatePool[cursor % candidatePool.length];
+    row[idx.assignees] = JSON.stringify(pick ? [pick] : []);
+    row[idx.assignmentCursor] = String((cursor + 1) % candidatePool.length);
+    return;
+  }
+
+  if (mode === 'load_balanced') {
+    var counts = {};
+    for (var c = 0; c < candidatePool.length; c++) counts[candidatePool[c]] = 0;
+    for (var r = 0; r < rows.length; r++) {
+      var existingTaskId = String(rows[r][idx.taskId] || '').trim();
+      if (!existingTaskId || existingTaskId === taskId) continue;
+      if (String(rows[r][idx.archived] || '').toLowerCase() === 'true') continue;
+      if (isTaskDone_(rows[r][idx.status])) continue;
+      var names = parseAssignees_(rows[r][idx.assignees]);
+      for (var n = 0; n < names.length; n++) {
+        if (Object.prototype.hasOwnProperty.call(counts, names[n])) counts[names[n]]++;
+      }
+    }
+    candidatePool.sort(function (a, b) {
+      var d = (counts[a] || 0) - (counts[b] || 0);
+      return d || String(a).localeCompare(String(b));
+    });
+    row[idx.assignees] = JSON.stringify(candidatePool.length ? [candidatePool[0]] : []);
+    return;
+  }
+
+  if (mode === 'skill_based') {
+    row[idx.assignees] = JSON.stringify(candidatePool.length ? [candidatePool[0]] : providedAssignees);
+    return;
+  }
+
+  row[idx.assignees] = JSON.stringify(providedAssignees);
 }
 
 function normalizeTaskEscalationFields_(obj) {
@@ -724,6 +850,7 @@ function tasksRead_(sheetId, tabName) {
     normalizeDependencyRules_(obj);
     normalizeTaskBlockFields_(obj);
     normalizeTaskEscalationFields_(obj);
+    normalizeTaskAssignmentFields_(obj);
     return obj;
   });
   return { ok: true, tasks: tasks, tabName, schema: header };
@@ -758,6 +885,7 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   const now = new Date().toISOString();
   var normalizedPayload = normalizeAssigneeFields_(Object.assign({}, payload));
   normalizedPayload = normalizeTaskBlockFields_(normalizedPayload);
+  normalizedPayload = normalizeTaskAssignmentFields_(normalizedPayload);
   if (Object.prototype.hasOwnProperty.call(payload || {}, 'dependencyRules')) {
     normalizedPayload.dependencyRules = typeof payload.dependencyRules === 'string'
       ? payload.dependencyRules
@@ -774,6 +902,8 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   header.forEach(function (k) {
     if (normalizedPayload[k] != null && normalizedPayload[k] !== '') row[idx[k]] = normalizedPayload[k];
   });
+
+  applyAssignmentModeForRow_(row, values, idx, taskId);
 
   const priorStatus = String(existing[idx.status] || '').trim();
   const nextStatus = String((normalizedPayload.status != null ? normalizedPayload.status : row[idx.status]) || '').trim();

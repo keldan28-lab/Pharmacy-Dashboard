@@ -1,7 +1,8 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','assignmentMode','assignmentGroup','requiredSkills','assignmentCursor','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+    const ASSIGNMENT_MODES = ['manual', 'round_robin', 'queue_claim', 'load_balanced', 'skill_based'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'On Hold', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -269,6 +270,21 @@
         return raw.split(/[|,;\n]/).map(clean).filter(Boolean);
     }
 
+    function parseSkills(value) {
+        if (Array.isArray(value)) {
+            return value.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+        }
+        const raw = String(value == null ? '' : value).trim();
+        if (!raw) return [];
+        if (raw.charAt(0) === '[') {
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed.map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+            } catch (_) {}
+        }
+        return raw.split(/[|,;\n]/).map(function (v) { return String(v || '').trim(); }).filter(Boolean);
+    }
+
     function serializeAssignees(list) {
         return JSON.stringify((Array.isArray(list) ? list : []).map(function (v) { return String(v || '').trim(); }).filter(Boolean));
     }
@@ -467,6 +483,11 @@
         out.exceptionFlag = String(out.exceptionFlag || '').toLowerCase() === 'true';
         out.blockedByTaskId = String(out.blockedByTaskId || '');
         out.blockReason = String(out.blockReason || '');
+        const assignmentModeRaw = String(out.assignmentMode || 'manual').trim().toLowerCase();
+        out.assignmentMode = ASSIGNMENT_MODES.indexOf(assignmentModeRaw) >= 0 ? assignmentModeRaw : 'manual';
+        out.assignmentGroup = String(out.assignmentGroup || '');
+        out.requiredSkills = parseSkills(out.requiredSkills);
+        out.assignmentCursor = String(out.assignmentCursor || '');
         out.colorKey = String(out.colorKey || 'teal');
         normalizeDependencyRulesForTask(out);
         const assigneeList = parseAssignees(out.assignees);
@@ -484,6 +505,26 @@
         out.children = [];
         ensureTaskDates(out);
         return out;
+    }
+
+    function syncAssignmentPanelVisibility() {
+        const mode = String((byId('taskAssignmentMode') && byId('taskAssignmentMode').value) || 'manual').trim();
+        const config = byId('taskAssignmentConfig');
+        if (config) config.style.display = mode === 'manual' ? 'none' : 'grid';
+        const skillsWrap = byId('taskRequiredSkillsWrap');
+        if (skillsWrap) skillsWrap.style.display = mode === 'skill_based' ? '' : 'none';
+    }
+
+    function assignmentPanelToPayload(payload) {
+        const modeEl = byId('taskAssignmentMode');
+        const groupEl = byId('taskAssignmentGroup');
+        const skillsEl = byId('taskRequiredSkills');
+        const cursorEl = byId('taskAssignmentCursor');
+        const modeRaw = String(modeEl ? modeEl.value : 'manual').trim().toLowerCase();
+        payload.assignmentMode = ASSIGNMENT_MODES.indexOf(modeRaw) >= 0 ? modeRaw : 'manual';
+        payload.assignmentGroup = String(groupEl ? groupEl.value : '').trim();
+        payload.requiredSkills = parseSkills(skillsEl ? skillsEl.value : '');
+        payload.assignmentCursor = String(cursorEl ? cursorEl.value : '').trim();
     }
 
 
@@ -724,6 +765,13 @@
         byId('taskPriority').innerHTML = DEFAULT_PRIORITY.map(function (p) {
             return '<option value="' + esc(p) + '">' + esc(p) + '</option>';
         }).join('');
+
+        const assignmentModeEl = byId('taskAssignmentMode');
+        if (assignmentModeEl && !assignmentModeEl.options.length) {
+            assignmentModeEl.innerHTML = ASSIGNMENT_MODES.map(function (m) {
+                return '<option value="' + esc(m) + '">' + esc(m) + '</option>';
+            }).join('');
+        }
 
         byId('taskColor').innerHTML = TASK_BADGE_COLORS.map(function (c) {
             return '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>';
@@ -1826,6 +1874,11 @@ const pctEl = byId('taskPercent');
         byId('taskSublocation').value = task ? task.sublocation : '';
         byId('taskStatus').value = task ? task.status : 'Not Started';
         byId('taskPriority').value = task ? task.priority : 'Medium';
+        if (byId('taskAssignmentMode')) byId('taskAssignmentMode').value = task ? task.assignmentMode : 'manual';
+        if (byId('taskAssignmentGroup')) byId('taskAssignmentGroup').value = task ? task.assignmentGroup : '';
+        if (byId('taskRequiredSkills')) byId('taskRequiredSkills').value = task ? (Array.isArray(task.requiredSkills) ? task.requiredSkills.join(', ') : '') : '';
+        if (byId('taskAssignmentCursor')) byId('taskAssignmentCursor').value = task ? task.assignmentCursor : '';
+        syncAssignmentPanelVisibility();
         if (byId('taskDependencyRules')) byId('taskDependencyRules').value = task ? String(task.dependencyRules || '') : '';
         syncPriorityToggleUi();
         byId('taskColor').value = task ? task.colorKey : 'teal';
@@ -1914,6 +1967,10 @@ loadChecklist(task ? task.taskId : null);
             dependencyRules: byId('taskDependencyRules') ? byId('taskDependencyRules').value.trim() : '',
             blockedByTaskId: existingTask ? String(existingTask.blockedByTaskId || '') : '',
             blockReason: existingTask ? String(existingTask.blockReason || '') : '',
+            assignmentMode: existingTask ? String(existingTask.assignmentMode || 'manual') : 'manual',
+            assignmentGroup: existingTask ? String(existingTask.assignmentGroup || '') : '',
+            requiredSkills: existingTask && Array.isArray(existingTask.requiredSkills) ? existingTask.requiredSkills.slice() : [],
+            assignmentCursor: existingTask ? String(existingTask.assignmentCursor || '') : '',
             archived: false,
             createdAt: state.editingId ? (state.tasks.find(function (t) { return t.taskId === state.editingId; }) || {}).createdAt || now : now,
             updatedAt: now,
@@ -1927,6 +1984,7 @@ loadChecklist(task ? task.taskId : null);
         payload.assignees = assigneeList.slice();
         payload.assignee = assigneeList[0] || '';
         modalTracksToPayload(payload, assigneeList);
+        assignmentPanelToPayload(payload);
         payload.status = checklistOverallProgressStatus(state.checklistDraft);
 
         if (parentTask) {
@@ -2525,6 +2583,19 @@ loadChecklist(task ? task.taskId : null);
             const evt = (field.tagName === 'SELECT' || field.type === 'date' || field.type === 'range') ? 'change' : 'input';
             field.addEventListener(evt, queueModalAutosave);
             if (evt !== 'change') field.addEventListener('change', queueModalAutosave);
+        });
+        ['taskAssignmentMode','taskAssignmentGroup','taskRequiredSkills','taskAssignmentCursor'].forEach(function (id) {
+            const field = byId(id);
+            if (!field) return;
+            const evt = field.tagName === 'SELECT' ? 'change' : 'input';
+            field.addEventListener(evt, function () {
+                if (id === 'taskAssignmentMode') syncAssignmentPanelVisibility();
+                queueModalAutosave();
+            });
+            if (evt !== 'change') field.addEventListener('change', function () {
+                if (id === 'taskAssignmentMode') syncAssignmentPanelVisibility();
+                queueModalAutosave();
+            });
         });
         byId('taskAssigner').addEventListener('input', function () {
             const next = String(byId('taskAssigner').value || '').trim();

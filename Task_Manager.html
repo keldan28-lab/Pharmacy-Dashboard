@@ -776,6 +776,19 @@
                         </div>
                         <div id="taskAssignBadges" class="task-assign-badges"></div>
                     </div>
+                    <details id="taskAssignmentDetails" class="task-form-section">
+                        <summary>Assignment mode (optional)</summary>
+                        <div style="margin-top:8px;">
+                            <select id="taskAssignmentMode" class="tasks-select"></select>
+                        </div>
+                        <div id="taskAssignmentConfig" class="task-optional-grid" style="margin-top:8px;display:none;">
+                            <input id="taskAssignmentGroup" class="tasks-input" placeholder="Assignment queue/group (optional)" />
+                            <div id="taskRequiredSkillsWrap" style="grid-column:1 / -1;display:none;">
+                                <input id="taskRequiredSkills" class="tasks-input" placeholder="Required skills (comma separated)" />
+                            </div>
+                            <input id="taskAssignmentCursor" class="tasks-input" placeholder="Round-robin cursor (optional)" />
+                        </div>
+                    </details>
                     <div id="taskChecklistPanel" class="task-checklist task-form-section">
                         <div class="task-checklist-title">CHECKLIST
                             <span class="task-checklist-actions">
