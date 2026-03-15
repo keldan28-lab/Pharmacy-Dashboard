@@ -46,7 +46,8 @@
         focusTaskId: '',
         tracksUnlocked: false,
         dragDeleteHot: false,
-        printView: false,
+        bodyView: 'gantt',
+        searchAutoHideTimer: null,
         checklistLoading: false,
         ganttRenderQueued: false,
         lastAssignerValue: '',
@@ -915,7 +916,8 @@
         renderTaskInsights(state.scheduleAnalytics);
         syncMockBanner();
         renderList();
-        renderPrintView();
+        renderReportView();
+        renderKanbanView();
         requestAnimationFrame(renderGantt);
     }
 
@@ -1116,25 +1118,29 @@
     }
 
 
-    function renderPrintView() {
+    function renderReportView() {
         const wrap = byId('tasksPrintView');
         if (!wrap) return;
-        if (!state.printView) { wrap.style.display = 'none'; return; }
+        if (state.bodyView !== 'report') { wrap.style.display = 'none'; return; }
         wrap.style.display = 'block';
         const rows = state.flatRows.map(function (r) {
             const t = r.task;
             return '<tr>' +
-                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.title) + '</td>' +
-                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.assignee || '') + '</td>' +
-                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.status || '') + '</td>' +
-                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.startDate || '') + '</td>' +
-                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.dueDate || '') + '</td>' +
-                '<td style="padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)">' + esc(t.location || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.taskId || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.title) + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc((Array.isArray(t.assignees) ? t.assignees.join(', ') : (t.assignee || '')) || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.status || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.priority || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.itemCode || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.location || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.startDate || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.dueDate || '') + '</td>' +
+                '<td style=\"padding:6px;border-bottom:1px solid rgba(160,160,160,0.2)\">' + esc(t.blockedByTaskId || '') + '</td>' +
             '</tr>';
         }).join('');
-        wrap.innerHTML = '<div style="font-weight:800;margin-bottom:10px;">Printable Action Plan</div>' +
-            '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
-            '<thead><tr><th style="text-align:left;padding:6px;">Task</th><th style="text-align:left;padding:6px;">Assignee</th><th style="text-align:left;padding:6px;">Status</th><th style="text-align:left;padding:6px;">Start</th><th style="text-align:left;padding:6px;">Due</th><th style="text-align:left;padding:6px;">Location</th></tr></thead>' +
+        wrap.innerHTML = '<div style=\"font-weight:800;margin-bottom:10px;\">Task reports view</div>' +
+            '<table style=\"width:100%;border-collapse:collapse;font-size:12px;\">' +
+            '<thead><tr><th style=\"text-align:left;padding:6px;\">Task ID</th><th style=\"text-align:left;padding:6px;\">Title</th><th style=\"text-align:left;padding:6px;\">Assignees</th><th style=\"text-align:left;padding:6px;\">Status</th><th style=\"text-align:left;padding:6px;\">Priority</th><th style=\"text-align:left;padding:6px;\">Item</th><th style=\"text-align:left;padding:6px;\">Location</th><th style=\"text-align:left;padding:6px;\">Start</th><th style=\"text-align:left;padding:6px;\">Due</th><th style=\"text-align:left;padding:6px;\">Blocked By</th></tr></thead>' +
             '<tbody>' + rows + '</tbody></table>';
     }
 
@@ -1623,6 +1629,7 @@
     }
 
     function renderTaskInsights(analytics) {
+        if (!byId('tasksCriticalSummaryCard')) return;
         const projectedEl = byId('tasksProjectedCompletion');
         const metaEl = byId('tasksCriticalSensitivityMeta');
         const chipsEl = byId('tasksCriticalChipRow');
@@ -1675,7 +1682,39 @@
     }
 
 
+    function renderKanbanView() {
+        const wrap = byId('tasksKanbanView');
+        if (!wrap) return;
+        if (state.bodyView !== 'kanban') { wrap.classList.remove('visible'); wrap.innerHTML = ''; return; }
+        wrap.classList.add('visible');
+        const columns = [
+            { key: 'Not Started', label: 'To Do' },
+            { key: 'In Progress', label: 'Doing' },
+            { key: 'Blocked', label: 'Blocked' },
+            { key: 'Done', label: 'Done' }
+        ];
+        wrap.innerHTML = columns.map(function (col) {
+            const tasks = state.filtered.filter(function (t) { return String(t.status || 'Not Started') === col.key; });
+            const cards = tasks.map(function (t) {
+                const color = getColorDef(t.colorKey).base;
+                const assignees = Array.isArray(t.assignees) ? t.assignees.join(', ') : (t.assignee || 'Unassigned');
+                return '<div class="tasks-kanban-card" style="border-left:4px solid ' + esc(color) + '">' +
+                    '<div class="tasks-kanban-title">' + esc(t.title || t.taskId) + '</div>' +
+                    '<div class="tasks-kanban-meta">#' + esc(t.taskId || '') + ' · ' + esc(t.priority || 'Medium') + '</div>' +
+                    '<div class="tasks-kanban-meta">Assignees: ' + esc(assignees || 'Unassigned') + '</div>' +
+                    '<div class="tasks-kanban-meta">Item: ' + esc(t.itemCode || '—') + ' · ' + esc(t.itemName || '—') + '</div>' +
+                    '<div class="tasks-kanban-meta">Location: ' + esc(t.location || '—') + ' / ' + esc(t.sublocation || '—') + '</div>' +
+                    '<div class="tasks-kanban-meta">Dates: ' + esc(t.startDate || '—') + ' → ' + esc(t.dueDate || '—') + '</div>' +
+                    '<div class="tasks-kanban-meta">Dependency: ' + esc(t.blockedByTaskId || t.dependencyIds || '—') + '</div>' +
+                '</div>';
+            }).join('');
+            return '<div class="tasks-kanban-col"><div class="tasks-kanban-head"><span>' + esc(col.label) + '</span><span>' + tasks.length + '</span></div><div class="tasks-kanban-list">' + (cards || '<div class="tasks-empty" style="padding:10px">No tasks</div>') + '</div></div>';
+        }).join('');
+    }
+
+
     function renderGantt() {
+        if (state.bodyView !== 'gantt') return;
         const rows = state.flatRows;
         if (!rows.length) {
             els.ganttWrap.innerHTML = '<div class="tasks-empty">' + (state.tasks.length ? 'No tasks match the current filters.' : 'No current task. Click "+ Task" to add a new task.') + '</div>';
@@ -1784,7 +1823,7 @@
                     const cascade = timeline.hasMultipleTracks
                         ? '<span class="gantt-bar-cascade back" style="background:' + ganttColor(t, row.depth) + ';"></span><span class="gantt-bar-cascade" style="background:' + ganttColor(t, row.depth) + ';"></span>'
                         : '';
-                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + (t.hasResourceConflict ? ' resource-conflict' : '') + criticalPathClass + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + (t.hasResourceConflict ? ' resource-conflict' : '') + (hasBlockingTask(t) ? ' blocked-outline' : '') + criticalPathClass + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
                         cascade +
                         '<span class="gantt-label">' + esc(t.title) + '</span>' +
                         '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
@@ -2896,9 +2935,19 @@ loadChecklist(task ? task.taskId : null);
         if (!els.shell) return;
         els.shell.style.setProperty('--left-pane-width', Math.max(240, Math.min(620, state.leftPaneWidth)) + 'px');
         els.shell.classList.toggle('left-collapsed', !!state.leftPaneCollapsed);
-        els.shell.style.display = state.printView ? 'none' : 'grid';
-        const v = byId('tasksViewToggle');
-        if (v) v.textContent = state.printView ? 'Planner View' : 'Printable Layout';
+        const showGantt = state.bodyView === 'gantt';
+        const showReport = state.bodyView === 'report';
+        const showKanban = state.bodyView === 'kanban';
+        els.shell.style.display = showGantt ? 'grid' : 'none';
+        const rep = byId('tasksPrintView');
+        if (rep) rep.style.display = showReport ? 'block' : 'none';
+        const kan = byId('tasksKanbanView');
+        if (kan) kan.classList.toggle('visible', showKanban);
+        ['tasksReportViewBtn','tasksGanttViewBtn','tasksKanbanViewBtn'].forEach(function (id) {
+            const btn = byId(id);
+            if (!btn) return;
+            btn.classList.toggle('active', (id === 'tasksReportViewBtn' && showReport) || (id === 'tasksGanttViewBtn' && showGantt) || (id === 'tasksKanbanViewBtn' && showKanban));
+        });
     }
 
     function bindEvents() {
@@ -2962,12 +3011,33 @@ loadChecklist(task ? task.taskId : null);
             applyFilters();
         });
 
-        byId('tasksSearchBtn').addEventListener('click', function () {
+        function openSearchWrap() {
             const wrap = byId('tasksSearchWrap');
             if (!wrap) return;
-            wrap.classList.toggle('open');
-            if (wrap.classList.contains('open') && els.search) els.search.focus();
-        });
+            wrap.classList.add('open');
+            if (els.search) els.search.focus();
+            clearTimeout(state.searchAutoHideTimer);
+            state.searchAutoHideTimer = setTimeout(function () {
+                if (els.search && !els.search.value.trim()) wrap.classList.remove('open');
+            }, 2600);
+        }
+        byId('tasksSearchBtn').addEventListener('click', openSearchWrap);
+        if (els.search) {
+            els.search.addEventListener('input', function () {
+                const wrap = byId('tasksSearchWrap');
+                if (!wrap) return;
+                if (!wrap.classList.contains('open')) wrap.classList.add('open');
+                clearTimeout(state.searchAutoHideTimer);
+                state.searchAutoHideTimer = setTimeout(function () {
+                    if (!els.search.value.trim()) wrap.classList.remove('open');
+                }, 2600);
+            });
+            els.search.addEventListener('blur', function () {
+                const wrap = byId('tasksSearchWrap');
+                if (!wrap) return;
+                setTimeout(function () { if (!els.search.value.trim()) wrap.classList.remove('open'); }, 240);
+            });
+        }
 
         els.listBody.addEventListener('scroll', function () {
             if (state.syncingScroll) return;
@@ -2982,10 +3052,16 @@ loadChecklist(task ? task.taskId : null);
             requestAnimationFrame(function () { state.syncingScroll = false; });
         });
 
-        byId('tasksViewToggle').addEventListener('click', function () {
-            state.printView = !state.printView;
-            syncShellLayout();
-            renderPrintView();
+        [['tasksReportViewBtn','report'],['tasksGanttViewBtn','gantt'],['tasksKanbanViewBtn','kanban']].forEach(function (pair) {
+            const btn = byId(pair[0]);
+            if (!btn) return;
+            btn.addEventListener('click', function () {
+                state.bodyView = pair[1];
+                syncShellLayout();
+                renderReportView();
+                renderKanbanView();
+                if (state.bodyView === 'gantt') requestAnimationFrame(renderGantt);
+            });
         });
 
         byId('tasksAddBtn').addEventListener('click', createNewTaskBlock);
@@ -3224,7 +3300,6 @@ loadChecklist(task ? task.taskId : null);
         els.ganttWrap = byId('tasksGanttWrap');
         els.shell = byId('tasksShell');
         els.splitter = byId('tasksSplitter');
-        els.panelToggleBtn = byId('tasksViewToggle');
         els.mockBanner = byId('tasksMockBanner');
     }
 
