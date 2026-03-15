@@ -998,11 +998,13 @@
     }
 
     function isDateDragFrozen(task) {
-        return !!String((task && task.blockedByTaskId) || '').trim();
+        const status = String((task && task.status) || '').toLowerCase();
+        return status === 'blocked' || status === 'on hold';
     }
 
     function hasBlockingTask(task) {
-        return isDateDragFrozen(task);
+        const status = String((task && task.status) || '').toLowerCase();
+        return status === 'blocked';
     }
 
     function getDownstreamDependentTaskIds(rootTaskId) {
@@ -1182,9 +1184,7 @@
         ensureTaskDates(predecessor);
 
         const desiredStart = shiftIsoDate(predecessor.dueDate, 1);
-        let range = { startDate: desiredStart, dueDate: shiftIsoDate(desiredStart, 2) };
-        const siblings = getSiblingTasksForRow(predecessor);
-        range = ensureNoRowOverlap(range, siblings, '');
+        const range = { startDate: desiredStart, dueDate: shiftIsoDate(desiredStart, 2) };
 
         const payload = normalizeTask({
             taskId: 'TASK-' + Date.now(),
@@ -2576,7 +2576,10 @@ loadChecklist(task ? task.taskId : null);
         const assigneeInputList = parseAssignees(byId('taskAssignee').value);
         const assigneeList = removeAssignerFromAssignees(Array.from(new Set(assigneeInputList)).filter(Boolean), payload.assigner);
         byId('taskAssignee').value = assigneeList.join(', ');
-        payload.assignees = serializeAssigneeFlowForSheet(state.taskAssignStages, assigneeList);
+        payload.assignees = serializeAssignees(assigneeList);
+        if (Array.isArray(state.taskAssignStages) && state.taskAssignStages.length >= 2) {
+            payload.assignmentCursor = serializeAssigneeFlowForSheet(state.taskAssignStages, assigneeList);
+        }
         payload.assignee = assigneeList[0] || '';
         modalTracksToPayload(payload, assigneeList);
         assignmentPanelToPayload(payload);
