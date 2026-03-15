@@ -14,7 +14,7 @@
             --font-color-with-status: white;
 
            /* Sidebar */
-            --sidebar-bg: rgba(11, 107, 90, 0.95);
+            --sidebar-bg: rgba(15, 143, 119, 0.95);
             --sidebar-width: 70px;
             --sidebar-width-expanded: 220px;
             --sidebar-hover: rgba(17, 153, 142, 0.9);
