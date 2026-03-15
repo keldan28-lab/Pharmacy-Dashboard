@@ -585,6 +585,10 @@
         .tasks-kanban-title { font-weight: 700; font-size: 12px; margin-bottom: 6px; }
         .tasks-kanban-meta { font-size: 11px; color: var(--text-secondary); line-height: 1.35; }
 
+        .tasks-addtype-menu { position: fixed; z-index: 420; min-width: 180px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--card-bg); box-shadow: 0 10px 24px rgba(0,0,0,0.25); padding: 6px; display:none; }
+        .tasks-addtype-menu.open { display:block; }
+        .tasks-addtype-btn { width: 100%; min-height: 30px; border-radius: 8px; border: 0; background: transparent; color: var(--text-primary); text-align: left; padding: 5px 8px; cursor: pointer; font-size: 12px; }
+        .tasks-addtype-btn:hover { background: rgba(42,184,173,0.14); }
 
         .task-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(10,16,20,0.56); backdrop-filter: blur(2px); z-index: 350; }
         .task-modal.open { display: flex; }
@@ -971,6 +975,7 @@
 
 
     <div id="checklistProgressMenu" class="checklist-progress-menu" role="dialog" aria-label="Checklist progress"></div>
+    <div id="tasksAddTypeMenu" class="tasks-addtype-menu" role="dialog" aria-label="Add task type"></div>
 
     <script src="items_details_mockdata.js"></script>
     <script src="location_ref_mockdata.js"></script>

@@ -57,7 +57,8 @@
         autosaveSignature: '',
         checklistPersistMemoByTask: {},
         taskPersistMemoByTask: {},
-        scheduleAnalytics: { byTaskId: {}, projectedFinishIso: '', criticalTaskIds: [] }
+        scheduleAnalytics: { byTaskId: {}, projectedFinishIso: '', criticalTaskIds: [] },
+        addTypeMenuTaskId: ''
     };
 
     const els = {};
@@ -1111,8 +1112,8 @@
         byId('taskColor').value = parent.colorKey || 'teal';
         byId('taskAssignee').value = '';
         byId('taskAssigner').value = parent.assigner || '';
-        byId('taskStartDate').value = parent.startDate || toISODate(new Date());
-        byId('taskDueDate').value = parent.dueDate || shiftIsoDate(byId('taskStartDate').value, 1);
+        byId('taskStartDate').value = parent.dueDate ? shiftIsoDate(parent.dueDate, 1) : (parent.startDate || toISODate(new Date()));
+        byId('taskDueDate').value = shiftIsoDate(byId('taskStartDate').value, 2);
         byId('taskLocation').value = parent.location || '';
         byId('taskSublocation').value = parent.sublocation || '';
         byId('taskItemCode').value = parent.itemCode || '';
@@ -1120,6 +1121,123 @@
         autoSizeItemCodeInput(byId('taskItemName').value || byId('taskItemCode').value);
     }
 
+
+    function getSiblingTasksForRow(task) {
+        return state.tasks.filter(function (t) {
+            if (!t || t.archived || !task) return false;
+            if (String(t.taskId || '') === String(task.taskId || '')) return false;
+            return String(t.parentId || '') === String(task.parentId || '');
+        });
+    }
+
+    function ensureNoRowOverlap(range, rowTasks, ignoreTaskId) {
+        const out = { startDate: range.startDate, dueDate: range.dueDate };
+        const ordered = (rowTasks || []).slice().sort(function (a, b) {
+            return String(a.startDate || '').localeCompare(String(b.startDate || ''));
+        });
+        for (let i = 0; i < ordered.length; i++) {
+            const t = ordered[i];
+            if (String(t.taskId || '') === String(ignoreTaskId || '')) continue;
+            if (!t.startDate || !t.dueDate) continue;
+            if (dateRangeOverlaps(out.startDate, out.dueDate, t.startDate, t.dueDate)) {
+                out.startDate = shiftIsoDate(t.dueDate, 1);
+                out.dueDate = shiftIsoDate(out.startDate, 2);
+            }
+        }
+        return out;
+    }
+
+    async function shiftTaskAndDescendantsByDays(task, days) {
+        if (!task || !days) return;
+        task.startDate = shiftIsoDate(task.startDate, days);
+        task.dueDate = shiftIsoDate(task.dueDate, days);
+        task.updatedAt = isoNow();
+        await writeTask('updateTask', task);
+        const children = getChildTasks(task.taskId);
+        for (let i = 0; i < children.length; i++) {
+            await shiftTaskAndDescendantsByDays(children[i], days);
+        }
+    }
+
+    async function createLinkedTimelineTask(predecessorId, mode) {
+        const predecessor = state.tasks.find(function (t) { return String(t.taskId || '') === String(predecessorId || ''); });
+        if (!predecessor) return;
+        ensureTaskDates(predecessor);
+
+        const desiredStart = shiftIsoDate(predecessor.dueDate, 1);
+        let range = { startDate: desiredStart, dueDate: shiftIsoDate(desiredStart, 2) };
+        const siblings = getSiblingTasksForRow(predecessor);
+        range = ensureNoRowOverlap(range, siblings, '');
+
+        const payload = normalizeTask({
+            taskId: 'TASK-' + Date.now(),
+            parentId: predecessor.parentId || '',
+            sortOrder: Number(predecessor.sortOrder || 0) + (mode === 'contingency' ? 2 : 1),
+            level: predecessor.level || 0,
+            title: mode === 'contingency' ? ('Contingency · ' + (predecessor.title || 'Task')) : ('Successor · ' + (predecessor.title || 'Task')),
+            description: mode === 'contingency' ? 'Contingency task for blocked predecessor.' : 'Successor task generated from predecessor.',
+            status: 'Waiting',
+            priority: predecessor.priority || 'Medium',
+            assigner: predecessor.assigner || '',
+            assignees: '',
+            startDate: range.startDate,
+            dueDate: range.dueDate,
+            percentComplete: 0,
+            itemCode: predecessor.itemCode || '',
+            itemName: predecessor.itemName || '',
+            location: predecessor.location || '',
+            sublocation: predecessor.sublocation || '',
+            dependencyIds: predecessor.taskId,
+            dependencyRules: JSON.stringify([{ predecessorTaskId: predecessor.taskId, type: 'FS', lagDays: 0 }]),
+            blockedByTaskId: predecessor.taskId,
+            blockReason: 'Waiting for predecessor to complete.',
+            colorKey: predecessor.colorKey || 'teal',
+            createdBy: 'task-manager'
+        }, state.tasks.length);
+
+        state.tasks.push(payload);
+        await writeTask('createTask', payload);
+
+        const dependents = state.tasks.filter(function (t) {
+            if (String(t.taskId || '') === String(payload.taskId || '')) return false;
+            const depIds = String(t.dependencyIds || '');
+            if (depIds.split(',').map(function (x) { return x.trim(); }).indexOf(String(predecessor.taskId || '')) === -1) return false;
+            if (!t.startDate || !t.dueDate) return false;
+            return toDate(t.startDate) <= toDate(payload.dueDate);
+        });
+        for (let i = 0; i < dependents.length; i++) {
+            const nextStart = shiftIsoDate(payload.dueDate, 1);
+            const deltaDays = Math.round((toDate(nextStart) - toDate(dependents[i].startDate)) / DAY_MS);
+            if (deltaDays > 0) await shiftTaskAndDescendantsByDays(dependents[i], deltaDays);
+        }
+
+        applyFilters();
+    }
+
+    function closeAddTypeMenu() {
+        const menu = byId('tasksAddTypeMenu');
+        if (!menu) return;
+        menu.classList.remove('open');
+        state.addTypeMenuTaskId = '';
+    }
+
+    function openAddTypeMenu(taskId, anchorEl) {
+        const menu = byId('tasksAddTypeMenu');
+        const predecessor = state.tasks.find(function (t) { return String(t.taskId || '') === String(taskId || ''); });
+        if (!menu || !predecessor || !anchorEl) return;
+        const blocked = String(predecessor.status || '').toLowerCase() === 'blocked';
+        const opts = [
+            '<button class="tasks-addtype-btn" type="button" data-addtype="child">Child Task</button>',
+            '<button class="tasks-addtype-btn" type="button" data-addtype="successor">Successor</button>'
+        ];
+        if (blocked) opts.push('<button class="tasks-addtype-btn" type="button" data-addtype="contingency">Contingency Task</button>');
+        menu.innerHTML = opts.join('');
+        const rect = anchorEl.getBoundingClientRect();
+        menu.style.left = Math.round(rect.left + window.scrollX + 8) + 'px';
+        menu.style.top = Math.round(rect.bottom + window.scrollY + 6) + 'px';
+        menu.classList.add('open');
+        state.addTypeMenuTaskId = predecessor.taskId;
+    }
 
     function renderReportView() {
         const wrap = byId('tasksPrintView');
@@ -2495,6 +2613,20 @@ loadChecklist(task ? task.taskId : null);
             return;
         }
 
+        const predecessorIds = String(payload.dependencyIds || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+        const isPredecessorGatedTask = /^\s*(Successor|Contingency)\s*·/i.test(String(payload.title || '')) || /Waiting for predecessor to complete/i.test(String(payload.blockReason || ''));
+        if (isPredecessorGatedTask && predecessorIds.length) {
+            const allDone = predecessorIds.every(function (id) {
+                const p = state.tasks.find(function (t) { return String(t.taskId || '') === String(id); });
+                return p && String(p.status || '').toLowerCase() === 'done';
+            });
+            if (!allDone) {
+                payload.status = 'Waiting';
+                payload.blockedByTaskId = predecessorIds[0] || payload.blockedByTaskId;
+                payload.blockReason = payload.blockReason || 'Waiting for predecessor to complete.';
+            }
+        }
+
         let previousStatus = '';
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
@@ -2561,6 +2693,9 @@ loadChecklist(task ? task.taskId : null);
     }
 
     async function updateTaskDatesFromDrag(task, nextStart, nextDue) {
+        const adjusted = ensureNoRowOverlap({ startDate: nextStart, dueDate: nextDue }, getSiblingTasksForRow(task), task.taskId);
+        nextStart = adjusted.startDate;
+        nextDue = adjusted.dueDate;
         const candidate = Object.assign({}, task, { startDate: nextStart, dueDate: nextDue });
         const resourceConflict = getResourceConflictForTask(candidate, state.tasks);
         if (candidate.resourceKey && resourceConflict.hasConflict && normalizeResourceConflictState(candidate.resourceConflictState) === 'critical') {
@@ -3133,6 +3268,21 @@ loadChecklist(task ? task.taskId : null);
             });
         }
         document.addEventListener('click', function (e) {
+
+            const addTypeBtn = e.target.closest('[data-addtype]');
+            if (addTypeBtn) {
+                const action = addTypeBtn.getAttribute('data-addtype') || '';
+                const taskId = state.addTypeMenuTaskId;
+                closeAddTypeMenu();
+                if (action === 'child') {
+                    openNewChildTaskFrom(taskId);
+                } else if (action === 'successor') {
+                    createLinkedTimelineTask(taskId, 'successor').catch(function (err) { console.warn('Successor create failed', err); });
+                } else if (action === 'contingency') {
+                    createLinkedTimelineTask(taskId, 'contingency').catch(function (err) { console.warn('Contingency create failed', err); });
+                }
+                return;
+            }
             const btn = e.target.closest('[data-assign-progress-name][data-assign-progress-status]');
             if (btn) {
                 const name = String(btn.getAttribute('data-assign-progress-name') || '').trim();
@@ -3146,6 +3296,7 @@ loadChecklist(task ? task.taskId : null);
                 return;
             }
             if (!e.target.closest('#checklistProgressMenu,[data-assign-progress-name]')) closeAssignProgressMenu();
+            if (!e.target.closest('#tasksAddTypeMenu,[data-task-child]')) closeAddTypeMenu();
         });
         const pr = byId('taskPriorityToggleRow');
         if (pr) {
@@ -3197,7 +3348,7 @@ loadChecklist(task ? task.taskId : null);
             }
             if (state.drag && state.drag.moved) return;
             const childBtn = e.target.closest('[data-task-child]');
-            if (childBtn) { openNewChildTaskFrom(childBtn.getAttribute('data-task-child')); return; }
+            if (childBtn) { openAddTypeMenu(childBtn.getAttribute('data-task-child'), childBtn); return; }
             const menuBtn = e.target.closest('[data-task-menu]');
             if (menuBtn) openModal(menuBtn.getAttribute('data-task-menu'));
             const compositeBtn = e.target.closest('[data-composite-task-id]');
