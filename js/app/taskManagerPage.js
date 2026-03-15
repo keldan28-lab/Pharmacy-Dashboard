@@ -2742,9 +2742,6 @@ loadChecklist(task ? task.taskId : null);
     }
 
     async function updateTaskDatesFromDrag(task, nextStart, nextDue) {
-        const adjusted = ensureNoRowOverlap({ startDate: nextStart, dueDate: nextDue }, getSiblingTasksForRow(task), task.taskId);
-        nextStart = adjusted.startDate;
-        nextDue = adjusted.dueDate;
         const candidate = Object.assign({}, task, { startDate: nextStart, dueDate: nextDue });
         const resourceConflict = getResourceConflictForTask(candidate, state.tasks);
         if (candidate.resourceKey && resourceConflict.hasConflict && normalizeResourceConflictState(candidate.resourceConflictState) === 'critical') {
