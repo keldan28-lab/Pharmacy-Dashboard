@@ -603,6 +603,8 @@
         .checklist-badge.status-in-progress { border-color: rgba(17,153,142,0.7); background: rgba(17,153,142,0.22); color: var(--text-primary); }
         .checklist-badge.status-blocked { border-color: rgba(226,79,79,0.72); background: rgba(226,79,79,0.22); color: var(--text-primary); }
         .checklist-badge.status-done { border-color: rgba(17,153,142,0.72); background: rgba(17,153,142,0.24); color: var(--text-primary); }
+        .checklist-badge.resource-warning { border-color: rgba(226,79,79,0.72); background: rgba(226,79,79,0.18); color: var(--text-primary); margin-top: 8px; display: inline-flex; }
+        .gantt-bar.resource-conflict { box-shadow: 0 0 0 2px rgba(226,79,79,0.45), 0 10px 16px rgba(17, 153, 142, 0.2) !important; }
         .checklist-handoff-arrow { width: 11px; height: 11px; color: var(--text-secondary); margin: 0 1px 0 2px; vertical-align: -1px; }
         .checklist-badge.done { border-color: rgba(17,153,142,0.55); color: #dffffa; background: rgba(17,153,142,0.2); }
         .task-checklist-assignee-menu { position: absolute; top: 32px; right: 0; width: min(320px, 88vw); border: 1px solid var(--card-border); border-radius: 10px; background: var(--card-bg); box-shadow: 0 8px 20px rgba(0,0,0,0.2); padding: 8px; display: none; z-index: 40; }
@@ -824,6 +826,18 @@
                             <div class="task-form-section" style="grid-column:1 / -1; margin-top:8px;">
                                 <div class="task-form-label">Advanced dependency rules (optional)</div>
                                 <textarea id="taskDependencyRules" class="tasks-input" placeholder='[{"predecessorTaskId":"TASK-123","type":"FS","lagDays":0}]'></textarea>
+                            </div>
+                            <div class="task-form-section" style="grid-column:1 / -1; margin-top:8px;">
+                                <div class="task-form-label">Resource planning (optional)</div>
+                                <div class="task-link-section-grid">
+                                    <input id="taskResourceKey" class="tasks-input" placeholder="Resource key (e.g. sterile-room-a)" />
+                                    <input id="taskResourceCapacity" class="tasks-input" type="number" min="1" step="1" value="1" placeholder="Resource capacity" />
+                                    <select id="taskResourceConflictState" class="tasks-select">
+                                        <option value="">Warn only</option>
+                                        <option value="critical">Critical (block save)</option>
+                                    </select>
+                                </div>
+                                <span id="taskResourceConflictBadge" class="checklist-badge resource-warning" style="display:none;">Resource conflict</span>
                             </div>
                         </div>
                         <div class="task-track-buttons" style="margin-top:8px;">
