@@ -55,7 +55,8 @@
         autosaveQueued: false,
         autosaveSignature: '',
         checklistPersistMemoByTask: {},
-        taskPersistMemoByTask: {}
+        taskPersistMemoByTask: {},
+        scheduleAnalytics: { byTaskId: {}, projectedFinishIso: '', criticalTaskIds: [] }
     };
 
     const els = {};
@@ -800,6 +801,8 @@
         syncZoomOutUi();
         syncZoomModeButtons();
         syncShellLayout();
+        state.scheduleAnalytics = buildScheduleAnalytics(state.filtered);
+        renderTaskInsights(state.scheduleAnalytics);
         renderList();
         renderPrintView();
         requestAnimationFrame(renderGantt);
@@ -1365,6 +1368,202 @@
         return { segments: segments, overlaps: overlaps, hasMultipleTracks: tracks.length > 1, overlapAssignees: overlapAssignees };
     }
 
+    function buildScheduleAnalytics(taskList) {
+        const tasks = (Array.isArray(taskList) ? taskList : []).filter(function (task) { return task && !task.archived; });
+        const byTaskId = {};
+        const successors = {};
+        const indegree = {};
+        const nodes = [];
+
+        tasks.forEach(function (task) {
+            const taskId = String(task.taskId || '').trim();
+            if (!taskId) return;
+            const start = toDate(task.startDate);
+            const due = toDate(task.dueDate) || start;
+            if (!start || !due) return;
+            const durDays = Math.max(1, Math.round((startOfDay(due) - startOfDay(start)) / DAY_MS) + 1);
+            const rec = {
+                task: task,
+                taskId: taskId,
+                startMs: startOfDay(start).getTime(),
+                dueMs: startOfDay(due).getTime(),
+                durationMs: durDays * DAY_MS,
+                es: startOfDay(start).getTime(),
+                ef: startOfDay(start).getTime() + ((durDays - 1) * DAY_MS),
+                ls: 0,
+                lf: 0,
+                floatDays: null,
+                isCritical: false
+            };
+            byTaskId[taskId] = rec;
+            successors[taskId] = [];
+            indegree[taskId] = 0;
+            nodes.push(taskId);
+        });
+
+        nodes.forEach(function (taskId) {
+            const node = byTaskId[taskId];
+            const rules = Array.isArray(node.task.dependencyRulesParsed) ? node.task.dependencyRulesParsed : [];
+            rules.forEach(function (rule) {
+                const predId = String((rule && rule.predecessorTaskId) || '').trim();
+                if (!predId || !byTaskId[predId]) return;
+                successors[predId].push({ successorId: taskId, type: String((rule && rule.type) || 'FS').toUpperCase(), lagDays: Number(rule && rule.lagDays) || 0 });
+                indegree[taskId] += 1;
+            });
+        });
+
+        const queue = [];
+        Object.keys(indegree).forEach(function (k) { if (indegree[k] === 0) queue.push(k); });
+        const topo = [];
+        while (queue.length) {
+            const id = queue.shift();
+            topo.push(id);
+            (successors[id] || []).forEach(function (edge) {
+                indegree[edge.successorId] -= 1;
+                if (indegree[edge.successorId] === 0) queue.push(edge.successorId);
+            });
+        }
+        if (topo.length !== nodes.length) {
+            topo.length = 0;
+            Array.prototype.push.apply(topo, nodes);
+        }
+
+        topo.forEach(function (taskId) {
+            const node = byTaskId[taskId];
+            let earliestStart = node.startMs;
+            const rules = Array.isArray(node.task.dependencyRulesParsed) ? node.task.dependencyRulesParsed : [];
+            rules.forEach(function (rule) {
+                const pred = byTaskId[String((rule && rule.predecessorTaskId) || '').trim()];
+                if (!pred) return;
+                const lagMs = (Number(rule && rule.lagDays) || 0) * DAY_MS;
+                const type = String((rule && rule.type) || 'FS').toUpperCase();
+                if (type === 'SS') earliestStart = Math.max(earliestStart, pred.es + lagMs);
+                else if (type === 'FF') earliestStart = Math.max(earliestStart, (pred.ef + lagMs) - (node.durationMs - DAY_MS));
+                else earliestStart = Math.max(earliestStart, pred.ef + lagMs + DAY_MS);
+            });
+            node.es = earliestStart;
+            node.ef = earliestStart + (node.durationMs - DAY_MS);
+        });
+
+        let projectFinish = 0;
+        nodes.forEach(function (taskId) { projectFinish = Math.max(projectFinish, byTaskId[taskId].ef); });
+        if (!projectFinish) return { byTaskId: {}, projectedFinishIso: '', criticalTaskIds: [] };
+
+        topo.slice().reverse().forEach(function (taskId) {
+            const node = byTaskId[taskId];
+            const out = successors[taskId] || [];
+            let latestFinish = projectFinish;
+            if (out.length) {
+                latestFinish = Number.POSITIVE_INFINITY;
+                out.forEach(function (edge) {
+                    const succ = byTaskId[edge.successorId];
+                    if (!succ) return;
+                    const lagMs = (Number(edge.lagDays) || 0) * DAY_MS;
+                    const type = String(edge.type || 'FS').toUpperCase();
+                    let candidateFinish = projectFinish;
+                    if (type === 'SS') candidateFinish = (succ.ls - lagMs) + (node.durationMs - DAY_MS);
+                    else if (type === 'FF') candidateFinish = succ.lf - lagMs;
+                    else candidateFinish = succ.ls - lagMs - DAY_MS;
+                    latestFinish = Math.min(latestFinish, candidateFinish);
+                });
+                if (!Number.isFinite(latestFinish)) latestFinish = projectFinish;
+            }
+            node.lf = latestFinish;
+            node.ls = latestFinish - (node.durationMs - DAY_MS);
+            node.floatDays = Math.round((node.ls - node.es) / DAY_MS);
+            node.isCritical = node.floatDays === 0;
+        });
+
+        const criticalTaskIds = nodes.filter(function (taskId) { return byTaskId[taskId].isCritical; });
+        return { byTaskId: byTaskId, projectedFinishIso: toISODate(new Date(projectFinish)), criticalTaskIds: criticalTaskIds };
+    }
+
+    function aggregateBottleneckDwell(taskList) {
+        const tasks = Array.isArray(taskList) ? taskList : [];
+        const buckets = {};
+        function add(key, label, hours) {
+            if (!key || !hours) return;
+            if (!buckets[key]) buckets[key] = { label: label, hours: 0 };
+            buckets[key].hours += hours;
+        }
+
+        tasks.forEach(function (task) {
+            if (!task || task.archived) return;
+            const stampKeys = ['createdAt', 'assignedAt', 'lastStatusChangeAt', 'updatedAt', 'escalatedAt'];
+            const stamps = stampKeys.map(function (k) { return toDate(task[k]); }).filter(Boolean).map(function (d) { return d.getTime(); }).sort(function (a, b) { return a - b; });
+            let dwellHours = 0;
+            if (stamps.length >= 2) dwellHours = Math.max(0, (stamps[stamps.length - 1] - stamps[0]) / 3600000);
+            if (!dwellHours) {
+                const s = toDate(task.startDate);
+                const d = toDate(task.dueDate);
+                if (s && d) dwellHours = Math.max(0, ((startOfDay(d) - startOfDay(s)) / 3600000) + 24);
+            }
+            if (!dwellHours) return;
+
+            const status = String(task.status || 'Unknown').trim() || 'Unknown';
+            const assignee = (Array.isArray(task.assignees) && task.assignees[0]) ? String(task.assignees[0]) : (String(task.assignee || '').trim() || 'Unassigned');
+            const location = String(task.location || task.sublocation || 'Unspecified').trim() || 'Unspecified';
+            add('status:' + status, 'Status · ' + status, dwellHours);
+            add('assignee:' + assignee, 'Assignee · ' + assignee, dwellHours);
+            add('location:' + location, 'Location · ' + location, dwellHours);
+        });
+
+        return Object.keys(buckets).map(function (k) { return buckets[k]; }).sort(function (a, b) { return b.hours - a.hours; });
+    }
+
+    function renderTaskInsights(analytics) {
+        const projectedEl = byId('tasksProjectedCompletion');
+        const metaEl = byId('tasksCriticalSensitivityMeta');
+        const chipsEl = byId('tasksCriticalChipRow');
+        const listEl = byId('tasksBottleneckList');
+        if (!projectedEl || !metaEl || !chipsEl || !listEl) return;
+
+        const byTask = (analytics && analytics.byTaskId) || {};
+        const ids = Object.keys(byTask);
+        if (!ids.length) {
+            projectedEl.textContent = 'Projected completion: —';
+            metaEl.textContent = 'Awaiting task dates.';
+            chipsEl.innerHTML = '';
+            listEl.innerHTML = '<li class="tasks-insight-meta">No timeline data available.</li>';
+            return;
+        }
+
+        const criticalIds = (analytics && analytics.criticalTaskIds) || [];
+        const projected = analytics && analytics.projectedFinishIso ? analytics.projectedFinishIso : '—';
+        const minFloat = ids.reduce(function (acc, id) {
+            const v = byTask[id] && Number(byTask[id].floatDays);
+            if (!Number.isFinite(v)) return acc;
+            return Math.min(acc, v);
+        }, Number.POSITIVE_INFINITY);
+        const positiveFloats = ids.map(function (id) { return byTask[id] && byTask[id].floatDays; }).filter(function (v) { return Number.isFinite(v) && v > 0; });
+        const avgPositiveFloat = positiveFloats.length ? Math.round(positiveFloats.reduce(function (a, b) { return a + b; }, 0) / positiveFloats.length) : 0;
+
+        projectedEl.textContent = 'Projected completion: ' + projected;
+        metaEl.textContent = criticalIds.length
+            ? (criticalIds.length + ' zero-float task(s) on the critical path; a 1-day slip there likely shifts completion by ~1 day.')
+            : 'No zero-float tasks currently detected; schedule has slack buffer.';
+        chipsEl.innerHTML = [
+            '<span class="tasks-chip">Critical path tasks: <strong>' + criticalIds.length + '</strong></span>',
+            '<span class="tasks-chip">Tightest float: <strong>' + (Number.isFinite(minFloat) ? (minFloat + 'd') : '—') + '</strong></span>',
+            '<span class="tasks-chip">Avg slack (non-critical): <strong>' + (avgPositiveFloat ? (avgPositiveFloat + 'd') : '0d') + '</strong></span>'
+        ].join('');
+
+        const ranked = aggregateBottleneckDwell(state.filtered).slice(0, 8);
+        if (!ranked.length) {
+            listEl.innerHTML = '<li class="tasks-insight-meta">No timeline data available.</li>';
+            return;
+        }
+        const peak = ranked[0].hours || 1;
+        listEl.innerHTML = ranked.map(function (row) {
+            const pct = Math.max(8, Math.round((row.hours / peak) * 100));
+            return '<li class="tasks-rank-item">' +
+                '<div class="tasks-rank-track"><span class="tasks-rank-fill" style="width:' + pct + '%"></span><span class="tasks-rank-label">' + esc(row.label) + '</span></div>' +
+                '<span class="tasks-rank-value">' + Math.round(row.hours) + 'h</span>' +
+            '</li>';
+        }).join('');
+    }
+
+
     function renderGantt() {
         const rows = state.flatRows;
         if (!rows.length) {
@@ -1463,6 +1662,8 @@
                     }
                 }
                 const barShadow = row.depth > 0 ? '0 2px 8px rgba(17, 153, 142, 0.12)' : '0 4px 12px rgba(17, 153, 142, 0.18)';
+                const schedMeta = state.scheduleAnalytics && state.scheduleAnalytics.byTaskId ? state.scheduleAnalytics.byTaskId[String(t.taskId || '')] : null;
+                const criticalPathClass = schedMeta && schedMeta.isCritical ? ' critical-path' : '';
                 const progressPct = taskProgressForBar(t);
                 const timeline = buildTaskTimelineSegments(t, range, maxUnit);
                 if (overlapStart <= overlapEnd) {
@@ -1472,7 +1673,7 @@
                     const cascade = timeline.hasMultipleTracks
                         ? '<span class="gantt-bar-cascade back" style="background:' + ganttColor(t, row.depth) + ';"></span><span class="gantt-bar-cascade" style="background:' + ganttColor(t, row.depth) + ';"></span>'
                         : '';
-                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + (t.hasResourceConflict ? ' resource-conflict' : '') + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
+                    bar = '<div class="gantt-bar ' + (t.priority === 'High' || t.priority === 'Critical' ? 'priority-high' : '') + (t.hasResourceConflict ? ' resource-conflict' : '') + criticalPathClass + '" data-task-id="' + esc(t.taskId) + '" data-drag-type="move" style="left:' + left + 'px;width:' + width + 'px;background:' + ganttColor(t, row.depth) + ';box-shadow:' + barShadow + '">' +
                         cascade +
                         '<span class="gantt-label">' + esc(t.title) + '</span>' +
                         '<span class="gantt-progress" style="width:' + (progressPct > 0 ? Math.max(progressPct, 3) : 0) + '%"></span>' +
