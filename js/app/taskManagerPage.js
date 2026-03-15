@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
-    const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','blockedByTaskId','blockReason','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+    const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'On Hold', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
     const PB_DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbx37Dl-Nnur3Z471A9Z0ATNqV4lHb_OR1M9-JamaPvcU2iktH9LoTqZUdOlmVRIMEMBEg/exec';
@@ -465,6 +465,8 @@
         out.escalationState = String(out.escalationState || '');
         out.escalatedAt = out.escalatedAt || '';
         out.exceptionFlag = String(out.exceptionFlag || '').toLowerCase() === 'true';
+        out.blockedByTaskId = String(out.blockedByTaskId || '');
+        out.blockReason = String(out.blockReason || '');
         out.colorKey = String(out.colorKey || 'teal');
         normalizeDependencyRulesForTask(out);
         const assigneeList = parseAssignees(out.assignees);
@@ -738,9 +740,63 @@
     function assigneeStatusClass(task) {
         const s = String((task && task.status) || '').toLowerCase();
         if (s === 'in progress') return 'status-in-progress';
-        if (s === 'blocked') return 'status-blocked';
+        if (s === 'blocked' || s === 'on hold' || s === 'waiting') return 'status-blocked';
         if (s === 'done') return 'status-done';
         return 'status-not-started';
+    }
+
+    function isDateDragFrozen(task) {
+        return !!String((task && task.blockedByTaskId) || '').trim();
+    }
+
+    function getDownstreamDependentTaskIds(rootTaskId) {
+        const visited = {};
+        const queue = [String(rootTaskId || '').trim()];
+        const out = [];
+        while (queue.length) {
+            const currentId = queue.shift();
+            if (!currentId || visited[currentId]) continue;
+            visited[currentId] = true;
+            for (let i = 0; i < state.tasks.length; i++) {
+                const candidate = state.tasks[i];
+                const rules = Array.isArray(candidate.dependencyRulesParsed) ? candidate.dependencyRulesParsed : [];
+                const dependsOnCurrent = rules.some(function (rule) {
+                    return String((rule && rule.predecessorTaskId) || '').trim() === currentId;
+                });
+                if (!dependsOnCurrent) continue;
+                const candidateId = String(candidate.taskId || '').trim();
+                if (!candidateId || visited[candidateId]) continue;
+                out.push(candidateId);
+                queue.push(candidateId);
+            }
+        }
+        return out;
+    }
+
+    async function applyOnHoldBlocking(rootTaskId) {
+        const rootId = String(rootTaskId || '').trim();
+        if (!rootId) return;
+        const rootTask = state.tasks.find(function (t) { return String(t.taskId) === rootId; });
+        const blockerTitle = rootTask ? String(rootTask.title || rootId).trim() : rootId;
+        const downstreamIds = getDownstreamDependentTaskIds(rootId);
+        for (let i = 0; i < downstreamIds.length; i++) {
+            const task = state.tasks.find(function (t) { return String(t.taskId) === downstreamIds[i]; });
+            if (!task || task.archived || isDoneStatus(task)) continue;
+            const nextStatus = String(task.status || '').trim().toLowerCase() === 'waiting' ? 'Waiting' : 'Blocked';
+            const nextReason = 'Blocked by On Hold dependency: ' + blockerTitle;
+            if (task.status === nextStatus && task.blockedByTaskId === rootId && task.blockReason === nextReason) continue;
+            task.status = nextStatus;
+            task.blockedByTaskId = rootId;
+            task.blockReason = nextReason;
+            task.updatedAt = isoNow();
+            await writeTask('updateTask', {
+                taskId: task.taskId,
+                status: task.status,
+                blockedByTaskId: task.blockedByTaskId,
+                blockReason: task.blockReason,
+                updatedAt: task.updatedAt
+            });
+        }
     }
 
     function assigneeAvatarContent(task, assigneeName) {
@@ -1832,6 +1888,7 @@ loadChecklist(task ? task.taskId : null);
         const now = isoNow();
         const parentIdValue = byId('taskParentId').value;
         const parentTask = parentIdValue ? state.tasks.find(function (t) { return t.taskId === parentIdValue; }) : null;
+        const existingTask = state.editingId ? state.tasks.find(function (t) { return t.taskId === state.editingId; }) : null;
         const payload = {
             taskId: state.editingId || ('TASK-' + Date.now()),
             parentId: parentIdValue,
@@ -1855,6 +1912,8 @@ loadChecklist(task ? task.taskId : null);
             sublocation: byId('taskSublocation').value.trim(),
             dependencyIds: '',
             dependencyRules: byId('taskDependencyRules') ? byId('taskDependencyRules').value.trim() : '',
+            blockedByTaskId: existingTask ? String(existingTask.blockedByTaskId || '') : '',
+            blockReason: existingTask ? String(existingTask.blockReason || '') : '',
             archived: false,
             createdAt: state.editingId ? (state.tasks.find(function (t) { return t.taskId === state.editingId; }) || {}).createdAt || now : now,
             updatedAt: now,
@@ -1934,9 +1993,11 @@ loadChecklist(task ? task.taskId : null);
             return;
         }
 
+        let previousStatus = '';
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
             const prevTask = idx >= 0 ? state.tasks[idx] : null;
+            previousStatus = String((prevTask && prevTask.status) || '').trim().toLowerCase();
             applyStatusTransitionTimestamps(payload, prevTask);
             if (idx >= 0) state.tasks[idx] = normalizeTask(payload, idx);
             await writeTask('updateTask', payload);
@@ -1944,6 +2005,11 @@ loadChecklist(task ? task.taskId : null);
             applyStatusTransitionTimestamps(payload, null);
             state.tasks.push(normalizeTask(payload, state.tasks.length));
             await writeTask('createTask', payload);
+        }
+
+        const nextStatus = String(payload.status || '').trim().toLowerCase();
+        if (nextStatus === 'on hold' && previousStatus !== 'on hold') {
+            await applyOnHoldBlocking(payload.taskId);
         }
 
         await persistChecklistForTask(payload.taskId, { force: true, includeAssignees: false });
@@ -2130,6 +2196,7 @@ loadChecklist(task ? task.taskId : null);
     function startDrag(taskId, dragType, clientX, clientY, segmentKey) {
         const task = state.tasks.find(function (t) { return t.taskId === taskId; });
         if (!task) return;
+        if (isDateDragFrozen(task)) return;
         ensureTaskDates(task);
 
         let dragStart = task.startDate;
