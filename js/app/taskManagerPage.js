@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','archived','createdAt','updatedAt','createdBy','colorKey'];
+    const TASK_COLUMNS = ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
     const DEFAULT_STATUS = ['all', 'Not Started', 'In Progress', 'Blocked', 'Done'];
     const DEFAULT_PRIORITY = ['Low', 'Medium', 'High', 'Critical'];
     const DAY_MS = 86400000;
@@ -459,6 +459,12 @@
         out.dueDate = toISODate(out.dueDate);
         out.createdAt = out.createdAt || isoNow();
         out.updatedAt = out.updatedAt || isoNow();
+        out.assignedAt = out.assignedAt || '';
+        out.lastStatusChangeAt = out.lastStatusChangeAt || '';
+        out.slaHours = out.slaHours == null ? '' : out.slaHours;
+        out.escalationState = String(out.escalationState || '');
+        out.escalatedAt = out.escalatedAt || '';
+        out.exceptionFlag = String(out.exceptionFlag || '').toLowerCase() === 'true';
         out.colorKey = String(out.colorKey || 'teal');
         normalizeDependencyRulesForTask(out);
         const assigneeList = parseAssignees(out.assignees);
@@ -861,10 +867,14 @@
             const depthClass = 'depth-' + Math.min(3, row.depth);
             const avatarClass = assigneeStatusClass(task);
             const assigneeStack = assigneeStackForTask(task, avatarClass);
+            const escalState = String(task.escalationState || '').toLowerCase();
+            const escalBadge = escalState === 'escalated'
+                ? '<span class="checklist-badge status-blocked" style="margin-left:6px;">Escalated</span>'
+                : (escalState === 'overdue' ? '<span class="checklist-badge status-not-started" style="margin-left:6px;">Overdue</span>' : '');
             const isFocused = String(state.focusTaskId || '') === String(task.taskId || '');
             return '<div class="tasks-row ' + depthClass + (isFocused ? ' active' : '') + '" data-task-id="' + esc(task.taskId) + '">' +
                 '<button class="tree-toggle" data-toggle="' + esc(task.taskId) + '"></button>' +
-                '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + '</span></div>' +
+                '<div class="task-title-wrap" style="padding-left:' + indent + 'px">' + connector + '<span class="task-title" title="' + esc(task.title) + '"><span class="task-color-badge" style="background:' + esc(badge) + '"></span>' + esc(task.title) + escalBadge + '</span></div>' +
                 assigneeStack +
             '</div>';
         }).join('');
@@ -1869,6 +1879,31 @@ loadChecklist(task ? task.taskId : null);
         return payload;
     }
 
+    function applyStatusTransitionTimestamps(payload, previousTask) {
+        const now = isoNow();
+        const prev = previousTask || null;
+        const prevStatus = String((prev && prev.status) || '').trim();
+        const nextStatus = String(payload.status || '').trim();
+        payload.assignedAt = String(payload.assignedAt || (prev && prev.assignedAt) || '');
+        payload.lastStatusChangeAt = String(payload.lastStatusChangeAt || (prev && prev.lastStatusChangeAt) || '');
+        payload.slaHours = payload.slaHours == null ? ((prev && prev.slaHours) || '') : payload.slaHours;
+        payload.escalationState = String(payload.escalationState || (prev && prev.escalationState) || '');
+        payload.escalatedAt = String(payload.escalatedAt || (prev && prev.escalatedAt) || '');
+        payload.exceptionFlag = payload.exceptionFlag === true || String(payload.exceptionFlag || '').toLowerCase() === 'true';
+
+        if (nextStatus && !payload.assignedAt && nextStatus.toLowerCase() !== 'not started') {
+            payload.assignedAt = now;
+        }
+        if (!prev || prevStatus !== nextStatus) {
+            payload.lastStatusChangeAt = now;
+        }
+        if (nextStatus.toLowerCase() === 'done') {
+            payload.escalationState = '';
+            payload.escalatedAt = '';
+        }
+        return payload;
+    }
+
     function refreshEditingTaskFromModal() {
         if (!state.editingId || !byId('taskModal').classList.contains('open')) return;
         const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
@@ -1901,9 +1936,12 @@ loadChecklist(task ? task.taskId : null);
 
         if (state.editingId) {
             const idx = state.tasks.findIndex(function (t) { return t.taskId === state.editingId; });
+            const prevTask = idx >= 0 ? state.tasks[idx] : null;
+            applyStatusTransitionTimestamps(payload, prevTask);
             if (idx >= 0) state.tasks[idx] = normalizeTask(payload, idx);
             await writeTask('updateTask', payload);
         } else {
+            applyStatusTransitionTimestamps(payload, null);
             state.tasks.push(normalizeTask(payload, state.tasks.length));
             await writeTask('createTask', payload);
         }

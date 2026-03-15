@@ -473,7 +473,43 @@ function itemStatusWrite_(sheetId, tabName, rowObj) {
 
 
 function taskColumns_() {
-  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','archived','createdAt','updatedAt','createdBy','colorKey'];
+  return ['taskId','parentId','sortOrder','level','title','description','status','priority','assigner','assignees','startDate','dueDate','percentComplete','itemCode','itemName','location','sublocation','dependencyIds','dependencyRules','archived','createdAt','updatedAt','createdBy','colorKey','assignedAt','lastStatusChangeAt','slaHours','escalationState','escalatedAt','exceptionFlag'];
+}
+
+function normalizeTaskEscalationFields_(obj) {
+  const out = obj || {};
+  const state = String(out.escalationState || '').trim();
+  out.escalationState = state;
+  out.exceptionFlag = String(out.exceptionFlag || '').toLowerCase() === 'true' ? 'true' : '';
+  return out;
+}
+
+function toDateSafe_(value) {
+  const text = String(value == null ? '' : value).trim();
+  if (!text) return null;
+  const dt = new Date(text);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function isTaskDone_(status) {
+  return String(status || '').trim().toLowerCase() === 'done';
+}
+
+function computeEscalationState_(rowObj, nowMs) {
+  const archived = String(rowObj.archived || '').toLowerCase() === 'true';
+  const done = isTaskDone_(rowObj.status);
+  if (archived || done) return '';
+  if (String(rowObj.exceptionFlag || '').toLowerCase() === 'true') return '';
+
+  const due = toDateSafe_(rowObj.dueDate);
+  const isOverdue = !!(due && due.getTime() < nowMs);
+  const slaHours = Number(rowObj.slaHours);
+  const baseline = toDateSafe_(rowObj.lastStatusChangeAt) || toDateSafe_(rowObj.assignedAt) || toDateSafe_(rowObj.createdAt);
+  const slaBreached = !!(isFinite(slaHours) && slaHours > 0 && baseline && (nowMs - baseline.getTime()) > (slaHours * 3600000));
+
+  if (slaBreached) return 'escalated';
+  if (isOverdue) return 'overdue';
+  return '';
 }
 
 function normalizeDependencyRules_(obj) {
@@ -679,6 +715,7 @@ function tasksRead_(sheetId, tabName) {
     for (let i = 0; i < header.length; i++) obj[header[i]] = row[i];
     normalizeAssigneeFields_(obj);
     normalizeDependencyRules_(obj);
+    normalizeTaskEscalationFields_(obj);
     return obj;
   });
   return { ok: true, tasks: tasks, tabName, schema: header };
@@ -728,6 +765,43 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
   header.forEach(function (k) {
     if (normalizedPayload[k] != null && normalizedPayload[k] !== '') row[idx[k]] = normalizedPayload[k];
   });
+
+  const priorStatus = String(existing[idx.status] || '').trim();
+  const nextStatus = String((normalizedPayload.status != null ? normalizedPayload.status : row[idx.status]) || '').trim();
+  const hasAssignedAt = !!String(row[idx.assignedAt] || '').trim();
+  if (nextStatus && !hasAssignedAt && nextStatus.toLowerCase() !== 'not started') {
+    row[idx.assignedAt] = normalizedPayload.assignedAt || now;
+  }
+  const hasStatusChange = taskAction === 'createTask' || (nextStatus && priorStatus !== nextStatus);
+  if (hasStatusChange) {
+    row[idx.lastStatusChangeAt] = normalizedPayload.lastStatusChangeAt || now;
+  }
+
+  if (normalizedPayload.exceptionFlag === true || String(normalizedPayload.exceptionFlag || '').toLowerCase() === 'true') {
+    row[idx.exceptionFlag] = 'true';
+  } else if (normalizedPayload.exceptionFlag === false || String(normalizedPayload.exceptionFlag || '').toLowerCase() === 'false') {
+    row[idx.exceptionFlag] = '';
+  }
+
+  if (taskAction === 'createTask' && !String(row[idx.escalationState] || '').trim()) {
+    row[idx.escalationState] = '';
+  }
+
+  if (isTaskDone_(nextStatus)) {
+    row[idx.escalationState] = '';
+  }
+
+  if (taskAction === 'createTask' && !String(row[idx.escalatedAt] || '').trim()) {
+    row[idx.escalatedAt] = '';
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalizedPayload, 'escalationState')) {
+    row[idx.escalationState] = String(normalizedPayload.escalationState || '').trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(normalizedPayload, 'escalatedAt')) {
+    row[idx.escalatedAt] = String(normalizedPayload.escalatedAt || '').trim();
+  }
+
   row[idx.taskId] = taskId;
   if (!row[idx.createdAt]) row[idx.createdAt] = now;
   row[idx.updatedAt] = normalizedPayload.updatedAt || now;
@@ -740,6 +814,56 @@ function taskWrite_(sheetId, tabName, taskAction, payload) {
 
   sh.appendRow(row);
   return { ok: true, taskId: taskId, mode: 'create', taskAction: taskAction };
+}
+
+function tasksEscalationSweep() {
+  const activeId = SpreadsheetApp.getActiveSpreadsheet() ? SpreadsheetApp.getActiveSpreadsheet().getId() : '';
+  if (!activeId) return { ok: false, error: 'No active spreadsheet' };
+  return tasksEscalationSweepForSheet_(activeId, 'tasks');
+}
+
+function tasksEscalationSweepForSheet_(sheetId, tabName) {
+  const pack = ensureTaskSheet_(sheetId, tabName || 'tasks');
+  const sh = pack.sh;
+  const header = pack.header;
+  const idx = {};
+  for (let i = 0; i < header.length; i++) idx[header[i]] = i;
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return { ok: true, scanned: 0, escalated: 0, overdue: 0, cleared: 0 };
+  const values = sh.getRange(2, 1, lastRow - 1, header.length).getValues();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const nowMs = now.getTime();
+  let escalated = 0;
+  let overdue = 0;
+  let cleared = 0;
+  let changed = 0;
+
+  for (let r = 0; r < values.length; r++) {
+    const row = values[r];
+    const rowObj = {};
+    for (let c = 0; c < header.length; c++) rowObj[header[c]] = row[c];
+    const prevState = String(row[idx.escalationState] || '').trim();
+    const nextState = computeEscalationState_(rowObj, nowMs);
+    if (nextState === 'escalated') escalated++;
+    if (nextState === 'overdue') overdue++;
+    if (!nextState && prevState) cleared++;
+    if (prevState !== nextState) {
+      row[idx.escalationState] = nextState;
+      changed++;
+      if (nextState === 'escalated' && !String(row[idx.escalatedAt] || '').trim()) {
+        row[idx.escalatedAt] = nowIso;
+      }
+      if (nextState !== 'escalated' && prevState === 'escalated') {
+        row[idx.escalatedAt] = '';
+      }
+    }
+  }
+
+  if (changed > 0) {
+    sh.getRange(2, 1, values.length, header.length).setValues(values);
+  }
+  return { ok: true, scanned: values.length, escalated: escalated, overdue: overdue, cleared: cleared, changed: changed };
 }
 
 
