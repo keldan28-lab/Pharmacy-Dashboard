@@ -2774,7 +2774,18 @@ loadChecklist(task ? task.taskId : null);
                 '</div><div class=\"task-cal-grid\">' + cells.join('') + '</div>';
         }
 
-        function closeAll() { pairs.forEach(function (p) { if (p && p.pop) p.pop.classList.remove('open'); }); }
+        function closeAll() {
+            pairs.forEach(function (p) {
+                if (!p || !p.pop) return;
+                if (p.pop.contains(document.activeElement)) {
+                    if (p.field && typeof p.field.focus === 'function') p.field.focus();
+                    else if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
+                }
+                p.pop.classList.remove('open');
+                p.pop.setAttribute('aria-hidden', 'true');
+                p.pop.setAttribute('inert', '');
+            });
+        }
 
         pairs.forEach(function (pair) {
             if (!pair.field || !pair.pop || !pair.host) return;
@@ -2783,12 +2794,16 @@ loadChecklist(task ? task.taskId : null);
                 views[pair.field.id] = pair.field.value || toISODate(new Date());
                 renderCal(pair);
                 pair.pop.classList.add('open');
+                pair.pop.setAttribute('aria-hidden', 'false');
+                pair.pop.removeAttribute('inert');
             });
             pair.field.addEventListener('click', function () {
                 closeAll();
                 views[pair.field.id] = pair.field.value || toISODate(new Date());
                 renderCal(pair);
                 pair.pop.classList.add('open');
+                pair.pop.setAttribute('aria-hidden', 'false');
+                pair.pop.removeAttribute('inert');
             });
             pair.host.addEventListener('click', function (e) {
                 const nav = e.target.closest('[data-cal-nav]');
@@ -2813,6 +2828,8 @@ loadChecklist(task ? task.taskId : null);
                 syncChecklistMasterDates();
                 renderChecklistDraft();
                 pair.pop.classList.remove('open');
+                pair.pop.setAttribute('aria-hidden', 'true');
+                pair.pop.setAttribute('inert', '');
             });
         });
 
